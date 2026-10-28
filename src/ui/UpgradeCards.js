@@ -2,12 +2,17 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import engineerArtUrl from '../../assets/textures/cards/engineer.jpg?url';
 import gemMineArtUrl from '../../assets/textures/cards/gem_mine.jpg?url';
+import cargoChopperArtUrl from '../../assets/textures/cards/cargo_chopper.jpg?url';
+import homingArtUrl from '../../assets/textures/cards/homing_missile.jpg?url';
+import doubleRowArtUrl from '../../assets/textures/cards/double_row.jpg?url';
+import surpriseEggArtUrl from '../../assets/textures/cards/surprise_egg.jpg?url';
 
 /**
  * Upgrade cards (offered after a train is destroyed).
  *
  * `text` is a list of [string, css colour?] segments; '\n' starts a new paragraph.
- * Add new cards here; `apply(game)` runs when the player picks it.
+ * `requires`: id of a card that must be taken first. What each card does is applied in
+ * Game.applyCard(). Add new cards here.
  */
 export const CARD_DEFS = Object.freeze([
   {
@@ -20,7 +25,19 @@ export const CARD_DEFS = Object.freeze([
     text: [
       ['A cargo chopper drops off an '], ['engineer', '#ffcf6a'], [' with his '], ['forklift', '#ffcf6a'], ['.\n'],
       ['He gathers the '], ['red', '#ff6b6b'], [', '], ['green', '#7be86a'], [' and '], ['blue', '#5ab8ff'],
-      [' cubes you shoot off the train and stacks them as gift packages on the dock for the cargo chopper.'],
+      [' cubes you shoot off the train and lines them up as gift packages on the dock.'],
+    ],
+  },
+  {
+    id: 'cargoChopper',
+    title: 'CARGO CHOPPER',
+    kind: 'LOGISTICS',
+    art: cargoChopperArtUrl,
+    jewel: 0xe8c23a,
+    glow: 0xffd860,
+    text: [
+      ['The '], ['CH-47F Chinook', '#ffcf6a'], [' comes back '], ['every 2 minutes', '#ffcf6a'], [' and winches the gift packages up from the dock.\n'],
+      ['Every delivered package counts toward the mission. '], ['Without it the mission cannot be completed.', '#ff8a7a'],
     ],
   },
   {
@@ -34,6 +51,43 @@ export const CARD_DEFS = Object.freeze([
       ['Destroyed blocks may now drop '], ['gems', '#ffe08a'], ['.\n'],
       ['Blue', '#5ab8ff'], [' rapid fire  ·  '], ['Green', '#7be86a'], [' acid melts blocks\n'],
       ['Red', '#ff6b6b'], [' power shots  ·  '], ['Black', '#c9b8ff'], [' critical hits'],
+    ],
+  },
+  {
+    id: 'homing',
+    title: 'HOMING ROCKETS',
+    kind: 'POWER',
+    art: homingArtUrl,
+    jewel: 0xff6a4a,
+    glow: 0xff8a5a,
+    text: [
+      ['Unlocks the '], ['R', '#ff8a5a'], [' supply: '], ['homing rockets', '#ff8a5a'], [' fired from the wing pods curve onto nearby targets.\n'],
+      ['Until you take this card, supply blocks never drop it.'],
+    ],
+  },
+  {
+    id: 'doubleRow',
+    title: 'DOUBLE ROW',
+    kind: 'LOGISTICS',
+    art: doubleRowArtUrl,
+    requires: 'engineer',
+    jewel: 0x7be86a,
+    glow: 0x9cff8a,
+    text: [
+      ['The dock gets a '], ['second lane', '#ffcf6a'], [': the engineer can line up '], ['twice as many', '#ffcf6a'], [' gift packages.\n'],
+      ['When the dock is full he has to wait for the chopper.'],
+    ],
+  },
+  {
+    id: 'surpriseEgg',
+    title: 'SURPRISE EGG',
+    kind: 'SUPPLY',
+    art: surpriseEggArtUrl,
+    jewel: 0xffd34a,
+    glow: 0xffe08a,
+    text: [
+      ['Whenever the board runs '], ['out of blocks', '#ffcf6a'], [', '], ['3 spiked balls', '#ffcf6a'], [' drop from the sky and roll around.\n'],
+      ['Blow them up: each has a '], ['20%', '#7be86a'], [' chance to drop a supply. Ammo while you wait for the next train.'],
     ],
   },
 ]);
@@ -136,6 +190,7 @@ export class CardPicker {
       this.cards.push(card);
     });
     this.ui.classList.add('visible');
+    this.container.classList.add('cards-open');
     this.ui.querySelector('.card-hint').innerHTML = n > 1 ? 'click a card &middot; or press <b>1</b> / <b>2</b>' : 'click the card &middot; or press <b>1</b>';
   }
 
@@ -268,6 +323,7 @@ export class CardPicker {
   pick(i) {
     this.picked = { index: i, t: 0, fired: false };
     this.ui.classList.remove('visible');
+    this.container.classList.remove('cards-open');
   }
 
   /** Called every frame from the game loop (keeps running while the cards are up). */
@@ -374,6 +430,7 @@ export class CardPicker {
     this.active = false;
     this.picked = null;
     this.ui.classList.remove('visible');
+    this.container.classList.remove('cards-open');
     this.clearCards();
   }
 }

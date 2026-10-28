@@ -584,3 +584,6 @@ body {
   text-transform: uppercase;
 }
 .card-hint b { color: #f3d78a; border: 1px solid rgba(243, 215, 138, 0.7); border-radius: 3px; padding: 0 5px; }
+
+/* While the upgrade cards are up, toasts and notices stay out of the way. */
+.cards-open .hud-toast, .cards-open .hud-notice { opacity: 0 !important; transition: opacity 0.2s; }

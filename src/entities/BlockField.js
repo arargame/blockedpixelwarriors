@@ -77,6 +77,8 @@ export class BlockField {
     this.reachableCells = () => null;
     /** Whether red / green / blue train cubes land as protected cargo (engineer on duty). */
     this.cargoEnabled = () => true;
+    /** Dock columns from the left edge (2 with the DOUBLE ROW card). */
+    this.dockColumns = 1;
 
     this.createLayout();
     this.flushMatrices();
@@ -111,7 +113,8 @@ export class BlockField {
 
   /** Leftmost column: the loading dock where the gift packages wait for the cargo chopper. */
   isDockCell(c) {
-    return c === GameConfig.logistics.dockCol;
+    const c0 = GameConfig.logistics.dockCol;
+    return c >= c0 && c < c0 + this.dockColumns;
   }
 
   /** Board cells on the engineer's side of the railway (left of the track, dock excluded). */

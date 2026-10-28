@@ -83,6 +83,10 @@ export class Hud {
   /** Mission panel + chopper countdown only exist once the engineer is on duty. */
   setLogisticsVisible(on) {
     this.root.querySelector('[data-mission]').classList.toggle('off', !on);
+  }
+
+  /** The chopper countdown shows once the engineer works AND the cargo chopper is contracted. */
+  setChopperVisible(on) {
     this.chopperEl.classList.toggle('off', !on);
   }
 

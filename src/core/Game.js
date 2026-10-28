@@ -95,7 +95,7 @@ export class Game {
     this.blocks.onBlockDestroyed = (block, depth) => {
       this.addScore(SCORE.block * (1 + depth));
       // Supply blocks always drop a supply (random type).
-      if (block.type === 'supply' && this.state !== GameState.OVER) this.supplies.spawnRandom(v1.set(block.x, GameConfig.blockSize * 0.6, block.z), this.gemDrops);
+      if (block.type === 'supply' && this.state !== GameState.OVER) this.supplies.spawnRandom(v1.set(block.x, GameConfig.blockSize * 0.6, block.z), this.supplyPool);
       // GEM MINE card: ordinary blocks may crack open a gem too.
       else if (this.gemDrops && !block.cargo && Math.random() < GameConfig.cards.gemDropChance) this.supplies.spawn('G', v1.set(block.x, GameConfig.blockSize * 0.6, block.z));
       if (block.cargo && this.state === GameState.PLAYING) this.hud.notice('CARGO LOST!', '#ff6b6b');
@@ -142,6 +142,7 @@ export class Game {
     };
     this.logistics.onEngineerReady = () => {
       this.hud.setLogisticsVisible(true);
+      this.hud.setChopperVisible(this.logistics.countdownActive);
       this.hud.setMission(this.logistics.delivered, GameConfig.logistics.goal);
       this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
       if (this.state === GameState.PLAYING) this.hud.toast('ENGINEER ON DUTY - SHOOT CARGO OFF THE TRAIN');
@@ -171,7 +172,9 @@ export class Game {
     this.takenCards = new Set();
     this.gemDrops = false;
     this.cardTimer = 0;
+    this.offersMade = 0;
     this.hud.setLogisticsVisible(false);
+    this.hud.setChopperVisible(false);
     this.state = GameState.TITLE;
     this.score = 0;
     this.lives = 3;
@@ -214,10 +217,14 @@ export class Game {
     this.hud.setHealth(1);
     this.logistics.reset();
     this.takenCards.clear();
+    this.offersMade = 0;
     this.gemDrops = false;
     this.cardTimer = 0;
+    this.eggTimer = 0;
     this.cards.cancel();
+    this.mines.clearEggs();
     this.hud.setLogisticsVisible(false);
+    this.hud.setChopperVisible(false);
     this.hud.setMission(this.logistics.delivered, GameConfig.logistics.goal);
     this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
   }
@@ -306,7 +313,11 @@ export class Game {
     const mine = this.mines.hitTest(exact ? point : v1.set(point.x, GameConfig.mines.radius, point.z));
     if (mine && point.y < 3.5) {
       this.applyPlayerDamage(p, point, () => {
-        if (this.mines.damage(mine, (p.damage ?? p.def.damage), point)) this.addScore(SCORE.mine);
+        if (this.mines.damage(mine, (p.damage ?? p.def.damage), point)) {
+          this.addScore(SCORE.mine);
+          // SURPRISE EGG balls crack open: 20% chance of a supply.
+          if (mine.egg && Math.random() < GameConfig.cards.eggSupplyChance) this.supplies.spawnRandom(v1.copy(mine.pos).setY(0.8), this.supplyPool);
+        }
       });
       return true;
     }
@@ -559,7 +570,7 @@ export class Game {
       push(b.x, b.z, () => b.alive && b.drop <= 0, (o) => o.set(b.x, s * 0.55, b.z));
     }
     for (const m of this.mines.mines) {
-      if (m.alive) push(m.pos.x, m.pos.z, () => m.alive, (o) => o.copy(m.pos), 'mine');
+      if (m.alive && !m.falling) push(m.pos.x, m.pos.z, () => m.alive, (o) => o.copy(m.pos), 'mine');
     }
     const train = this.train;
     if (train && !train.destroyed) {
@@ -786,7 +797,7 @@ export class Game {
 
     this.blocks.update(dt);
     this.logistics.update(dt, playing);
-    this.hud.setChopper(this.logistics.chinook.active ? { active: true, loaded: this.logistics.chinook.loaded, left: this.logistics.dock.count } : { active: false, remaining: this.logistics.timer, total: GameConfig.logistics.chinookInterval });
+    this.hud.setChopper(this.logistics.chinook.active && this.logistics.chinook.mission === 'pickup' ? { active: true, loaded: this.logistics.chinook.loaded, left: this.logistics.dock.count } : { active: false, remaining: this.logistics.timer, total: GameConfig.logistics.chinookInterval });
     this.mines.update(dt);
     this.projectiles.update(dt);
     this.powerups.update(dt);
@@ -795,6 +806,7 @@ export class Game {
       if (this.cardTimer <= 0) this.offerCards();
     }
     this.cards.update(dt);
+    this.updateSurpriseEggs(dt);
     this.supplies.update(dt, this.heli.position, this.heli.alive && this.state === GameState.PLAYING);
     this.hud.setSkills(this.powerups.active);
     this.hud.updateTrain(this.train);
@@ -807,13 +819,47 @@ export class Game {
     this.updateCamera(dt);
   }
 
-  /** Two cards (or the last one left) the player hasn't taken yet, after a train went down. */
+  /** Supply types allowed to drop (G with GEM MINE, R with HOMING ROCKETS). */
+  get supplyPool() {
+    return { gems: this.gemDrops, homing: this.takenCards.has('homing') };
+  }
+
+  /**
+   * Two cards (or the last one left) the player hasn't taken yet, after a train went down.
+   * The mission can't be won without the cargo chopper (and the engineer), so in the first
+   * GameConfig.cards.guaranteedOffers offers one of the two cards is always the first of
+   * `mustHave` not taken yet.
+   */
   offerCards() {
     if (this.state !== GameState.PLAYING && this.state !== GameState.DEAD) return;
-    const pool = CARD_DEFS.filter((d) => !this.takenCards.has(d.id));
+    const open = (d) => !this.takenCards.has(d.id) && (!d.requires || this.takenCards.has(d.requires));
+    const pool = CARD_DEFS.filter(open);
     if (!pool.length) return;
-    const pick = pool.sort(() => Math.random() - 0.5).slice(0, 2).sort((a, b) => CARD_DEFS.indexOf(a) - CARD_DEFS.indexOf(b));
+    const pick = [];
+    if ((this.offersMade ?? 0) < GameConfig.cards.guaranteedOffers) {
+      const must = GameConfig.cards.mustHave.map((id) => pool.find((d) => d.id === id)).find(Boolean);
+      if (must) pick.push(must);
+    }
+    for (const d of pool.filter((x) => !pick.includes(x)).sort(() => Math.random() - 0.5)) {
+      if (pick.length >= 2) break;
+      pick.push(d);
+    }
+    this.offersMade = (this.offersMade ?? 0) + 1;
     this.cards.show(pick, (def) => this.applyCard(def));
+  }
+
+  /** SURPRISE EGG: an empty board brings 3 rolling balls down from the sky (one wave at a time). */
+  updateSurpriseEggs(dt) {
+    if (!this.takenCards.has('surpriseEgg') || this.state !== GameState.PLAYING) return;
+    this.eggTimer = Math.max(0, (this.eggTimer ?? 0) - dt);
+    if (this.eggTimer > 0 || this.mines.eggsAlive > 0) return;
+    if (this.blocks.blocks.some((b) => b.alive && !b.cargo)) return;
+    const L = this.logistics;
+    const free = (x, z) => !(L.engineer.active && Math.hypot(L.engineer.root.position.x - x, L.engineer.root.position.z - z) < 2) && x > this.blocks.cellCenter(L.dock.columns, 0).x - 0.75;
+    if (this.mines.dropEggs(GameConfig.cards.eggCount, free) > 0) {
+      this.eggTimer = GameConfig.cards.eggCooldown;
+      this.hud.toast('SURPRISE EGGS INCOMING!');
+    }
   }
 
   applyCard(def) {
@@ -824,6 +870,21 @@ export class Game {
     } else if (def.id === 'gemMine') {
       this.gemDrops = true;
       this.hud.toast('GEM MINE - BLOCKS NOW DROP GEMS');
+    } else if (def.id === 'cargoChopper') {
+      this.logistics.enableChopper();
+      this.hud.setChopperVisible(this.logistics.countdownActive);
+      this.hud.toast(this.logistics.enabled ? 'CARGO CHOPPER - PICK-UP EVERY 2 MINUTES' : 'CARGO CHOPPER SIGNED - NOW YOU NEED AN ENGINEER');
+    } else if (def.id === 'homing') {
+      this.hud.toast('HOMING ROCKETS UNLOCKED - LOOK FOR R SUPPLIES');
+      // A first taste right away.
+      this.supplies.spawn('R', v1.copy(this.heli.position).setY(2));
+    } else if (def.id === 'doubleRow') {
+      this.logistics.widenDock();
+      this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
+      this.hud.toast('DOUBLE ROW - THE DOCK HOLDS TWICE AS MANY');
+    } else if (def.id === 'surpriseEgg') {
+      this.hud.toast('SURPRISE EGG - EMPTY BOARD? BALLS FROM THE SKY');
+      this.eggTimer = 0;
     }
   }
 

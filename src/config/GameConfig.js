@@ -126,6 +126,14 @@ export const GameConfig = Object.freeze({
     offerDelay: 1.6,
     // GEM MINE: chance that an ordinary destroyed block drops a gem.
     gemDropChance: 0.14,
+    // The first offers always include the first of these the player hasn't taken yet (the mission
+    // needs the cargo chopper and the engineer).
+    guaranteedOffers: 2,
+    mustHave: Object.freeze(['cargoChopper', 'engineer']),
+    // SURPRISE EGG: balls per wave when the board is empty, wait between waves, supply chance per ball.
+    eggCount: 3,
+    eggCooldown: 4,
+    eggSupplyChance: 0.2,
   }),
 
   supply: Object.freeze({

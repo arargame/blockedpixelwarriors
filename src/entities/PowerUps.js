@@ -119,10 +119,10 @@ export class SupplyCrates {
 
   /**
    * Spawns a supply of a uniformly random type (used when a supply block is destroyed).
-   * Gems are only in the pool once the GEM MINE card has been taken (`gems`).
+   * Gems (G) and homing rockets (R) only join the pool with the GEM MINE / HOMING ROCKETS cards.
    */
-  spawnRandom(position, gems = true) {
-    const types = Object.keys(POWERUPS).filter((t) => gems || t !== 'G');
+  spawnRandom(position, { gems = true, homing = true } = {}) {
+    const types = Object.keys(POWERUPS).filter((t) => (gems || t !== 'G') && (homing || t !== 'R'));
     return this.spawn(types[Math.floor(Math.random() * types.length)], position);
   }
 

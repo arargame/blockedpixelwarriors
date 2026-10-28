@@ -16,8 +16,8 @@ içinde.
 ### Görev
 
 Trenin vagonlarındaki **kırmızı, yeşil ve mavi** kutuları vurup aşağı düşür. Mühendis forkliftiyle
-onları en soldaki iskele sütununa dizer, kargo helikopteri de gelip götürür. Mühendis oyunun başında
-yoktur: ilk treni yenince çıkan **FIELD ENGINEER** kartıyla gelir.
+onları en soldaki iskele sütununa dizer, kargo helikopteri de gelip götürür. İkisi de oyunun başında
+yoktur: tren yenince çıkan **FIELD ENGINEER** ve **CARGO CHOPPER** kartlarıyla gelirler.
 **100 kırmızı + 100 yeşil + 100 mavi** paket teslim edilince **görev tamamlanır**.
 
 ### Kontroller (klavye, pilot tarzı: helikopterin kendi gövdesine göre)
@@ -50,6 +50,7 @@ gelir ve toplanır. T/D/R/G 8-15 sn arası rastgele bir süre etkin kalır.
 - **T – Üçlü Ateş:** burun topundan 3'lü yelpaze plazma
 - **D – 8 Yön:** 8 yöne ateş; her yön, o taraftaki hedefe göre yukarı/aşağı nişan alır
 - **R – Güdümlü Roket:** yakındaki rastgele hedeflere güdümlü roketler (Blender'da modellendi, duman izi ve alevle)
+  — sadece **HOMING ROCKETS** kartından sonra düşer
 - **H – Tamir Çantası:** anında **+35 can**
 - **G – Elmas** (sadece **GEM MINE** kartından sonra düşer). Süre boyunca tüm atışlar elmasın rengini ve
   etkisini alır (Blocked'daki kurallar):
@@ -76,11 +77,25 @@ tuşuyla seç: seçilen kart ortaya gelip parlar ve oyuna karışarak kaybolur, 
   tepede kart rengine göre parlayan bir taş ve kartın kenarlarından taşıp arkaya kıvrılan 3D kırmızı
   kurdele afiş. Kartın yüzü (resim, tür etiketi, renkli anahtar kelimeli açıklama) ve kurdeledeki başlık
   oyunda canvas ile çizilir, yani yeni kart eklemek için sadece bir resim ve metin yeter.
-- **İlk tren:** iki kart (sonrakilerde alınmamış olanlar):
+- Her seferinde alınmamış kartlardan iki tanesi gelir. Görev **CARGO CHOPPER** ve **FIELD ENGINEER**
+  olmadan bitirilemeyeceği için **ilk iki teklifte kartlardan biri her zaman bunlardan alınmamış olandır**
+  (önce Cargo Chopper, o alındıysa Engineer). Diğer kart rastgeledir.
+- **Kartlar:**
   - **FIELD ENGINEER (Lojistik):** kargo helikopteri mühendisi forkliftiyle birlikte halatla tahtaya
-    indirir. O andan itibaren kargo kutuları korunur, iskele, 2 dakikalık geri sayım ve görev paneli açılır.
+    indirir. O andan itibaren kargo kutuları korunur, forklift onları iskeleye dizer, görev paneli açılır.
+  - **CARGO CHOPPER (Lojistik):** mühendisi getiren Chinook bu kart olmadan **paket toplamaya gelmez**.
+    Kartla birlikte her 2 dakikada bir gelip iskeledeki paketleri götürür; geri sayım, mühendis de
+    sahadaysa görünür.
+  - **DOUBLE ROW (Lojistik, mühendisten sonra):** iskeleye ikinci bir şerit eklenir, kapasite iki katına
+    çıkar (13 → 26). İskele dolunca forklift yeni paket koyamaz, helikopteri bekler. Yeni şeritteki bloklar
+    temizlenir, oradaki kargo kutuları doğrudan pakete dönüşür.
   - **GEM MINE (Güç):** kırılan bloklardan elmas çıkmaya başlar (%14; destek bloklarından da). Kart,
-    dört elmasın ne yaptığını da anlatır.
+    dört elmasın ne yaptığını da anlatır. Bu kart olmadan elmas hiç düşmez.
+  - **HOMING ROCKETS (Güç):** **R** desteğini açar; bu kart alınana kadar destek bloklarından R çıkmaz.
+    Kart seçilince ilk R hemen yanına düşer.
+  - **SURPRISE EGG (Destek):** tahtada hiç blok kalmayınca gökyüzünden **3 dikenli top** düşer, sekip
+    diğerleri gibi yuvarlanmaya başlar. Her biri patlatılınca **%20** ihtimalle bir destek düşürür; tren
+    gelip blok bırakana kadar mühimmat kaynağıdır. Toplar bitince ve tahta hâlâ boşsa yeni üçlü gelir.
 - Kartlar `src/ui/UpgradeCards.js` → `CARD_DEFS` listesinde; resimler `assets/textures/cards/`.
   Ayarlar: `GameConfig.cards`. Doğrulama: `node tools/cardtest.mjs`.
 
@@ -132,9 +147,10 @@ tuşuyla seç: seçilen kart ortaya gelip parlar ve oyuna karışarak kaybolur, 
   Önü bloklarla kapanırsa bekler; bloğu vurarak yolunu açabilirsin.
 - **Hediye paketleri:** iskeleye bırakılan kutu, **altın kurdeleli ve fiyonklu bir hediye paketine**
   dönüşür. Paketler **vurulamaz**: mermiler içlerinden geçer. Hafifçe ışıldar ve alınmayı bekler. İskele
-  sarı-siyah şeritle boyalıdır; önce zemin sırası dolar, o dolunca paketler ikinci kata dizilir (13 × 2 = 26 yer).
+  sarı-siyah şeritle boyalıdır; paketler üst üste konmaz, sıra dolunca forklift bekler (13 yer,
+  **DOUBLE ROW** kartıyla 26).
 - **CH-47F Chinook kargo helikopteri** (Blender'da, fotoğraftaki sarı / yeşil / koyu kamuflajla):
-  **her 2 dakikada bir** gelir. Soldan yaklaşır, iskele sütununun üstünde kameraya doğru döner ve paketleri
+  **CARGO CHOPPER** kartıyla **her 2 dakikada bir** gelir. Soldan yaklaşır, iskele sütununun üstünde kameraya doğru döner ve paketleri
   sırayla (uzaktan yakına, üstteki önce) **vinç ile karnına çeker**. Yükleme bitince sola ve yukarı uçup
   gider. Pervane rüzgârı yerdeki karı savurur. Her paket görev sayacına eklenir (+100 puan).
 - Ayarlar: `GameConfig.logistics` (`chinookInterval`, `goal`, `forkliftSpeed`, `dockCol`).
@@ -229,7 +245,8 @@ node tools/traintest.mjs                                       # akıllı nişan
 node tools/weapontest.mjs                                      # çift taret mermisi, toplar, kırılan taretler, kalkan
 node tools/logisticstest.mjs                                   # forklift, iskele, Chinook, geri sayım, görev sonu
 node tools/snowtest.mjs                                        # karolarda kar birikmesi ve erimesi
-node tools/cardtest.mjs                                        # kartlar, gri dünya, mühendisin inişi, elmas etkileri
+node tools/cardtest.mjs                                        # kart teklifleri, mühendis, çift sıra, roket, sürpriz yumurta
+node tools/gemtest.mjs                                         # elmas etkileri: hızlı ateş, asit, güçlü atış, kritik
 node tools/verify-dist.mjs                                     # dist dosyasını file:// ile aç
 ```
 

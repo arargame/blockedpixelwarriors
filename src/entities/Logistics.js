@@ -18,7 +18,6 @@ import { fxRandom as rnd } from '../util/Random.js';
  *    counts toward the mission: 100 red + 100 green + 100 blue.
  */
 const PKG = 1.25;
-const LEVEL_H = PKG + 0.02;
 const FORK_SCALE = 0.8;
 const tmp = new THREE.Vector3();
 const tmp2 = new THREE.Vector3();
@@ -137,7 +136,7 @@ class Engineer {
     const B = this.blocks;
     if (c < 0 || r < 0 || r >= B.rows || c >= B.cols) return false;
     if (!B.isYardCell(c) && !B.isDockCell(c)) return false;
-    if (B.isDockCell(c) && dock.hasAny(r)) return false;
+    if (B.isDockCell(c) && dock.hasAt(c, r)) return false;
     const l = B.cells.get(B.key(c, r));
     return !(l && l.alive);
   }
@@ -194,9 +193,16 @@ class Engineer {
     const B = this.blocks;
     const goals = new Map();
     if (this.carry) {
-      // Stand right of a dock slot, facing it (-X).
+      // Stand next to a free dock cell (normally right of it), facing it.
       for (const slot of dock.freeSlots()) {
-        if (this.walkable(1, slot.r, dock) || (this.cell[0] === 1 && this.cell[1] === slot.r)) goals.set(1 * 1000 + slot.r, { kind: 'drop', slot, face: [-1, 0] });
+        for (const [dc, dr] of [[1, 0], [0, -1], [0, 1], [-1, 0]]) {
+          const c = slot.c + dc;
+          const r = slot.r + dr;
+          const here = this.cell[0] === c && this.cell[1] === r;
+          if (!here && !this.walkable(c, r, dock)) continue;
+          const key = c * 1000 + r;
+          if (!goals.has(key)) goals.set(key, { kind: 'drop', slot, face: [-dc, -dr] });
+        }
       }
     } else {
       for (const l of B.blocks) {
@@ -327,7 +333,7 @@ class Engineer {
         this.lift = u > 0.45 ? THREE.MathUtils.lerp(0, 0.35, Math.min(1, (u - 0.45) * 4)) : 0;
       } else {
         const slot = this.job.slot;
-        const top = slot.level * LEVEL_H + 0.2;
+        const top = 0.2;
         this.lift = u < 0.5 ? Math.min(top, this.lift + dt * 1.6) : Math.max(0, this.lift - dt * 1.4);
         if (!a.done && u > 0.5) {
           a.done = true;
@@ -366,17 +372,18 @@ class Dock {
     this.gifts = gifts;
     this.group = new THREE.Group();
     scene.add(this.group);
-    /** key "r:level" -> package */
+    /** key "c:r" -> package (one package per dock cell, no stacking: a full row is full). */
     this.slots = new Map();
-    this.maxLevel = 2;
-    this.addFloorMarking();
+    /** Dock columns from the left edge: 1, or 2 with the DOUBLE ROW card. */
+    this.columns = 1;
+    this.markings = [];
+    this.addFloorMarking(GameConfig.logistics.dockCol);
     this.time = 0;
   }
 
-  /** Hazard-striped loading lane painted on the dock column. */
-  addFloorMarking() {
+  /** Hazard-striped loading lane painted on a dock column. */
+  addFloorMarking(c) {
     const B = this.blocks;
-    const c = GameConfig.logistics.dockCol;
     const x = B.cellCenter(c, 0).x;
     const z0 = B.originZ;
     const len = B.rows * B.size;
@@ -416,37 +423,49 @@ class Dock {
     mesh.receiveShadow = true;
     mesh.renderOrder = 1;
     this.group.add(mesh);
+    this.markings.push(mesh);
   }
 
-  key(r, level) {
-    return `${r}:${level}`;
+  /** DOUBLE ROW card: a second dock column right of the first one. */
+  widen(effects) {
+    if (this.columns >= 2) return;
+    this.columns = 2;
+    const c = GameConfig.logistics.dockCol + 1;
+    this.addFloorMarking(c);
+    const B = this.blocks;
+    for (let r = 0; r < B.rows; r++) {
+      const p = B.cellCenter(c, r);
+      effects.sparkBurst(tmp.set(p.x, 0.2, p.z), 4, 3, [4, 3.4, 1.4, 1]);
+    }
   }
 
-  hasAny(r) {
-    return this.slots.has(this.key(r, 0));
+  /** Back to a single dock column (new run). */
+  narrow() {
+    this.columns = 1;
+    while (this.markings.length > 1) this.markings.pop().removeFromParent();
+  }
+
+  key(c, r) {
+    return `${c}:${r}`;
+  }
+
+  hasAt(c, r) {
+    return this.slots.has(this.key(c, r));
   }
 
   isFree(slot) {
-    if (this.slots.has(this.key(slot.r, slot.level))) return false;
-    return slot.level === 0 || this.slots.has(this.key(slot.r, slot.level - 1));
+    return !this.slots.has(this.key(slot.c, slot.r));
   }
 
-  /** Free slots: the whole ground row first, the second tier only once the ground row is full. */
+  /** Free dock cells: the first column fills before the second one opens up. */
   freeSlots() {
-    const ground = [];
-    for (let r = 0; r < this.blocks.rows; r++) if (this.isFree({ r, level: 0 })) ground.push({ r, level: 0 });
-    if (ground.length) return ground;
-    const out = [];
-    for (let r = 0; r < this.blocks.rows; r++) {
-      for (let level = 0; level < this.maxLevel; level++) {
-        const slot = { r, level };
-        if (this.isFree(slot)) {
-          out.push(slot);
-          break;
-        }
-      }
+    const c0 = GameConfig.logistics.dockCol;
+    for (let k = 0; k < this.columns; k++) {
+      const out = [];
+      for (let r = 0; r < this.blocks.rows; r++) if (this.isFree({ c: c0 + k, r })) out.push({ c: c0 + k, r, level: 0 });
+      if (out.length) return out;
     }
-    return out;
+    return [];
   }
 
   get count() {
@@ -454,30 +473,30 @@ class Dock {
   }
 
   get capacity() {
-    return this.blocks.rows * this.maxLevel;
+    return this.blocks.rows * this.columns;
   }
 
   place(slot, color, effects) {
     const B = this.blocks;
-    const { x, z } = B.cellCenter(GameConfig.logistics.dockCol, slot.r);
+    const { x, z } = B.cellCenter(slot.c, slot.r);
     const object = this.gifts.build(color);
-    object.position.set(x, PKG / 2 + slot.level * LEVEL_H, z);
+    object.position.set(x, PKG / 2, z);
     object.rotation.y = (Math.random() - 0.5) * 0.12;
     object.scale.setScalar(0.01);
     this.group.add(object);
-    const pkg = { ...slot, color, object, pop: 0 };
-    this.slots.set(this.key(slot.r, slot.level), pkg);
+    const pkg = { c: slot.c, r: slot.r, level: 0, color, object, pop: 0 };
+    this.slots.set(this.key(slot.c, slot.r), pkg);
     effects.sparkBurst(object.position, 18, 4, [4, 3.4, 1.4, 1]);
     return pkg;
   }
 
-  /** Packages in pick-up order: far end first, top before bottom in each slot. */
+  /** Packages in pick-up order: far end first, outer column before inner. */
   ordered() {
-    return [...this.slots.values()].sort((a, b) => a.r - b.r || b.level - a.level);
+    return [...this.slots.values()].sort((a, b) => a.r - b.r || a.c - b.c);
   }
 
   remove(pkg) {
-    this.slots.delete(this.key(pkg.r, pkg.level));
+    this.slots.delete(this.key(pkg.c, pkg.r));
   }
 
   clear() {
@@ -552,6 +571,7 @@ class Chinook {
     this.yaw = this.wantYaw = yawFor(1, 0);
     this.target.set(this.dockX, this.hoverY, z);
     this.state = 'approach';
+    this.mission = 'pickup';
     this.root.visible = true;
     this.loaded = 0;
     this.lift = null;
@@ -569,6 +589,7 @@ class Chinook {
     this.yaw = this.wantYaw = yawFor(1, 0);
     this.target.set(spot.x, this.hoverY + 1.2, spot.z);
     this.state = 'dApproach';
+    this.mission = 'delivery';
     this.root.visible = true;
     this.loaded = 0;
     this.sling = { cargo, spot, onDropped, t: 0 };
@@ -647,7 +668,7 @@ class Chinook {
       } else {
         this.waitTimer = 0;
         this.pkg = next;
-        this.target.set(this.dockX, this.hoverY, next.object.position.z);
+        this.target.set(next.object.position.x, this.hoverY, next.object.position.z);
         this.state = 'position';
       }
     } else if (this.state === 'position') {
@@ -750,6 +771,10 @@ export class Logistics {
     this.timer = GameConfig.logistics.chinookInterval;
     this.enabled = false;
     this.hiring = false;
+    // The chopper only comes for packages with the CARGO CHOPPER card.
+    this.chopperEnabled = false;
+    this.dock.narrow();
+    this.blocks.dockColumns = 1;
     this.engineer.active = false;
     this.engineer.root.visible = false;
     this.dock.clear();
@@ -798,6 +823,43 @@ export class Logistics {
     return Object.keys(goal).every((k) => this.delivered[k] >= goal[k]);
   }
 
+  /** The 2-minute pick-up schedule runs once there is an engineer AND the cargo chopper contract. */
+  get countdownActive() {
+    return this.enabled && this.chopperEnabled;
+  }
+
+  /** CARGO CHOPPER card: from now on the Chinook comes every 2 minutes for the packages. */
+  enableChopper() {
+    if (this.chopperEnabled) return;
+    this.chopperEnabled = true;
+    this.timer = GameConfig.logistics.chinookInterval;
+  }
+
+  /**
+   * DOUBLE ROW card: the dock gets a second column. Blocks standing there are cleared away;
+   * cargo cubes on it are packed straight into gift packages.
+   */
+  widenDock() {
+    if (this.dock.columns >= 2) return;
+    const B = this.blocks;
+    const c = GameConfig.logistics.dockCol + 1;
+    for (let r = 0; r < B.rows; r++) {
+      const l = B.cells.get(B.key(c, r));
+      if (!l || !l.alive) continue;
+      B.takeBlock(l);
+      if (l.cargo) {
+        this.dock.place({ c, r }, l.color, this.effects);
+      } else {
+        this.effects.shatter(tmp.set(l.x, 0.7, l.z), Palette.blocks[l.color], 10, 0.8, [0.12, 0.3]);
+        this.effects.snowPuff(tmp.set(l.x, 0.3, l.z), 6);
+      }
+    }
+    // Engineer parked on the new lane is fine: dock cells are walkable while empty.
+    B.dockColumns = 2;
+    this.dock.widen(this.effects);
+    this.onPackaged?.();
+  }
+
   /** Calls the chopper right now (tests / debugging). */
   callChopper() {
     this.timer = 0;
@@ -810,7 +872,7 @@ export class Logistics {
   update(dt, clockRunning) {
     this.engineer.update(dt, this.dock, this.effects, (color) => this.onPackaged?.(color));
     this.dock.update(dt, this.effects);
-    if (this.enabled && !this.chinook.active && clockRunning) {
+    if (this.countdownActive && !this.chinook.active && clockRunning) {
       this.timer -= dt;
       if (this.timer <= 0) {
         this.chinook.arrive(this.dock, this.blocks);

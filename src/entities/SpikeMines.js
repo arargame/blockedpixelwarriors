@@ -18,6 +18,8 @@ export class SpikeMines {
     const rng = new Random(5);
     const cfg = GameConfig.mines;
     const geometry = this.buildGeometry(cfg.radius);
+    this.geometry = geometry;
+    this.material = materials.ironBall();
     const spawnPoints = [
       [-8.25, 2.3],
       [-1.8, 3.8],
@@ -59,10 +61,79 @@ export class SpikeMines {
     return core;
   }
 
+  /**
+   * SURPRISE EGG card: `count` extra balls drop out of the sky onto free floor spots, bounce and
+   * start rolling around like the others. They don't respawn; shot down they may drop a supply.
+   */
+  dropEggs(count, isFree) {
+    const cfg = GameConfig.mines;
+    const b = this.board.bounds;
+    const r = cfg.radius;
+    let made = 0;
+    for (let tries = 0; tries < 200 && made < count; tries++) {
+      const x = b.minX + 2 + Math.random() * (b.maxX - b.minX - 4);
+      const z = b.minZ + 2 + Math.random() * (b.maxZ - b.minZ - 4);
+      if (this.isTrack(x) || this.blockField.blockAt(x, 0.5, z) || !isFree(x, z)) continue;
+      if (this.mines.some((m) => m.alive && Math.hypot(m.pos.x - x, m.pos.z - z) < 2.5)) continue;
+      const mesh = new THREE.Mesh(this.geometry, this.material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      const angle = Math.random() * Math.PI * 2;
+      const mine = {
+        mesh,
+        pos: new THREE.Vector3(x, 14 + made * 2.5, z),
+        vel: new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)).multiplyScalar(cfg.speed),
+        vy: 0,
+        falling: true,
+        hp: 5,
+        alive: true,
+        egg: true,
+        respawn: 0,
+        home: new THREE.Vector3(x, r, z),
+      };
+      mesh.position.copy(mine.pos);
+      this.group.add(mesh);
+      this.mines.push(mine);
+      made++;
+    }
+    return made;
+  }
+
+  /** Balls from the sky still alive (falling or rolling). */
+  get eggsAlive() {
+    return this.mines.filter((m) => m.egg && m.alive).length;
+  }
+
+  /** Removes all sky balls (new run). */
+  clearEggs() {
+    for (const m of this.mines) if (m.egg) m.mesh.removeFromParent();
+    this.mines = this.mines.filter((m) => !m.egg);
+  }
+
   update(dt) {
     const r = GameConfig.mines.radius;
     for (const m of this.mines) {
+      if (m.alive && m.falling) {
+        // Drop out of the sky, spinning; bounce twice, then roll off.
+        m.vy -= 22 * dt;
+        m.pos.y += m.vy * dt;
+        m.mesh.rotation.x += dt * 4;
+        if (m.pos.y <= r) {
+          m.pos.y = r;
+          if (Math.abs(m.vy) > 4) {
+            this.effects.snowPuff(m.pos, 10);
+            this.effects.shatter(m.pos, 0xcfc4b0, 6, 0.6, [0.08, 0.16]);
+            m.vy = -m.vy * 0.38;
+          } else {
+            m.vy = 0;
+            m.falling = false;
+          }
+        }
+        m.mesh.position.copy(m.pos);
+        continue;
+      }
       if (!m.alive) {
+        if (m.egg) continue;
         m.respawn -= dt;
         if (m.respawn <= 0) {
           m.alive = true;
@@ -96,7 +167,7 @@ export class SpikeMines {
   hitTest(point) {
     const r = GameConfig.mines.radius + 0.15;
     for (const m of this.mines) {
-      if (m.alive && m.pos.distanceToSquared(point) < r * r) return m;
+      if (m.alive && !m.falling && m.pos.distanceToSquared(point) < r * r) return m;
     }
     return null;
   }
@@ -108,6 +179,7 @@ export class SpikeMines {
       mine.alive = false;
       mine.mesh.visible = false;
       mine.respawn = 12;
+      if (mine.egg) mine.mesh.removeFromParent();
       this.effects.explosion(mine.pos, 1.0, 0x55585e, 10);
       return true;
     }
