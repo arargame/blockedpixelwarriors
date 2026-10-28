@@ -17,7 +17,8 @@ const r = await page.evaluate(() => {
   const counts = { T: 0, D: 0, R: 0, H: 0, G: 0 }; const N = 40000; let drops = 0;
   const spawn = g.supplies.spawn.bind(g.supplies);
   g.supplies.spawn = (type) => { counts[type]++; return {}; };
-  for (let i = 0; i < N; i++) if (g.supplies.tryDrop(g.heli.position)) drops++;
+  // Supply blocks always drop one supply of a uniformly random type.
+  for (let i = 0; i < N; i++) { g.supplies.spawnRandom(g.heli.position); drops++; }
   g.supplies.spawn = spawn;
   out.dropRate = (drops / N * 100).toFixed(1) + '%';
   out.typeShare = Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, (v / drops * 100).toFixed(1) + '%']));
@@ -40,7 +41,7 @@ const r = await page.evaluate(() => {
   // 5) Gem: shots tinted + stronger.
   const gem = g.supplies.spawn('G', h.clone()); gem.age = 1; g.step(1 / 60);
   for (let i = 0; i < 20; i++) g.step(1 / 60);
-  const shot = g.projectiles.items.find((p) => p.kind === 'tracer');
+  const shot = g.projectiles.items.findLast((p) => p.kind === 'tracer');
   out.gem = { active: g.powerups.has('G'), color: '#' + (g.powerups.gemColor ?? 0).toString(16), shotTinted: !!shot?.tint, shotDamage: shot?.damage };
   // 6) Low HP smoke (hp 20 -> heal made it 55; force low again).
   g.heli.hp = 15; const s0 = g.effects.smoke.count; for (let i = 0; i < 30; i++) g.step(1 / 60);

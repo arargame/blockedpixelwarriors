@@ -21,8 +21,23 @@ export class Hud {
         <div class="hud-panel hud-wave"><span class="label">WAVE</span><span class="value" data-wave>1</span></div>
       </div>
       <div class="hud-bottom">
-        <div class="hud-lives" data-lives></div>
-        <div class="hp-row"><div class="seg-bar" data-hp></div><span class="hp-num" data-hp-num>100</span></div>
+        <div class="mission" data-mission>
+          <span class="mission-title">MISSION</span>
+          <span class="mc red"><i></i><b data-m="red">0</b>/<em data-g="red">100</em></span>
+          <span class="mc green"><i></i><b data-m="green">0</b>/<em data-g="green">100</em></span>
+          <span class="mc blue"><i></i><b data-m="blue">0</b>/<em data-g="blue">100</em></span>
+          <span class="dock" data-dock>DOCK 0/26</span>
+        </div>
+        <div class="chopper" data-chopper>
+          <span class="chopper-icon">🚁</span>
+          <span class="chopper-label" data-chopper-label>CARGO CHOPPER IN</span>
+          <span class="chopper-time" data-chopper-time>2:00</span>
+          <div class="chopper-bar"><div class="chopper-fill" data-chopper-fill></div></div>
+        </div>
+        <div class="hud-bottom-row">
+          <div class="hud-lives" data-lives></div>
+          <div class="hp-row"><div class="seg-bar" data-hp></div><span class="hp-num" data-hp-num>100</span></div>
+        </div>
       </div>
       <div class="hud-notice" data-notice></div>
       <div class="damage-vignette" data-vignette></div>
@@ -55,7 +70,64 @@ export class Hud {
     this.skillsEl = root.querySelector('[data-skills]');
     /** @type {Map<string, {row: HTMLElement, fill: HTMLElement, time: HTMLElement, duration: number}>} */
     this.skillRows = new Map();
+    this.chopperEl = root.querySelector('[data-chopper]');
+    this.chopperLabel = root.querySelector('[data-chopper-label]');
+    this.chopperTime = root.querySelector('[data-chopper-time]');
+    this.chopperFill = root.querySelector('[data-chopper-fill]');
+    this.missionEls = Object.fromEntries(['red', 'green', 'blue'].map((k) => [k, root.querySelector(`[data-m="${k}"]`)]));
+    this.goalEls = Object.fromEntries(['red', 'green', 'blue'].map((k) => [k, root.querySelector(`[data-g="${k}"]`)]));
+    this.dockEl = root.querySelector('[data-dock]');
     this.setLives(3);
+  }
+
+  /** Mission progress: delivered red / green / blue packages vs. the goal. */
+  setMission(delivered, goal) {
+    for (const k of Object.keys(this.missionEls)) {
+      this.missionEls[k].textContent = String(delivered[k] ?? 0);
+      this.goalEls[k].textContent = String(goal[k]);
+      this.missionEls[k].parentElement.classList.toggle('done', (delivered[k] ?? 0) >= goal[k]);
+    }
+  }
+
+  setDock(count, capacity) {
+    this.dockEl.textContent = `DOCK ${count}/${capacity}`;
+  }
+
+  /**
+   * Cargo chopper countdown above the HP bar (2:00 -> 0:00); the last 10 seconds are emphasised.
+   * While the chopper is on station it shows the loading progress instead.
+   */
+  setChopper(s) {
+    let key;
+    if (s.active) {
+      key = `a${s.loaded}:${s.left}`;
+      if (key === this.chopperKey) return;
+      this.chopperLabel.textContent = 'CARGO CHOPPER LOADING';
+      this.chopperTime.textContent = `${s.loaded} ⬆`;
+      this.chopperFill.style.transform = 'scaleX(1)';
+      this.chopperEl.classList.remove('urgent');
+      this.chopperEl.classList.add('active');
+    } else {
+      const t = Math.max(0, s.remaining);
+      const secs = Math.ceil(t);
+      const urgent = t <= 10;
+      key = `w${urgent ? Math.ceil(t * 10) : secs}`;
+      if (key === this.chopperKey) return;
+      this.chopperLabel.textContent = 'CARGO CHOPPER IN';
+      this.chopperTime.textContent = urgent ? t.toFixed(1) : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+      const total = s.total ?? 120;
+      this.chopperFill.style.transform = `scaleX(${Math.min(1, t / total)})`;
+      this.chopperEl.classList.toggle('urgent', urgent);
+      this.chopperEl.classList.remove('active');
+    }
+    this.chopperKey = key;
+  }
+
+  showMissionComplete(score, delivered) {
+    this.overlayEl.innerHTML = `<div class="gameover win">MISSION COMPLETE</div>
+      <div class="final">${delivered.red} RED · ${delivered.green} GREEN · ${delivered.blue} BLUE DELIVERED</div>
+      <div class="final">SCORE ${String(score).padStart(6, '0')}</div><div class="prompt">TAP / PRESS ANY KEY</div>`;
+    this.overlayEl.classList.add('visible');
   }
 
   setScore(score) {
@@ -168,7 +240,8 @@ export class Hud {
     this.trainPanel.classList.toggle('destroyed', train.destroyed);
     const lap = train.lap ?? 1;
     const mode = train.stopped ? 'HALT' : train.mode;
-    this.trainPctEl.textContent = train.destroyed ? 'DESTROYED' : `${lap > 1 ? `LAP ${lap} · ` : ''}${mode} · ${Math.round(train.integrity * 100)}%`;
+    const shield = train.gemShielded ? ' · 🛡 SHIELD' : '';
+    this.trainPctEl.textContent = train.destroyed ? 'DESTROYED' : `${lap > 1 ? `LAP ${lap} · ` : ''}${mode}${shield} · ${Math.round(train.integrity * 100)}%`;
   }
 
   buildTrain(train) {
@@ -220,7 +293,7 @@ export class Hud {
 
   showTitle() {
     this.overlayEl.innerHTML = `${this.logoMarkup()}<div class="prompt">TAP / PRESS ANY KEY</div>
-      <div class="help">WASD fly &middot; &larr; &rarr; turn &middot; or DRAG &middot; weapons fire automatically<br/>Shoot the red gem on the locomotive!</div>`;
+      <div class="help">WASD fly &middot; &larr; &rarr; turn &middot; or DRAG &middot; weapons fire automatically<br/>Break the turrets, then the gem! Shoot cargo off the train - the engineer ships it.<br/>Mission: deliver 100 red, 100 green and 100 blue packages.</div>`;
     this.mountLogo();
     this.overlayEl.classList.add('visible');
   }

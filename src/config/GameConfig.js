@@ -86,10 +86,14 @@ export const GameConfig = Object.freeze({
     stopDuration: 3,
     // Turret fire interval multiplier while halted (lower = faster fire).
     stoppedFireMul: 0.4,
-    // Brass side cannons: aimed shells at the heli every 1.2-2.8 s (when it is on their side).
+    // Brass under-cannons: a random one fires a round cannonball straight along its barrel
+    // (not aimed) every 1.2-2.8 s.
     cannonIntervalMin: 1.2,
     cannonIntervalMax: 2.8,
-    cannonRange: 20,
+    // Twin turret bullets: damage per bullet (2 per volley).
+    turretBulletDamage: 4,
+    // While any turret lives the gem is shielded: damage taken is multiplied by this.
+    gemShieldMul: 0.05,
     // A destroyed train accelerates out of the scene.
     wreckSpeed: 14,
     wreckAccel: 6,
@@ -99,6 +103,18 @@ export const GameConfig = Object.freeze({
     restockChance: 0.6,
     // Head position of the locomotive in the poster frame (gem at the key-art spot).
     posterHeadZ: 2.8,
+  }),
+
+  /**
+   * Logistics: the engineer's forklift gathers the cargo cubes shot off the train and lines them up
+   * as gift packages in the dock column (leftmost); the CH-47F cargo chopper collects them.
+   */
+  logistics: Object.freeze({
+    dockCol: 0,
+    forkliftSpeed: 3.4,
+    // Cargo chopper visit period (s) and the mission goal per box colour.
+    chinookInterval: 120,
+    goal: Object.freeze({ red: 100, green: 100, blue: 100 }),
   }),
 
   supply: Object.freeze({

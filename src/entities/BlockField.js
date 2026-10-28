@@ -63,6 +63,14 @@ export class BlockField {
       transparent: true, alphaTest: 0.3, roughness: 0.3, metalness: 0.4,
     }), false);
     this.snowMeshes = [this.buildSnowCap(3), this.buildSnowCap(8), this.buildSnowCap(15)].map((g) => this.instanced(g, materials.snow(), true));
+    // Train cargo waiting for the engineer: shipping label + "this way up" arrows on every face.
+    this.cargoMesh = this.instanced(overlayGeometry, new THREE.MeshStandardMaterial({
+      map: cargoLabelTexture(), transparent: true, alphaTest: 0.35, roughness: 0.6,
+    }), false);
+    /** Cells the engineer's forklift occupies or is driving into (no blocks may land there). */
+    this.isReserved = () => false;
+    /** Set of free cell keys the forklift can drive to (cargo prefers to land there), or null. */
+    this.reachableCells = () => null;
 
     this.createLayout();
     this.flushMatrices();
@@ -95,6 +103,21 @@ export class BlockField {
     return Math.abs(this.cellCenter(c, 0).x - GameConfig.track.x) < 1.6;
   }
 
+  /** Leftmost column: the loading dock where the gift packages wait for the cargo chopper. */
+  isDockCell(c) {
+    return c === GameConfig.logistics.dockCol;
+  }
+
+  /** Board cells on the engineer's side of the railway (left of the track, dock excluded). */
+  isYardCell(c) {
+    return !this.isDockCell(c) && !this.isTrackCell(c) && this.cellCenter(c, 0).x < GameConfig.track.x;
+  }
+
+  /** Cargo colours the mission asks for (red, green, blue = teal blocks). */
+  static isGoalColor(color) {
+    return color === 'red' || color === 'green' || color === 'teal';
+  }
+
   /** Random block type using the configured odds. */
   rollType() {
     const cfg = GameConfig.blocks;
@@ -108,7 +131,7 @@ export class BlockField {
    * Creates (or revives) the block in a cell.
    * @returns {any} the block record
    */
-  placeBlock(c, r, color, { type = this.rollType(), snow = -1, from = null } = {}) {
+  placeBlock(c, r, color, { type = this.rollType(), snow = -1, from = null, cargo = false } = {}) {
     const k = this.key(c, r);
     let l = this.cells.get(k);
     if (!l) {
@@ -120,7 +143,7 @@ export class BlockField {
     if (l.mesh && l.mesh !== this.meshes[color]) l.mesh.setMatrixAt(l.slot, HIDDEN);
     const hp = type === BlockType.ARMORED ? GameConfig.blocks.armoredHp : GameConfig.blocks.hp;
     Object.assign(l, {
-      color, type, hp, maxHp: hp, alive: true, flash: 0, drop: 0, chainAt: 0,
+      color, type, hp, maxHp: hp, alive: true, flash: 0, drop: 0, chainAt: 0, cargo,
       mesh: this.meshes[color], snow,
       snowMesh: snow >= 0 ? this.snowMeshes[snow] : null,
       rotY: this.rng.int(0, 3) * (Math.PI / 2),
@@ -154,33 +177,49 @@ export class BlockField {
     MAP.forEach((line, r) => {
       [...line].forEach((ch, c) => {
         const color = colorOf[ch];
-        if (!color || c >= this.cols || r >= this.rows || this.isTrackCell(c)) return;
+        if (!color || c >= this.cols || r >= this.rows || this.isTrackCell(c) || this.isDockCell(c)) return;
         this.placeBlock(c, r, color, { snow: this.rng.chance(0.72) ? this.rng.int(0, 2) : -1 });
       });
     });
   }
 
   /**
-   * A cube knocked off the train falls onto the nearest free board cell (not on the rails).
+   * A cube knocked off the train falls onto the nearest free cell on the engineer's side of the
+   * railway (left of the track, never on the dock or under the forklift). Red / green / blue cubes
+   * become protected cargo the engineer collects; yellow ones land as ordinary blocks.
    * @param {THREE.Vector3} from world position of the cube
    * @param {string} color block colour key
    * @returns {boolean} false if there was no free cell nearby (caller shatters it instead)
    */
   dropFromTrain(from, color) {
+    const cargo = BlockField.isGoalColor(color);
+    // Cargo lands where the forklift can get at it (closest such cell), else the closest free one.
+    const reach = cargo ? this.reachableCells() : null;
     let best = null;
     let bestD = Infinity;
     for (let c = 0; c < this.cols; c++) {
-      if (this.isTrackCell(c)) continue;
+      if (!this.isYardCell(c)) continue;
       for (let r = 0; r < this.rows; r++) {
         const l = this.cells.get(this.key(c, r));
-        if (l && l.alive) continue;
+        if ((l && l.alive) || this.isReserved(c, r)) continue;
         const { x, z } = this.cellCenter(c, r);
-        const d = (x - from.x) ** 2 + (z - from.z) ** 2;
+        let d = (x - from.x) ** 2 + (z - from.z) ** 2;
+        if (reach && !reach.has(this.key(c, r))) d += 1000;
         if (d < bestD) { bestD = d; best = [c, r]; }
       }
     }
-    if (!best || bestD > GameConfig.blocks.maxDropDistance ** 2) return false;
-    this.placeBlock(best[0], best[1], color, { from });
+    if (!best || (bestD >= 1000 ? bestD - 1000 : bestD) > GameConfig.blocks.maxDropDistance ** 2) return false;
+    this.placeBlock(best[0], best[1], color, { from, cargo, type: cargo ? BlockType.NORMAL : this.rollType() });
+    return true;
+  }
+
+  /** The engineer lifts a cargo block off the board (no explosion, no score). */
+  takeBlock(block) {
+    if (!block.alive) return false;
+    block.alive = false;
+    block.chainAt = 0;
+    this.writeMatrix(block);
+    this.flushMatrices();
     return true;
   }
 
@@ -221,6 +260,7 @@ export class BlockField {
       l.mesh.setMatrixAt(l.slot, HIDDEN);
       this.armorMesh.setMatrixAt(l.slot, HIDDEN);
       this.supplyMesh.setMatrixAt(l.slot, HIDDEN);
+      this.cargoMesh.setMatrixAt(l.slot, HIDDEN);
       for (const m of this.snowMeshes) m.setMatrixAt(l.slot, HIDDEN);
       return;
     }
@@ -244,6 +284,7 @@ export class BlockField {
     l.mesh.setMatrixAt(l.slot, dummy.matrix);
     this.armorMesh.setMatrixAt(l.slot, l.type === BlockType.ARMORED ? dummy.matrix : HIDDEN);
     this.supplyMesh.setMatrixAt(l.slot, l.type === BlockType.SUPPLY ? dummy.matrix : HIDDEN);
+    this.cargoMesh.setMatrixAt(l.slot, l.cargo ? dummy.matrix : HIDDEN);
     for (const m of this.snowMeshes) m.setMatrixAt(l.slot, HIDDEN);
     if (l.snowMesh && l.hp === l.maxHp && !l.fall) {
       dummy.position.set(l.x, s, l.z);
@@ -254,7 +295,7 @@ export class BlockField {
   }
 
   flushMatrices() {
-    for (const m of [...Object.values(this.meshes), this.armorMesh, this.supplyMesh, ...this.snowMeshes]) {
+    for (const m of [...Object.values(this.meshes), this.armorMesh, this.supplyMesh, this.cargoMesh, ...this.snowMeshes]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
@@ -306,7 +347,7 @@ export class BlockField {
     this.onBlockDestroyed?.(block, depth);
     for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const n = this.cells.get(this.key(block.c + dc, block.r + dr));
-      if (n && n.alive && n.drop <= 0 && n.color === block.color && n.chainAt === 0) {
+      if (n && n.alive && n.drop <= 0 && !n.cargo && !block.cargo && n.color === block.color && n.chainAt === 0) {
         n.chainAt = GameConfig.blocks.chainDelay;
         n.chainDepth = depth + 1;
         this.chain.push(n);
@@ -415,5 +456,42 @@ function supplyTexture() {
   ctx.strokeStyle = '#7a4a00';
   ctx.lineWidth = 3;
   ctx.stroke();
+  return canvasToTexture(canvas, { srgb: true });
+}
+
+/** Cargo overlay: white shipping label with a barcode, and "this way up" arrows. */
+function cargoLabelTexture() {
+  const S = 128;
+  const canvas = createCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, S, S);
+  // Brown packing-tape band across the face.
+  ctx.fillStyle = 'rgba(196, 150, 86, 0.95)';
+  ctx.fillRect(0, S / 2 - 9, S, 18);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.fillRect(0, S / 2 - 9, S, 3);
+  // Label.
+  ctx.fillStyle = '#f7f3e8';
+  ctx.strokeStyle = '#2a2a2a';
+  ctx.lineWidth = 3;
+  ctx.fillRect(70, 68, 46, 40);
+  ctx.strokeRect(70, 68, 46, 40);
+  ctx.fillStyle = '#1b1b1b';
+  for (let i = 0; i < 11; i++) ctx.fillRect(74 + i * 3.6, 84, i % 3 === 0 ? 2.4 : 1.4, 18);
+  ctx.fillRect(74, 72, 30, 4);
+  // "This way up" arrows.
+  ctx.fillStyle = '#1b1b1b';
+  for (const x of [22, 40]) {
+    ctx.beginPath();
+    ctx.moveTo(x, 14);
+    ctx.lineTo(x + 8, 26);
+    ctx.lineTo(x + 3, 26);
+    ctx.lineTo(x + 3, 38);
+    ctx.lineTo(x - 3, 38);
+    ctx.lineTo(x - 3, 26);
+    ctx.lineTo(x - 8, 26);
+    ctx.closePath();
+    ctx.fill();
+  }
   return canvasToTexture(canvas, { srgb: true });
 }

@@ -45,7 +45,7 @@ const r = await page.evaluate(() => {
   g.powerups.activate('R', 20); let maxLife = 0; let fired = 0;
   for (let i = 0; i < 120; i++) { g.step(dt); for (const p of g.projectiles.items) if (p.kind === 'missile') { maxLife = Math.max(maxLife, p.life); } }
   out.rocketsMaxFlight = maxLife.toFixed(2) + 's';
-  out.rocketMeshes = g.projectiles.rocketMeshes?.length ?? 0;
+  out.rocketMeshes = g.projectiles.models?.missile?.meshes.length ?? 0;
   // Keys.
   const h = g.heli; h.velocity.set(0, 0, 0); const y0 = h.yaw; const p0 = h.position.clone();
   window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowLeft' })); for (let i = 0; i < 30; i++) g.step(dt); window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowLeft' }));

@@ -12,14 +12,15 @@ import { Helicopter } from '../entities/Helicopter.js';
 import { Train } from '../entities/Train.js';
 import { TrainModelFactory } from '../entities/TrainModels.js';
 import { SpikeMines } from '../entities/SpikeMines.js';
+import { Logistics } from '../entities/Logistics.js';
 import { Hud } from '../ui/Hud.js';
 import { PowerUpSystem, SupplyCrates, cssOf } from '../entities/PowerUps.js';
 import { fxRandom as rnd } from '../util/Random.js';
 import { Palette, BLOCK_COLOR_KEYS } from '../config/Palette.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
 
-const SCORE = Object.freeze({ block: 10, cargo: 25, turret: 100, gem: 500, mine: 50, supply: 50 });
-const GameState = Object.freeze({ TITLE: 'title', PLAYING: 'playing', DEAD: 'dead', OVER: 'over' });
+const SCORE = Object.freeze({ block: 10, cargo: 25, turret: 100, gem: 500, mine: 50, supply: 50, delivery: 100 });
+const GameState = Object.freeze({ TITLE: 'title', PLAYING: 'playing', DEAD: 'dead', OVER: 'over', WON: 'won' });
 
 const v1 = new THREE.Vector3();
 const v2 = new THREE.Vector3();
@@ -82,6 +83,11 @@ export class Game {
     });
     this.projectiles = new ProjectileSystem(this.scene, this.textures, this.effects);
     this.projectiles.collisionHandler = (p, point) => this.resolveHit(p, point);
+    // Round iron cannonball for the brass under-cannons.
+    this.projectiles.setModel('cannonball', new THREE.Mesh(
+      new THREE.SphereGeometry(0.2, 16, 12),
+      new THREE.MeshStandardMaterial({ color: 0x2b2d31, roughness: 0.35, metalness: 0.85 })
+    ), { spin: true, max: 32 });
 
     this.blocks = new BlockField(this.materials, this.effects);
     this.scene.add(this.blocks.group);
@@ -89,6 +95,7 @@ export class Game {
       this.addScore(SCORE.block * (1 + depth));
       // Supply blocks always drop a supply (random type).
       if (block.type === 'supply' && this.state !== GameState.OVER) this.supplies.spawnRandom(v1.set(block.x, GameConfig.blockSize * 0.6, block.z));
+      if (block.cargo && this.state === GameState.PLAYING) this.hud.notice('CARGO LOST!', '#ff6b6b');
       if (depth > 0) this.shake = Math.max(this.shake, 0.12);
     };
     // Power-ups + supply crates (25% drop chance from destroyed board blocks).
@@ -107,6 +114,29 @@ export class Game {
       } else {
         this.powerups.activate(type);
       }
+    };
+
+    // Engineer + forklift, dock gift packages and the CH-47F cargo chopper.
+    this.logistics = new Logistics({
+      scene: this.scene, blocks: this.blocks, materials: this.materials, effects: this.effects,
+      forkliftGltf: options.forkliftGltf ?? null, chinookGltf: options.chinookGltf ?? null,
+    });
+    this.logistics.onPackaged = () => this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
+    this.logistics.onChinookArrive = (count) => {
+      if (this.state === GameState.PLAYING) this.hud.toast(count ? `CARGO CHOPPER INBOUND - ${count} PACKAGES` : 'CARGO CHOPPER INBOUND - DOCK IS EMPTY!');
+    };
+    this.logistics.onDelivered = (color, key) => {
+      this.addScore(SCORE.delivery);
+      this.hud.setMission(this.logistics.delivered, GameConfig.logistics.goal);
+      this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
+      if (key && this.state === GameState.PLAYING) this.hud.notice(`+1 ${key.toUpperCase()}`, { red: '#ff5a5a', green: '#6ee05a', blue: '#38c8ff' }[key]);
+      if (this.logistics.missionComplete && this.state === GameState.PLAYING) {
+        this.state = GameState.WON;
+        this.hud.showMissionComplete(this.score, this.logistics.delivered);
+      }
+    };
+    this.logistics.onChinookLeft = (loaded) => {
+      if (this.state === GameState.PLAYING && loaded) this.hud.toast(`CARGO CHOPPER AWAY - ${loaded} DELIVERED`);
     };
 
     this.mines = new SpikeMines(this.materials, this.world.board, this.blocks, this.effects);
@@ -151,7 +181,7 @@ export class Game {
   }
 
   handleStartInput() {
-    if (this.state === GameState.TITLE || this.state === GameState.OVER) this.startRun();
+    if (this.state === GameState.TITLE || this.state === GameState.OVER || this.state === GameState.WON) this.startRun();
   }
 
   startRun() {
@@ -164,6 +194,10 @@ export class Game {
     this.hud.hideOverlay();
     this.hud.setScore(this.score);
     this.hud.setLives(this.lives);
+    this.hud.setHealth(1);
+    this.logistics.reset();
+    this.hud.setMission(this.logistics.delivered, GameConfig.logistics.goal);
+    this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
   }
 
   addScore(points) {
@@ -180,6 +214,7 @@ export class Game {
     this.train.onCannonFire = (muzzle, target) => this.fireCannonShell(muzzle, target);
     // Cubes shot off the train fall onto the board as new blocks.
     this.train.onCargoKnocked = (position, colorKey) => this.blocks.dropFromTrain(position, colorKey);
+    this.train.onShieldDown = () => this.hud.toast('GEM SHIELD DOWN - HIT THE HEAD!');
     this.train.onTargetDestroyed = (kind, position) => {
       this.addScore(SCORE[kind] ?? 0);
       this.shake = Math.max(this.shake, kind === 'gem' ? 0.9 : 0.25);
@@ -190,24 +225,22 @@ export class Game {
     if (!this.options.poster) this.hud.toast(`WAVE ${this.wave} - ARMORED TRAIN INCOMING`);
   }
 
-  /** Brass side cannon: one heavy, slightly slower shell, aimed with a little lead and spread. */
-  fireCannonShell(muzzle, target) {
-    dir.subVectors(target, muzzle);
-    dir.addScaledVector(this.heli.velocity, dir.length() / 13 * 0.5);
-    dir.x += rnd.spread(0.8);
-    dir.z += rnd.spread(0.8);
+  /** Brass under-cannon: a round iron cannonball straight out along the barrel (not aimed), slight lob. */
+  fireCannonShell(muzzle, barrel) {
+    dir.copy(barrel).normalize();
+    dir.y += 0.06;
     this.projectiles.spawn('cannonball', muzzle, dir);
     this.shake = Math.max(this.shake, 0.12);
   }
 
-  fireEnemyShell(muzzle, target) {
-    dir.subVectors(target, muzzle);
-    dir.x += rnd.spread(1.2);
-    dir.z += rnd.spread(1.2);
-    this.projectiles.spawn('shell', muzzle, dir);
-    v1.copy(dir).normalize();
-    this.effects.muzzleFlash(muzzle, v1, [5, 2.4, 0.6, 1], 1.1);
-    this.effects.flash(muzzle, 0xff8a30, 20, 0.12, 6);
+  /** Turret barrel: one grey bullet along the barrel (each twin barrel calls this). */
+  fireEnemyShell(muzzle, barrel) {
+    dir.copy(barrel).normalize();
+    dir.x += rnd.spread(0.03);
+    dir.z += rnd.spread(0.03);
+    this.projectiles.spawn('shell', muzzle, dir, null, { damageMul: GameConfig.train.turretBulletDamage / 4 });
+    this.effects.muzzleFlash(muzzle, dir.normalize(), [5, 2.4, 0.6, 1], 0.8);
+    this.effects.flash(muzzle, 0xff8a30, 14, 0.1, 5);
   }
 
   /** Mediator: decides what a projectile at `point` collided with. */
@@ -278,7 +311,7 @@ export class Game {
       const s = GameConfig.blockSize;
       for (const [dx, dz] of [[s, 0], [-s, 0], [0, s], [0, -s]]) {
         const b = this.blocks.blockAt(point.x + dx, 0.5, point.z + dz);
-        if (b) this.blocks.damage(b, 1.5, v1.set(b.x, s, b.z));
+        if (b && !b.cargo) this.blocks.damage(b, 1.5, v1.set(b.x, s, b.z));
       }
     }
   }
@@ -319,7 +352,7 @@ export class Game {
 
   /** Current smart-aim lock (world position, refreshed every 0.12 s) or null. */
   lockedTarget() {
-    const now = this.clock.elapsedTime;
+    const now = this.time ?? 0;
     if (this.aimLock && now - this.aimLock.at < 0.12 && this.aimLock.entry.alive()) {
       return this.aimLock.entry.position(this.aimLock.pos);
     }
@@ -334,7 +367,9 @@ export class Game {
       if (cos < Math.cos(cfg.aimCone)) continue;
       const angle = Math.acos(Math.min(1, cos));
       // Train parts win over board blocks at a similar angle (that's what the player is after).
-      const priority = q.kind === 'gem' ? -3 : q.kind === 'turret' || q.kind === 'cargo' ? -2.5 : 0;
+      // A shielded gem is a waste of ammo: turrets come first until the shield is down.
+      const shielded = this.train?.gemShielded;
+      const priority = q.kind === 'gem' ? (shielded ? 1 : -3) : q.kind === 'turret' ? (shielded ? -3 : -2.5) : q.kind === 'cargo' ? -2.5 : 0;
       const score = angle * 12 + d * 0.35 + priority;
       if (score < bestScore) { bestScore = score; best = q; }
     }
@@ -456,7 +491,8 @@ export class Game {
     };
     const s = GameConfig.blockSize;
     for (const b of this.blocks.blocks) {
-      if (!b.alive || b.drop > 0) continue;
+      // Train cargo waiting for the engineer is never auto-targeted (lock, rockets, 8-way).
+      if (!b.alive || b.drop > 0 || b.cargo) continue;
       push(b.x, b.z, () => b.alive && b.drop <= 0, (o) => o.set(b.x, s * 0.55, b.z));
     }
     for (const m of this.mines.mines) {
@@ -629,6 +665,7 @@ export class Game {
 
   /** Fixed-step friendly simulation tick. */
   step(dt) {
+    this.time = (this.time ?? 0) + dt;
     this.input.update();
     const playing = this.state === GameState.PLAYING;
     const pilot = this.input.pilot;
@@ -684,6 +721,8 @@ export class Game {
     this.restockFarSide();
 
     this.blocks.update(dt);
+    this.logistics.update(dt, playing);
+    this.hud.setChopper(this.logistics.chinook.active ? { active: true, loaded: this.logistics.chinook.loaded, left: this.logistics.dock.count } : { active: false, remaining: this.logistics.timer, total: GameConfig.logistics.chinookInterval });
     this.mines.update(dt);
     this.projectiles.update(dt);
     this.powerups.update(dt);
@@ -695,10 +734,18 @@ export class Game {
     this.effects.update(dt);
     this.world.update(dt);
     this.world.railSnow.update(dt, this.train, this.effects);
+    this.world.floorSnow.update(dt, this.snowClearers(), this.effects);
     this.updateCamera(dt);
   }
 
-  /** Maps stick input (screen up/right) onto the floor plane using the camera yaw. */
+  /** Things that blow / push the settled floor snow away: rotor downwash, the forklift, the Chinook. */
+  snowClearers() {
+    const out = [];
+    if (this.heli.alive && this.heli.object3d.visible !== false) out.push({ x: this.heli.position.x, z: this.heli.position.z, r: 2.3, rate: 2.5, puffs: true });
+    this.logistics?.snowClearers(out);
+    return out;
+  }
+
   /**
    * Maps stick/keyboard input (screen right = +x, screen down = +z) to a world XZ direction that
    * moves the helicopter exactly that way ON SCREEN: the screen offset is unprojected through the

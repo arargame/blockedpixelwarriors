@@ -23,6 +23,9 @@ export function createTileFloorMaterial(marble, { origin, tileSize, grout = 0.02
     // Fraction of the image width one tile covers (tile crop size).
     uCrop: { value: 0.6 },
     uImageAspect: { value: 0.5 }, // width / height of the photo
+    // Settled snow coverage (FloorSnow): R channel 0..1 over the board rect (minX, minZ, width, depth).
+    uSnowMap: { value: blankSnow() },
+    uSnowRect: { value: new THREE.Vector4(0, 0, 1, 1) },
   };
   material.userData.tileUniforms = uniforms;
   material.onBeforeCompile = (shader) => {
@@ -41,6 +44,9 @@ export function createTileFloorMaterial(marble, { origin, tileSize, grout = 0.02
         uniform vec3 uGroutColor;
         uniform float uCrop;
         uniform float uImageAspect;
+        uniform sampler2D uSnowMap;
+        uniform vec4 uSnowRect;
+        float snowCover = 0.0;
         float tileHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`
       )
       .replace(
@@ -72,6 +78,14 @@ export function createTileFloorMaterial(marble, { origin, tileSize, grout = 0.02
           float bevel = smoothstep(uGrout, uGrout * 2.6, e);
           texel.rgb *= mix(0.86, 1.0, bevel);
           texel.rgb = mix(texel.rgb, uGroutColor, groutMask);
+          // Settled snow: coverage map + fine flake grain so thin snow reads as a speckled dusting
+          // that joins into a soft white coat; grout joints hold snow a little longer.
+          vec2 suv = (vTileWorld - uSnowRect.xy) / uSnowRect.zw;
+          float snowDepth = texture2D(uSnowMap, suv).r;
+          float grain = tileHash(floor(vTileWorld * 22.0)) * 0.6 + tileHash(floor(vTileWorld * 7.0) + 3.1) * 0.4;
+          float st = snowDepth * 1.25 + groutMask * 0.15 - (1.0 - grain) * 0.75;
+          snowCover = smoothstep(0.02, 0.3, st) * smoothstep(0.02, 0.12, snowDepth);
+          texel.rgb = mix(texel.rgb, vec3(0.84, 0.88, 0.94), snowCover * 0.78);
           diffuseColor *= texel;
         }`
       )
@@ -82,9 +96,19 @@ export function createTileFloorMaterial(marble, { origin, tileSize, grout = 0.02
           vec2 tf = fract((vTileWorld - uTileOrigin) / uTileSize);
           float te = min(min(tf.x, 1.0 - tf.x), min(tf.y, 1.0 - tf.y));
           roughnessFactor = mix(0.9, roughnessFactor, smoothstep(uGrout * 0.6, uGrout, te));
+          roughnessFactor = mix(roughnessFactor, 0.8, snowCover);
         }`
       );
   };
-  material.customProgramCacheKey = () => 'tile-floor-v1';
+  material.customProgramCacheKey = () => 'tile-floor-v2';
   return material;
+}
+
+let blank = null;
+function blankSnow() {
+  if (!blank) {
+    blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+    blank.needsUpdate = true;
+  }
+  return blank;
 }

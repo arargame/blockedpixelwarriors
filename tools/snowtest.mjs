@@ -1,0 +1,31 @@
+// Floor snow: builds up while it snows, melts when it stops, rotor wash clears a circle.
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+const server = await createServer({ server: { port: 5194, host: '127.0.0.1' }, logLevel: 'error' });
+await server.listen();
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+const errors = [];
+page.on('pageerror', (e) => errors.push(e.message));
+page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+await page.goto('http://127.0.0.1:5194/?quality=low&fixedres');
+await page.waitForFunction(() => !!window.__game, null, { timeout: 120000 });
+const sim = (I, seconds) => page.evaluate(([I, seconds]) => {
+  const g = window.__game; g.paused = true;
+  const w = g.world.weather; w.update = function () { this.intensity = I; this.gust = 0; };
+  for (let i = 0; i < seconds * 15; i++) g.step(1 / 15);
+  g.pipeline.render(1 / 60);
+  return +g.world.floorSnow.coverage.toFixed(3);
+}, [I, seconds]);
+await page.evaluate(() => { const g = window.__game; g.handleStartInput(); g.hud.overlayEl.style.transition = 'none'; g.heli.takeDamage = () => false; });
+const out = {};
+out.start = await sim(0.5, 0.1);
+out.after40sHeavy = await sim(1, 40);
+await page.screenshot({ path: 'captures/snow_heavy.png', timeout: 120000 });
+out.after30sMedium = await sim(0.55, 30);
+await page.screenshot({ path: 'captures/snow_medium.png', timeout: 120000 });
+out.after60sNone = await sim(0, 60);
+await page.screenshot({ path: 'captures/snow_melted.png', timeout: 120000 });
+console.log(JSON.stringify(out), errors);
+await browser.close();
+await server.close();

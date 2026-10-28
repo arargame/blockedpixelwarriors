@@ -11,7 +11,7 @@ import { CloudLayer } from './CloudLayer.js';
 import { FloatingIslands } from './FloatingIslands.js';
 import { PineTreeFactory } from './PineTreeFactory.js';
 import { BillboardBatch } from '../fx/BillboardBatch.js';
-import { SnowWeather, SnowFall, RailSnow } from './Snow.js';
+import { SnowWeather, SnowFall, RailSnow, FloorSnow } from './Snow.js';
 
 /**
  * Static environment composition (Facade): lighting, sky, clouds, islands, forests,
@@ -70,6 +70,9 @@ export class World {
     scene.add(this.snowFall.object3d);
     this.railSnow = new RailSnow(materials, this.weather, this.track, GameConfig.track.startZ + 1, GameConfig.track.endZ - 1);
     scene.add(this.railSnow.group);
+    // Light snow settling and melting on the tile floor.
+    this.floorSnow = new FloorSnow(this.weather, GameConfig.board);
+    this.floorSnow.attach(this.board.floorMaterial);
 
     // Islands are placed by key-art screen position (px on 1672x941) + distance from the camera,
     // so the composition survives camera tweaks.

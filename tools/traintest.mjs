@@ -31,7 +31,7 @@ const r = await page.evaluate(() => {
   h.invulnerable = 0; const hp0 = h.hp; h.position.set(t.group.position.x, h.position.y, (t.minZ + t.maxZ) / 2);
   g.step(dt);
   let blinkOff = 0; for (let i = 0; i < 20; i++) { g.step(dt); if (!h.object3d.visible) blinkOff++; }
-  out.ram = { damage: hp0 - h.hp, invulnerable: h.invulnerable.toFixed(2), flickerFramesHidden: blinkOff, vignette: Number(getComputedStyle(document.querySelector('.damage-vignette')).opacity).toFixed(2) };
+  out.ram = { hp0, hpAfter: h.hp, alive: h.alive, state: g.state, damage: hp0 - h.hp, invulnerable: h.invulnerable.toFixed(2), flickerFramesHidden: blinkOff, vignette: Number(getComputedStyle(document.querySelector('.damage-vignette')).opacity).toFixed(2) };
   // Trips alternate direction; modes vary; halts happen.
   const trips = []; let halts = 0;
   t.onStop = () => halts++;

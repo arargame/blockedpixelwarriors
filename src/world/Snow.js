@@ -226,3 +226,149 @@ export class RailSnow {
     });
   }
 }
+
+/**
+ * Light snow settling on the tile floor. A coarse coverage grid (texels per world unit) is
+ * simulated on the CPU: while it snows, single flakes land on random texels and build up in
+ * patches; when the snowfall eases the coat melts away again (faster on "warmer" spots, so it
+ * melts patchily). Rotor downwash and vehicles blow / push it off. The result is uploaded as a
+ * texture that the tile shader blends in (TileFloorMaterial uSnowMap).
+ */
+export class FloorSnow {
+  /**
+   * @param {SnowWeather} weather
+   * @param {{minX:number,maxX:number,minZ:number,maxZ:number}} bounds
+   * @param {number} res texels per world unit
+   */
+  constructor(weather, bounds, res = 6) {
+    this.weather = weather;
+    this.bounds = bounds;
+    this.w = Math.ceil((bounds.maxX - bounds.minX) * res);
+    this.h = Math.ceil((bounds.maxZ - bounds.minZ) * res);
+    this.res = res;
+    const n = this.w * this.h;
+    this.depth = new Float32Array(n);
+    this.warm = new Float32Array(n);
+    this.cap = new Float32Array(n);
+    const rng = new Random(777);
+    // Smooth value noise: warm spots melt faster, some patches cap lower (patchy coat).
+    const grid = 10;
+    const gw = Math.ceil(this.w / grid) + 2;
+    const gh = Math.ceil(this.h / grid) + 2;
+    const g1 = Array.from({ length: gw * gh }, () => rng.next());
+    const g2 = Array.from({ length: gw * gh }, () => rng.next());
+    const sample = (g, x, y) => {
+      const fx = x / grid, fy = y / grid;
+      const ix = Math.floor(fx), iy = Math.floor(fy);
+      const tx = fx - ix, ty = fy - iy;
+      const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+      const a = g[iy * gw + ix], b = g[iy * gw + ix + 1], c = g[(iy + 1) * gw + ix], d = g[(iy + 1) * gw + ix + 1];
+      return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+    };
+    for (let y = 0; y < this.h; y++) {
+      for (let x = 0; x < this.w; x++) {
+        const i = y * this.w + x;
+        this.warm[i] = 0.5 + sample(g1, x, y) * 1.1 + rng.range(0, 0.15);
+        this.cap[i] = THREE.MathUtils.clamp(0.1 + sample(g2, x, y) * 0.65, 0, 0.7);
+        this.depth[i] = this.cap[i] * 0.4 * rng.next();
+      }
+    }
+    this.bytes = new Uint8Array(n * 4);
+    this.texture = new THREE.DataTexture(this.bytes, this.w, this.h, THREE.RGBAFormat);
+    this.texture.magFilter = THREE.LinearFilter;
+    this.texture.minFilter = THREE.LinearFilter;
+    this.texture.needsUpdate = true;
+    this.rect = new THREE.Vector4(bounds.minX, bounds.minZ, bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ);
+    this.uploadTimer = 0;
+    this.upload();
+  }
+
+  /** Hooks the coverage into a tile floor material. */
+  attach(material) {
+    const u = material?.userData?.tileUniforms;
+    if (!u) return;
+    u.uSnowMap.value = this.texture;
+    u.uSnowRect.value = this.rect;
+  }
+
+  /** Average coverage 0..1 (tests / HUD). */
+  get coverage() {
+    let s = 0;
+    for (let i = 0; i < this.depth.length; i++) s += this.depth[i];
+    return s / this.depth.length;
+  }
+
+  /**
+   * @param {number} dt
+   * @param {{x:number, z:number, r:number, rate:number}[]} clearers downwash / wheels that push snow away
+   * @param {import('../fx/EffectsManager.js').EffectsManager} [effects]
+   */
+  update(dt, clearers = [], effects = null) {
+    const I = this.weather.intensity;
+    const d = this.depth;
+    const w = this.w;
+    const n = d.length;
+    // Flakes settling: each hit dusts one texel (and a little of its neighbours).
+    const hits = Math.floor(n * 0.07 * Math.pow(I, 1.6) * dt + Math.random());
+    for (let k = 0; k < hits; k++) {
+      const i = (Math.random() * n) | 0;
+      const add = 0.18 + Math.random() * 0.22;
+      d[i] = Math.min(this.cap[i], d[i] + add);
+      if (i + 1 < n) d[i + 1] = Math.min(this.cap[i + 1], d[i + 1] + add * 0.3);
+      if (i - 1 >= 0) d[i - 1] = Math.min(this.cap[i - 1], d[i - 1] + add * 0.3);
+      if (i + w < n) d[i + w] = Math.min(this.cap[i + w], d[i + w] + add * 0.3);
+      if (i - w >= 0) d[i - w] = Math.min(this.cap[i - w], d[i - w] + add * 0.3);
+    }
+    // Melting: always a little (the tiles are milder than the air), much faster once it stops.
+    const melt = (0.008 + 0.05 * (1 - I) * (1 - I)) * dt;
+    for (let i = 0; i < n; i++) {
+      if (d[i] > 0) d[i] = Math.max(0, d[i] - melt * this.warm[i]);
+    }
+    // Rotor wash / wheels.
+    for (const c of clearers) {
+      const x0 = Math.max(0, Math.floor((c.x - c.r - this.bounds.minX) * this.res));
+      const x1 = Math.min(w - 1, Math.ceil((c.x + c.r - this.bounds.minX) * this.res));
+      const y0 = Math.max(0, Math.floor((c.z - c.r - this.bounds.minZ) * this.res));
+      const y1 = Math.min(this.h - 1, Math.ceil((c.z + c.r - this.bounds.minZ) * this.res));
+      let blown = 0;
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const wx = this.bounds.minX + (x + 0.5) / this.res - c.x;
+          const wz = this.bounds.minZ + (y + 0.5) / this.res - c.z;
+          const f = 1 - Math.hypot(wx, wz) / c.r;
+          if (f <= 0) continue;
+          const i = y * w + x;
+          const before = d[i];
+          d[i] *= Math.exp(-c.rate * f * dt);
+          blown += before - d[i];
+        }
+      }
+      // Swirling powder where a lot of snow is blown off.
+      if (effects && c.puffs && blown > 0.4 && Math.random() < dt * 25) {
+        const a = Math.random() * Math.PI * 2;
+        const rr = c.r * (0.5 + Math.random() * 0.5);
+        effects.smoke.emit({
+          x: c.x + Math.cos(a) * rr, y: 0.15, z: c.z + Math.sin(a) * rr,
+          vx: Math.cos(a) * 3, vy: 0.5 + Math.random(), vz: Math.sin(a) * 3, drag: 1.8,
+          life: 0.8, size0: 0.3, size1: 1.2, color0: [1.3, 1.34, 1.4, 0.6], color1: [1.25, 1.3, 1.35, 0],
+        });
+      }
+    }
+    this.uploadTimer -= dt;
+    if (this.uploadTimer <= 0) {
+      this.uploadTimer = 1 / 15;
+      this.upload();
+    }
+  }
+
+  upload() {
+    const b = this.bytes;
+    const d = this.depth;
+    for (let i = 0; i < d.length; i++) {
+      const v = (d[i] * 255) | 0;
+      b[i * 4] = v;
+      b[i * 4 + 3] = 255;
+    }
+    this.texture.needsUpdate = true;
+  }
+}

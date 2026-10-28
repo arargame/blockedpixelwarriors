@@ -8,8 +8,8 @@ export const PROJECTILE_KINDS = Object.freeze({
   tracer: { speed: 36, damage: 0.8, life: 1.0, radius: 0.15, owner: 'player' },
   nova: { speed: 22, damage: 1.2, life: 0.8, radius: 0.2, owner: 'player' },
   rocket: { speed: 15, damage: 3.5, life: 2.2, radius: 0.3, owner: 'player', splash: 2.4 },
-  shell: { speed: 13, damage: 7, life: 3.0, radius: 0.3, owner: 'enemy' },
-  cannonball: { speed: 12, damage: 10, life: 3.0, radius: 0.35, owner: 'enemy' },
+  shell: { speed: 17, damage: 4, life: 2.2, radius: 0.25, owner: 'enemy' },
+  cannonball: { speed: 11, damage: 10, life: 3.2, radius: 0.35, owner: 'enemy', gravity: 1.2 },
   missile: { speed: 10, damage: 2.4, life: 4.0, radius: 0.2, owner: 'player', homing: 5 },
 });
 
@@ -23,6 +23,8 @@ const rocketDir = new THREE.Vector3();
 const rocketMat = new THREE.Matrix4();
 const FORWARD = new THREE.Vector3(0, 0, -1);
 const ONE = new THREE.Vector3(1, 1, 1);
+const spinQuat = new THREE.Quaternion();
+const SPIN_AXIS = new THREE.Vector3(1, 0.3, 0).normalize();
 const def = (p) => p.def;
 
 export class ProjectileSystem {
@@ -88,6 +90,8 @@ export class ProjectileSystem {
       } else if (p.kind === 'rocket') {
         p.vel.multiplyScalar(1 + dt * 1.6); // rockets accelerate
         p.vel.y -= dt * 1.5;
+      } else if (p.def.gravity) {
+        p.vel.y -= p.def.gravity * dt; // heavy cannonballs drop in a shallow arc
       }
       // Sub-step so fast projectiles don't tunnel through thin targets.
       const steps = Math.max(1, Math.ceil((p.vel.length() * dt) / 0.35));
@@ -113,9 +117,12 @@ export class ProjectileSystem {
           const tx = p.pos.x - aimTmp.x * 0.45, ty = p.pos.y - aimTmp.y * 0.45, tz = p.pos.z - aimTmp.z * 0.45;
           fx.smoke.emit({ x: tx, y: ty, z: tz, vx: rnd.spread(0.25), vy: rnd.range(0.1, 0.4), vz: rnd.spread(0.25), drag: 1, life: rnd.range(0.9, 1.3), size0: 0.25, size1: 1.1, color0: [0.95, 0.95, 0.97, 0.75], color1: [1, 1, 1, 0] });
           fx.fire.emit({ x: tx, y: ty, z: tz, vx: -aimTmp.x * 3, vy: -aimTmp.y * 3, vz: -aimTmp.z * 3, life: 0.08, size0: 0.55, size1: 0.2, color0: [5, 2.4, 0.6, 1], color1: [2, 0.5, 0.1, 0] });
-        } else if (p.kind === 'shell' || p.kind === 'cannonball') {
+        } else if (p.kind === 'shell') {
+          p.trailTimer = 0.03;
+          fx.smoke.emit({ x: p.pos.x, y: p.pos.y, z: p.pos.z, vy: 0.2, life: 0.35, size0: 0.14, size1: 0.4, color0: [0.9, 0.9, 0.92, 0.35], color1: [1, 1, 1, 0] });
+        } else if (p.kind === 'cannonball') {
           p.trailTimer = 0.025;
-          fx.fire.emit({ x: p.pos.x, y: p.pos.y, z: p.pos.z, life: 0.22, size0: 0.42, size1: 0.1, color0: [4, 1.6, 0.35, 1], color1: [1.5, 0.3, 0.05, 0] });
+          fx.smoke.emit({ x: p.pos.x, y: p.pos.y, z: p.pos.z, vx: rnd.spread(0.2), vy: rnd.range(0.1, 0.4), vz: rnd.spread(0.2), drag: 1, life: 0.8, size0: 0.3, size1: 0.9, color0: [0.55, 0.55, 0.58, 0.55], color1: [0.9, 0.9, 0.92, 0] });
         }
       }
       this.items[write++] = p;
@@ -125,47 +132,62 @@ export class ProjectileSystem {
   }
 
   /**
-   * Uses the Blender rocket (assets/models/rocket.glb) for homing missiles: one InstancedMesh per
-   * glTF primitive, oriented along the velocity each frame.
+   * Gives a projectile kind a real mesh (one InstancedMesh per glTF primitive), oriented along the
+   * velocity each frame. Model forward is -Z (glTF export of Blender +Y).
+   *   missile    -> Blender rocket (assets/models/rocket.glb)
+   *   shell      -> Blender grey turret bullet (assets/models/bullet.glb)
+   *   cannonball -> round iron ball
+   * @param {string} kind
    * @param {THREE.Object3D|null} model
+   * @param {{scale?: number, spin?: boolean, max?: number}} [opts]
    */
-  setMissileModel(model) {
+  setModel(kind, model, { scale = 1, spin = false, max = 96 } = {}) {
     if (!model) return;
-    this.rocketMeshes = [];
+    this.models ??= {};
+    const meshes = [];
     model.updateMatrixWorld(true);
     model.traverse((o) => {
       if (!o.isMesh) return;
       const g = o.geometry.clone().applyMatrix4(o.matrixWorld);
-      g.scale(1.25, 1.25, 1.25);
+      g.scale(scale, scale, scale);
       const m = o.material.clone();
       if (m.emissiveIntensity !== undefined && m.emissive?.getHex()) m.emissiveIntensity = 3;
-      const inst = new THREE.InstancedMesh(g, m, 64);
+      const inst = new THREE.InstancedMesh(g, m, max);
       inst.count = 0;
       inst.castShadow = true;
       inst.frustumCulled = false;
-      this.rocketMeshes.push(inst);
+      meshes.push(inst);
       this.scene.add(inst);
     });
+    this.models[kind] = { meshes, spin, max };
   }
 
-  renderRockets() {
-    if (!this.rocketMeshes) return;
-    let n = 0;
-    for (const p of this.items) {
-      if (p.kind !== 'missile' || n >= 64) continue;
-      rocketQuat.setFromUnitVectors(FORWARD, rocketDir.copy(p.vel).normalize());
-      rocketMat.compose(p.pos, rocketQuat, ONE);
-      for (const m of this.rocketMeshes) m.setMatrixAt(n, rocketMat);
-      n++;
-    }
-    for (const m of this.rocketMeshes) {
-      m.count = n;
-      m.instanceMatrix.needsUpdate = true;
+  /** Back-compat: homing missiles use the Blender rocket. */
+  setMissileModel(model) {
+    this.setModel('missile', model, { scale: 1.25, max: 64 });
+  }
+
+  renderModels() {
+    if (!this.models) return;
+    for (const [kind, set] of Object.entries(this.models)) {
+      let n = 0;
+      for (const p of this.items) {
+        if (p.kind !== kind || n >= set.max) continue;
+        rocketQuat.setFromUnitVectors(FORWARD, rocketDir.copy(p.vel).normalize());
+        if (set.spin) rocketQuat.multiply(spinQuat.setFromAxisAngle(SPIN_AXIS, p.life * 14 + p.seed));
+        rocketMat.compose(p.pos, rocketQuat, ONE);
+        for (const m of set.meshes) m.setMatrixAt(n, rocketMat);
+        n++;
+      }
+      for (const m of set.meshes) {
+        m.count = n;
+        m.instanceMatrix.needsUpdate = true;
+      }
     }
   }
 
   render() {
-    this.renderRockets();
+    this.renderModels();
     this.comets.begin();
     this.tracerBolts.begin();
     this.orbs.begin();
@@ -205,16 +227,15 @@ export class ProjectileSystem {
           this.glows.push(x, y, z, 0.9, 0.9, 0.6, 2.2, 3.4, 0.9);
           break;
         case 'missile':
-          if (!this.rocketMeshes) this.streaks.push(x, y, z, 0.22, 0.8, 4.5, 3.0, 1.4, 1, 0, v.x, v.y, v.z);
+          if (!this.models?.missile) this.streaks.push(x, y, z, 0.22, 0.8, 4.5, 3.0, 1.4, 1, 0, v.x, v.y, v.z);
           this.glows.push(x, y, z, 0.6, 0.6, 4, 2, 0.5, 1);
           break;
         case 'cannonball':
-          this.glows.push(x, y, z, 1.3, 1.3, 4.5, 2.2, 0.5, 1);
-          this.glows.push(x, y, z, 0.5, 0.5, 5, 4.5, 3, 1);
+          if (!this.models?.cannonball) this.glows.push(x, y, z, 1.0, 1.0, 1.2, 1.1, 1, 1);
           break;
         case 'shell':
-          this.glows.push(x, y, z, 0.95, 0.95, 4.5, 1.8, 0.4, 1);
-          this.glows.push(x, y, z, 0.35, 0.35, 5, 4.5, 3, 1);
+          if (!this.models?.shell) this.glows.push(x, y, z, 0.95, 0.95, 4.5, 1.8, 0.4, 1);
+          else this.streaks.push(x, y, z, 0.12, 0.9, 1.4, 1.3, 1.2, 0.5, 0, v.x, v.y, v.z);
           break;
         default:
           break;

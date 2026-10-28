@@ -256,7 +256,7 @@ export class TrainModelFactory {
       turrets: [turret],
       targets: [
         { kind: 'gem', box: new THREE.Box3(new THREE.Vector3(-0.75, 0.7, 1.9), new THREE.Vector3(0.75, 2.35, 3.0)), hp: 40, maxHp: 40, alive: true },
-        { kind: 'turret', turret, box: new THREE.Box3(new THREE.Vector3(-0.55, 3.5, -2.6), new THREE.Vector3(0.55, 4.4, -1.5)), hp: 6, maxHp: 6, alive: true },
+        { kind: 'turret', turret, box: new THREE.Box3(new THREE.Vector3(-0.55, 3.5, -2.6), new THREE.Vector3(0.55, 4.4, -1.5)), hp: 14, maxHp: 14, alive: true },
         { kind: 'hull', box: new THREE.Box3(new THREE.Vector3(-1.2, 0.2, -L / 2), new THREE.Vector3(1.2, 4.3, L / 2 + 0.3)), hp: Infinity, alive: true },
       ],
     };
@@ -284,7 +284,7 @@ export class TrainModelFactory {
     group.add(turret.group);
     const targets = [
       this.addCargoCube(group, 0.45, 2.25 + 0.4, 0.5, 0.8, BLOCK_COLOR_KEYS[Math.floor(rand() * 4)], rand() < 0.6),
-      { kind: 'turret', turret, box: new THREE.Box3(new THREE.Vector3(-0.55, 2.15, -1.8), new THREE.Vector3(0.55, 3.0, -0.7)), hp: 6, maxHp: 6, alive: true },
+      { kind: 'turret', turret, box: new THREE.Box3(new THREE.Vector3(-0.55, 2.15, -1.8), new THREE.Vector3(0.55, 3.0, -0.7)), hp: 14, maxHp: 14, alive: true },
       { kind: 'hull', box: new THREE.Box3(new THREE.Vector3(-1.1, 0.2, -L / 2), new THREE.Vector3(1.1, 2.9, L / 2)), hp: Infinity, alive: true },
     ];
     return { group, length: L, chimneys, cannons, turrets: [turret], targets };

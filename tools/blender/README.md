@@ -25,3 +25,21 @@ python tools/blender/build_heli.py --render captures/heli_side.png --view side
 
 Renkler dosyanın başındaki `PALETTE` sözlüğünde. Oyundaki boya tonları ışığa göre ayrıca
 `src/entities/HelicopterGltf.js` içindeki `GAME_PAINT` ile ayarlanıyor.
+
+# Taret mermisi, forklift + mühendis ve CH-47F Chinook
+
+`build_props.py` üç modeli üretir (her biri `.glb` + `.blend`):
+
+- `bullet`: taretlerin namlu kalınlığında gri mermi (oyunda tren ölçeğiyle ×1,6 büyütülür)
+- `forklift`: sarı forklift ve üstünde kasketli, üniformalı, çizmeli mühendis asker.
+  Obje adları: `Forklift` (gövde), `Forks` (oyunun yukarı aşağı oynattığı çatal), `Soldier`
+- `chinook`: CH-47F tandem rotorlu kargo helikopteri; sarı, yeşil ve koyu kamuflaj.
+  Obje adları: `Chinook` (gövde), `RotorFront`, `RotorRear` (oyun bunları döndürür)
+
+```bash
+python tools/blender/build_props.py                        # üçünü de üret
+python tools/blender/build_props.py --only chinook --render captures   # tek model + Cycles önizleme
+```
+
+Blender içinden: **Scripting** > **Open** > `tools/blender/build_props.py` > **Run Script** (üçünü de kurar).
+Oyuna yansıması için `npm run build`.

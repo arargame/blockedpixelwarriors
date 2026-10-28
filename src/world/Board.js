@@ -35,6 +35,7 @@ export class Board {
       floorMaterial = materials.cloudFloor();
       floorMaterial.map.repeat.set(width / 14, depth / 14);
     }
+    this.floorMaterial = floorMaterial;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), floorMaterial);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set((b.minX + b.maxX) / 2, 0, (b.minZ + b.maxZ) / 2);
