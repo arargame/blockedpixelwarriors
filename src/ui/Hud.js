@@ -80,6 +80,33 @@ export class Hud {
     this.setLives(3);
   }
 
+  /** Mission panel + chopper countdown only exist once the engineer is on duty. */
+  setLogisticsVisible(on) {
+    this.root.querySelector('[data-mission]').classList.toggle('off', !on);
+    this.chopperEl.classList.toggle('off', !on);
+  }
+
+  /**
+   * Pop-up text at a screen point (e.g. "CRITICAL!" where a black-gem shot crits), rising and
+   * fading like Blocked's floating combat text.
+   */
+  floatText(text, x, y, color = '#ff3b3b') {
+    if (this.floatCount > 12) return;
+    this.floatCount = (this.floatCount ?? 0) + 1;
+    const el = document.createElement('div');
+    el.className = 'float-text';
+    el.textContent = text;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.color = color;
+    el.style.setProperty('--drift', `${(Math.random() - 0.5) * 30}px`);
+    this.root.appendChild(el);
+    setTimeout(() => {
+      el.remove();
+      this.floatCount -= 1;
+    }, 900);
+  }
+
   /** Mission progress: delivered red / green / blue packages vs. the goal. */
   setMission(delivered, goal) {
     for (const k of Object.keys(this.missionEls)) {
@@ -150,15 +177,15 @@ export class Hud {
   setSkills(active) {
     for (const [type, p] of active) {
       let entry = this.skillRows.get(type);
-      if (!entry || entry.duration !== p.duration) {
+      if (!entry || entry.duration !== p.duration || entry.name !== (p.name ?? '')) {
         if (entry) entry.row.remove();
         const def = POWERUPS[type];
         const row = document.createElement('div');
         row.className = 'skill';
         row.style.setProperty('--skill-color', p.css ?? def.css);
-        row.innerHTML = `<span class="skill-key">${type === 'G' ? '◆' : type}</span><div class="skill-body"><div class="skill-head"><span class="skill-name">${def.name}</span><span class="skill-time"></span></div><div class="skill-bar"><div class="skill-fill"></div></div></div>`;
+        row.innerHTML = `<span class="skill-key">${type === 'G' ? '◆' : type}</span><div class="skill-body"><div class="skill-head"><span class="skill-name">${p.name ?? def.name}</span><span class="skill-time"></span></div><div class="skill-bar"><div class="skill-fill"></div></div></div>`;
         this.skillsEl.appendChild(row);
-        entry = { row, fill: row.querySelector('.skill-fill'), time: row.querySelector('.skill-time'), duration: p.duration };
+        entry = { row, fill: row.querySelector('.skill-fill'), time: row.querySelector('.skill-time'), duration: p.duration, name: p.name ?? '' };
         this.skillRows.set(type, entry);
       }
       const ratio = Math.max(0, p.remaining / p.duration);

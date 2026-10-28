@@ -14,7 +14,8 @@ import { TrainModelFactory } from '../entities/TrainModels.js';
 import { SpikeMines } from '../entities/SpikeMines.js';
 import { Logistics } from '../entities/Logistics.js';
 import { Hud } from '../ui/Hud.js';
-import { PowerUpSystem, SupplyCrates, cssOf } from '../entities/PowerUps.js';
+import { PowerUpSystem, SupplyCrates, GEMS } from '../entities/PowerUps.js';
+import { CardPicker, CARD_DEFS } from '../ui/UpgradeCards.js';
 import { fxRandom as rnd } from '../util/Random.js';
 import { Palette, BLOCK_COLOR_KEYS } from '../config/Palette.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
@@ -94,7 +95,9 @@ export class Game {
     this.blocks.onBlockDestroyed = (block, depth) => {
       this.addScore(SCORE.block * (1 + depth));
       // Supply blocks always drop a supply (random type).
-      if (block.type === 'supply' && this.state !== GameState.OVER) this.supplies.spawnRandom(v1.set(block.x, GameConfig.blockSize * 0.6, block.z));
+      if (block.type === 'supply' && this.state !== GameState.OVER) this.supplies.spawnRandom(v1.set(block.x, GameConfig.blockSize * 0.6, block.z), this.gemDrops);
+      // GEM MINE card: ordinary blocks may crack open a gem too.
+      else if (this.gemDrops && !block.cargo && Math.random() < GameConfig.cards.gemDropChance) this.supplies.spawn('G', v1.set(block.x, GameConfig.blockSize * 0.6, block.z));
       if (block.cargo && this.state === GameState.PLAYING) this.hud.notice('CARGO LOST!', '#ff6b6b');
       if (depth > 0) this.shake = Math.max(this.shake, 0.12);
     };
@@ -110,7 +113,9 @@ export class Game {
         this.hud.notice(`+${Math.round(this.heli.hp - before)} HP`, '#ff6b78');
         this.effects.sparkBurst(this.heli.position, 30, 6, [4, 0.8, 1, 1]);
       } else if (type === 'G') {
-        this.powerups.activate('G', null, { color: item.color, css: cssOf(item.color) });
+        const gem = GEMS[item.gem];
+        this.powerups.activate('G', null, { gem: item.gem, color: gem.color, css: gem.css, name: gem.name });
+        this.hud.notice(gem.name, gem.css);
       } else {
         this.powerups.activate(type);
       }
@@ -135,6 +140,12 @@ export class Game {
         this.hud.showMissionComplete(this.score, this.logistics.delivered);
       }
     };
+    this.logistics.onEngineerReady = () => {
+      this.hud.setLogisticsVisible(true);
+      this.hud.setMission(this.logistics.delivered, GameConfig.logistics.goal);
+      this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
+      if (this.state === GameState.PLAYING) this.hud.toast('ENGINEER ON DUTY - SHOOT CARGO OFF THE TRAIN');
+    };
     this.logistics.onChinookLeft = (loaded) => {
       if (this.state === GameState.PLAYING && loaded) this.hud.toast(`CARGO CHOPPER AWAY - ${loaded} DELIVERED`);
     };
@@ -155,6 +166,12 @@ export class Game {
 
     this.input = new Input(this.pipeline.renderer.domElement);
     this.hud = new Hud(container);
+    // Upgrade cards (Blender card model): offered after each destroyed train, game keeps running.
+    this.cards = new CardPicker({ pipeline: this.pipeline, container, cardGltf: options.cardGltf ?? null });
+    this.takenCards = new Set();
+    this.gemDrops = false;
+    this.cardTimer = 0;
+    this.hud.setLogisticsVisible(false);
     this.state = GameState.TITLE;
     this.score = 0;
     this.lives = 3;
@@ -196,6 +213,11 @@ export class Game {
     this.hud.setLives(this.lives);
     this.hud.setHealth(1);
     this.logistics.reset();
+    this.takenCards.clear();
+    this.gemDrops = false;
+    this.cardTimer = 0;
+    this.cards.cancel();
+    this.hud.setLogisticsVisible(false);
     this.hud.setMission(this.logistics.delivered, GameConfig.logistics.goal);
     this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
   }
@@ -218,7 +240,10 @@ export class Game {
     this.train.onTargetDestroyed = (kind, position) => {
       this.addScore(SCORE[kind] ?? 0);
       this.shake = Math.max(this.shake, kind === 'gem' ? 0.9 : 0.25);
-      if (kind === 'gem') this.hud.toast('TRAIN DESTROYED! +500');
+      if (kind === 'gem') {
+        this.hud.toast('TRAIN DESTROYED! +500');
+        if (!this.options.poster) this.cardTimer = GameConfig.cards.offerDelay;
+      }
     };
     this.scene.add(this.train.group);
     this.hud.setWave(this.wave);
@@ -274,6 +299,7 @@ export class Game {
       const hit = this.train.hitTest(point, exact);
       if (hit) {
         this.applyPlayerDamage(p, point, () => this.train.damage(hit.car, hit.target, (p.damage ?? p.def.damage), point));
+        this.gemImpact(p, point, null);
         return true;
       }
     }
@@ -288,6 +314,7 @@ export class Game {
     if (block && point.y < 3.6) {
       v2.set(point.x, GameConfig.blockSize + 0.05, point.z);
       this.applyPlayerDamage(p, v2, () => this.blocks.damage(block, (p.damage ?? p.def.damage), v2));
+      this.gemImpact(p, v2, block);
       return true;
     }
     if (!this.world.board.contains(point.x, point.z, -1) && point.z < GameConfig.board.minZ - 2) {
@@ -438,10 +465,46 @@ export class Game {
     }
   }
 
-  /** Gem power: shots take the gem's colour and hit harder. */
+  /**
+   * Gem ammo (Blocked rules): shots take the gem's colour and effect. Black rolls a critical per
+   * shot. Returns the spawn options for one projectile.
+   */
   shotStyle() {
-    const gem = this.powerups.gemColor;
-    return gem === null ? {} : { tint: gem, damageMul: GameConfig.supply.gemDamageMul };
+    const gem = this.powerups.gem;
+    if (!gem) return {};
+    const crit = !!gem.critChance && Math.random() < gem.critChance;
+    return {
+      tint: gem.kind === 'black' ? 0x9a7cff : gem.color,
+      gem: gem.kind,
+      crit,
+      damageMul: gem.damageMul * (crit ? gem.critMul : 1),
+    };
+  }
+
+  /** Fire-rate multiplier from the active gem (blue = x2). */
+  get fireRateMul() {
+    return this.powerups.gem?.rateMul ?? 1;
+  }
+
+  /** Screen pixel (relative to the game container) of a world point, honouring the lens warp. */
+  worldToScreen(point) {
+    const p = v3.copy(point).project(this.camera);
+    const [x, y] = this.pipeline.lensPass ? this.distortNdc(p.x, p.y) : [p.x, p.y];
+    const el = this.pipeline.renderer.domElement;
+    return { x: (x * 0.5 + 0.5) * el.clientWidth, y: (0.5 - y * 0.5) * el.clientHeight, visible: p.z < 1 };
+  }
+
+  /** Gem side effects when a player shot lands. */
+  gemImpact(p, point, block) {
+    if (!p.gem) return;
+    if (p.crit) {
+      const s = this.worldToScreen(point);
+      if (s.visible) this.hud.floatText('CRITICAL!', s.x, s.y, '#ff3b3b');
+      this.shake = Math.max(this.shake, 0.22);
+      this.effects.sparkBurst(point, 14, 6, [4, 1, 1, 1]);
+    }
+    if (p.gem === 'red') this.effects.explosion(point, 0.35);
+    if (p.gem === 'green' && block) this.blocks.applyAcid(block);
   }
 
   /**
@@ -532,7 +595,7 @@ export class Game {
     t.homing = (t.homing ?? 0) - dt;
 
     if (t.main <= 0) {
-      t.main = cfg.mainInterval;
+      t.main = cfg.mainInterval / this.fireRateMul;
       const pod = (t.side = (t.side ?? 0) + 1) % 2 === 0 ? 'podL' : 'podR';
       const muzzle = this.heli.hardpoint(pod, v1);
       this.aimFrom(muzzle, dir, 0.012);
@@ -540,7 +603,7 @@ export class Game {
       this.effects.muzzleFlash(muzzle, dir.normalize(), [4.5, 2.6, 0.9, 1], 0.6);
     }
     if (pw.has('T') && t.triple <= 0) {
-      t.triple = cfg.tripleInterval;
+      t.triple = cfg.tripleInterval / this.fireRateMul;
       const muzzle = this.heli.hardpoint('chinGun', v1);
       const center = this.aimFrom(muzzle, v3, 0).clone();
       for (const angle of [-0.26, 0, 0.26]) {
@@ -698,6 +761,7 @@ export class Game {
           this.state = GameState.PLAYING;
         } else {
           this.state = GameState.OVER;
+          this.cards.cancel();
           this.hud.showGameOver(this.score);
         }
       }
@@ -726,6 +790,11 @@ export class Game {
     this.mines.update(dt);
     this.projectiles.update(dt);
     this.powerups.update(dt);
+    if (this.cardTimer > 0) {
+      this.cardTimer -= dt;
+      if (this.cardTimer <= 0) this.offerCards();
+    }
+    this.cards.update(dt);
     this.supplies.update(dt, this.heli.position, this.heli.alive && this.state === GameState.PLAYING);
     this.hud.setSkills(this.powerups.active);
     this.hud.updateTrain(this.train);
@@ -736,6 +805,26 @@ export class Game {
     this.world.railSnow.update(dt, this.train, this.effects);
     this.world.floorSnow.update(dt, this.snowClearers(), this.effects);
     this.updateCamera(dt);
+  }
+
+  /** Two cards (or the last one left) the player hasn't taken yet, after a train went down. */
+  offerCards() {
+    if (this.state !== GameState.PLAYING && this.state !== GameState.DEAD) return;
+    const pool = CARD_DEFS.filter((d) => !this.takenCards.has(d.id));
+    if (!pool.length) return;
+    const pick = pool.sort(() => Math.random() - 0.5).slice(0, 2).sort((a, b) => CARD_DEFS.indexOf(a) - CARD_DEFS.indexOf(b));
+    this.cards.show(pick, (def) => this.applyCard(def));
+  }
+
+  applyCard(def) {
+    this.takenCards.add(def.id);
+    if (def.id === 'engineer') {
+      this.logistics.hireEngineer();
+      this.hud.toast('FIELD ENGINEER INBOUND');
+    } else if (def.id === 'gemMine') {
+      this.gemDrops = true;
+      this.hud.toast('GEM MINE - BLOCKS NOW DROP GEMS');
+    }
   }
 
   /** Things that blow / push the settled floor snow away: rotor downwash, the forklift, the Chinook. */

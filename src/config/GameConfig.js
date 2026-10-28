@@ -25,6 +25,9 @@ export const GameConfig = Object.freeze({
     chainDelay: 0.09,
     // A cube shot off the train lands on the nearest free cell within this distance.
     maxDropDistance: 7,
+    // Green gem acid: damage every `acidTick` seconds, random in [min, max] (block HP is 5).
+    acidTick: 1,
+    acidDamage: [1, 2],
   }),
 
   floor: Object.freeze({
@@ -115,6 +118,14 @@ export const GameConfig = Object.freeze({
     // Cargo chopper visit period (s) and the mission goal per box colour.
     chinookInterval: 120,
     goal: Object.freeze({ red: 100, green: 100, blue: 100 }),
+  }),
+
+  /** Upgrade cards (src/ui/UpgradeCards.js). */
+  cards: Object.freeze({
+    // Seconds after a train is destroyed before the cards come up.
+    offerDelay: 1.6,
+    // GEM MINE: chance that an ordinary destroyed block drops a gem.
+    gemDropChance: 0.14,
   }),
 
   supply: Object.freeze({

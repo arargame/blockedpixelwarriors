@@ -5,6 +5,7 @@ import rocketUrl from '../assets/models/rocket.glb?url';
 import bulletUrl from '../assets/models/bullet.glb?url';
 import forkliftUrl from '../assets/models/forklift.glb?url';
 import chinookUrl from '../assets/models/chinook.glb?url';
+import cardUrl from '../assets/models/card.glb?url';
 import * as THREE from 'three';
 import marbleUrl from '../assets/textures/marble_tile.jpg?url';
 
@@ -25,15 +26,16 @@ const camOverride = params.get('cam')?.split(',').map(Number);
   // Blender helicopter (falls back to the procedural one with ?procedural or on load failure).
   // Blender props: rocket, turret bullet, engineer's forklift, CH-47F cargo chopper.
   const load = (url) => new GLTFLoader().loadAsync(url).catch(() => null);
-  const [heliGltf, floorTexture, rocketGltf, bulletGltf, forkliftGltf, chinookGltf] = await Promise.all([
+  const [heliGltf, floorTexture, rocketGltf, bulletGltf, forkliftGltf, chinookGltf, cardGltf] = await Promise.all([
     params.has('procedural') ? null : loadHelicopterGltf(),
     new THREE.TextureLoader().loadAsync(marbleUrl).catch(() => null),
     load(rocketUrl),
     load(bulletUrl),
     load(forkliftUrl),
     load(chinookUrl),
+    load(cardUrl),
   ]);
-  const game = new Game(document.getElementById('app'), { quality, poster, camOverride, heliGltf, floorTexture, forkliftGltf, chinookGltf });
+  const game = new Game(document.getElementById('app'), { quality, poster, camOverride, heliGltf, floorTexture, forkliftGltf, chinookGltf, cardGltf });
   if (poster || params.has('fixedres')) game.pipeline.adaptive = false;
   window.__game = game;
   game.projectiles.setMissileModel(rocketGltf?.scene ?? null);

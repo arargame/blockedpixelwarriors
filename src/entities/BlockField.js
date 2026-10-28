@@ -67,10 +67,16 @@ export class BlockField {
     this.cargoMesh = this.instanced(overlayGeometry, new THREE.MeshStandardMaterial({
       map: cargoLabelTexture(), transparent: true, alphaTest: 0.35, roughness: 0.6,
     }), false);
+    // Acid (green gem): glowing lime film over melting blocks.
+    this.acidMaterial = new THREE.MeshBasicMaterial({ color: 0x7dff4a, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false });
+    this.acidMesh = this.instanced(new RoundedBoxGeometry(1.04, 1.04, 1.04, 2, 0.08), this.acidMaterial, false);
+    this.acidTime = 0;
     /** Cells the engineer's forklift occupies or is driving into (no blocks may land there). */
     this.isReserved = () => false;
     /** Set of free cell keys the forklift can drive to (cargo prefers to land there), or null. */
     this.reachableCells = () => null;
+    /** Whether red / green / blue train cubes land as protected cargo (engineer on duty). */
+    this.cargoEnabled = () => true;
 
     this.createLayout();
     this.flushMatrices();
@@ -143,7 +149,7 @@ export class BlockField {
     if (l.mesh && l.mesh !== this.meshes[color]) l.mesh.setMatrixAt(l.slot, HIDDEN);
     const hp = type === BlockType.ARMORED ? GameConfig.blocks.armoredHp : GameConfig.blocks.hp;
     Object.assign(l, {
-      color, type, hp, maxHp: hp, alive: true, flash: 0, drop: 0, chainAt: 0, cargo,
+      color, type, hp, maxHp: hp, alive: true, flash: 0, drop: 0, chainAt: 0, cargo, acid: null,
       mesh: this.meshes[color], snow,
       snowMesh: snow >= 0 ? this.snowMeshes[snow] : null,
       rotY: this.rng.int(0, 3) * (Math.PI / 2),
@@ -192,7 +198,7 @@ export class BlockField {
    * @returns {boolean} false if there was no free cell nearby (caller shatters it instead)
    */
   dropFromTrain(from, color) {
-    const cargo = BlockField.isGoalColor(color);
+    const cargo = BlockField.isGoalColor(color) && this.cargoEnabled();
     // Cargo lands where the forklift can get at it (closest such cell), else the closest free one.
     const reach = cargo ? this.reachableCells() : null;
     let best = null;
@@ -211,6 +217,24 @@ export class BlockField {
     if (!best || (bestD >= 1000 ? bestD - 1000 : bestD) > GameConfig.blocks.maxDropDistance ** 2) return false;
     this.placeBlock(best[0], best[1], color, { from, cargo, type: cargo ? BlockType.NORMAL : this.rollType() });
     return true;
+  }
+
+  /**
+   * Green gem (Blocked's acid): the block turns green - so it now chains with green neighbours -
+   * glows lime, slowly sinks and loses HP every second until it melts away. Cargo is immune.
+   */
+  applyAcid(block) {
+    if (!block.alive || block.cargo || block.acid || block.drop > 0) return;
+    block.acid = { timer: GameConfig.blocks.acidTick };
+    if (block.color !== 'green') {
+      block.mesh.setMatrixAt(block.slot, HIDDEN);
+      block.color = 'green';
+      block.mesh = this.meshes.green;
+    }
+    block.snowMesh = null;
+    this.effects.sparkBurst(tmp.set(block.x, this.size, block.z), 10, 3, [0.8, 4, 0.6, 1]);
+    this.writeMatrix(block);
+    this.flushMatrices();
   }
 
   /** The engineer lifts a cargo block off the board (no explosion, no score). */
@@ -261,6 +285,7 @@ export class BlockField {
       this.armorMesh.setMatrixAt(l.slot, HIDDEN);
       this.supplyMesh.setMatrixAt(l.slot, HIDDEN);
       this.cargoMesh.setMatrixAt(l.slot, HIDDEN);
+      this.acidMesh.setMatrixAt(l.slot, HIDDEN);
       for (const m of this.snowMeshes) m.setMatrixAt(l.slot, HIDDEN);
       return;
     }
@@ -277,10 +302,17 @@ export class BlockField {
       py = THREE.MathUtils.lerp(l.fall.from.y, s * 0.5, t * t) + Math.sin(t * Math.PI) * 1.6;
       spin = (1 - t) * 4;
     }
+    // Melting under acid: the block slumps as its HP drains.
+    let sy = s;
+    if (l.acid) {
+      sy = s * (0.45 + 0.55 * Math.max(0, l.hp / l.maxHp));
+      py = sy * 0.5;
+    }
     dummy.position.set(px, py, pz);
     dummy.rotation.set(spin * 0.6, l.rotY + l.jitter + spin, 0);
-    dummy.scale.setScalar(s);
+    dummy.scale.set(s, sy, s);
     dummy.updateMatrix();
+    this.acidMesh.setMatrixAt(l.slot, l.acid ? dummy.matrix : HIDDEN);
     l.mesh.setMatrixAt(l.slot, dummy.matrix);
     this.armorMesh.setMatrixAt(l.slot, l.type === BlockType.ARMORED ? dummy.matrix : HIDDEN);
     this.supplyMesh.setMatrixAt(l.slot, l.type === BlockType.SUPPLY ? dummy.matrix : HIDDEN);
@@ -295,7 +327,7 @@ export class BlockField {
   }
 
   flushMatrices() {
-    for (const m of [...Object.values(this.meshes), this.armorMesh, this.supplyMesh, this.cargoMesh, ...this.snowMeshes]) {
+    for (const m of [...Object.values(this.meshes), this.armorMesh, this.supplyMesh, this.cargoMesh, this.acidMesh, ...this.snowMeshes]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
@@ -364,6 +396,29 @@ export class BlockField {
       if (n.chainAt <= 0) {
         this.chain.splice(i, 1);
         if (n.alive) this.destroyBlock(n, n.chainDepth);
+      }
+    }
+    // Acid: damage ticks every second, lime bubbles and drips all the time.
+    this.acidTime += dt;
+    this.acidMaterial.opacity = 0.28 + Math.sin(this.acidTime * 7) * 0.1;
+    for (const l of this.blocks) {
+      if (!l.alive || !l.acid) continue;
+      l.acid.timer -= dt;
+      if (Math.random() < dt * 9) {
+        const top = this.size * (0.45 + 0.55 * Math.max(0, l.hp / l.maxHp));
+        this.effects.fire.emit({
+          x: l.x + rnd.spread(0.65), y: top + 0.05, z: l.z + rnd.spread(0.65), vy: rnd.range(0.3, 0.9),
+          life: rnd.range(0.4, 0.7), size0: rnd.range(0.15, 0.3), size1: 0.03, color0: [0.7, 3.2, 0.5, 1], color1: [0.2, 1.2, 0.1, 0],
+        });
+      }
+      if (l.acid.timer <= 0) {
+        l.acid.timer += GameConfig.blocks.acidTick;
+        const [lo, hi] = GameConfig.blocks.acidDamage;
+        this.damage(l, lo + Math.random() * (hi - lo), tmp.set(l.x, this.size * 0.6, l.z));
+        if (l.alive) {
+          this.writeMatrix(l);
+          dirty = true;
+        }
       }
     }
     this.sparkleTimer = (this.sparkleTimer ?? 0) - dt;

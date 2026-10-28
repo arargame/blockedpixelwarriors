@@ -54,11 +54,13 @@ export class ProjectileSystem {
    * @param {THREE.Vector3} direction
    * @param {{alive: () => boolean, position: (out: THREE.Vector3) => THREE.Vector3}} [target] homing target
    */
-  spawn(kind, position, direction, target = null, { tint = null, damageMul = 1, aimed = false } = {}) {
+  spawn(kind, position, direction, target = null, { tint = null, damageMul = 1, aimed = false, gem = null, crit = false } = {}) {
     const def = PROJECTILE_KINDS[kind];
     this.items.push({
       target,
       aimed,
+      gem,
+      crit,
       tint: tint ? new THREE.Color(tint) : null,
       damage: def.damage * damageMul,
       kind,
@@ -104,6 +106,12 @@ export class ProjectileSystem {
 
       p.trailTimer -= dt;
       if (p.trailTimer <= 0) {
+        if (p.gem === 'red' || p.gem === 'green') {
+          // Power shots trail embers, acid shots drip green droplets.
+          p.trailTimer = 0.03;
+          const acid = p.gem === 'green';
+          fx.fire.emit({ x: p.pos.x, y: p.pos.y, z: p.pos.z, vx: rnd.spread(0.5), vy: acid ? -1.5 : rnd.spread(0.5), vz: rnd.spread(0.5), life: acid ? 0.35 : 0.25, size0: acid ? 0.22 : 0.35, size1: 0.04, color0: acid ? [0.6, 3, 0.4, 1] : [5, 1.8, 0.3, 1], color1: acid ? [0.2, 1, 0.1, 0] : [2, 0.4, 0.05, 0] });
+        }
         if (p.kind === 'plasma') {
           p.trailTimer = 0.03;
           fx.fire.emit({ x: p.pos.x, y: p.pos.y, z: p.pos.z, vx: rnd.spread(0.4), vy: rnd.spread(0.4), vz: rnd.spread(0.4), life: 0.25, size0: 0.32, size1: 0.05, color0: [0.6, 0.9, 2.6, 1], color1: [0.9, 0.2, 1.6, 0] });
@@ -201,7 +209,20 @@ export class ProjectileSystem {
       const z = p.pos.z;
       if (p.tint && (p.kind === 'tracer' || p.kind === 'plasma' || p.kind === 'nova')) {
         const c = p.tint;
-        const big = p.kind === 'plasma' ? 1.5 : p.kind === 'nova' ? 1.2 : 1;
+        const big = (p.kind === 'plasma' ? 1.5 : p.kind === 'nova' ? 1.2 : 1) * (p.gem === 'red' ? 1.6 : 1) * (p.crit ? 1.3 : 1);
+        if (p.gem === 'black') {
+          // Obsidian bolt: dark core (normal blending) inside a violet halo; crits flare red.
+          this.tracerBodies.push(x, y, z, 0.34 * big, 1.9 * big, 0.04, 0.03, 0.06, 1, 0, v.x, v.y, v.z);
+          this.glows.push(x, y, z, 1.0 * big, 1.0 * big, p.crit ? 3 : 1.2, p.crit ? 0.4 : 0.6, p.crit ? 0.6 : 2.6, 1);
+          continue;
+        }
+        if (p.gem === 'red') {
+          // Power shot: fat flame bolt with a hot white core.
+          this.streaks.push(x, y, z, 0.5 * big, 2.2 * big, 5, 1.6, 0.4, 1, 0, v.x, v.y, v.z);
+          this.glows.push(x, y, z, 1.1 * big, 1.1 * big, 4, 1.2, 0.3, 1);
+          this.glows.push(x, y, z, 0.4 * big, 0.4 * big, 5, 4, 3, 1);
+          continue;
+        }
         this.streaks.push(x, y, z, 0.42 * big, 1.9 * big, c.r * 4, c.g * 4, c.b * 4, 1, 0, v.x, v.y, v.z);
         this.glows.push(x, y, z, 0.95 * big, 0.95 * big, c.r * 3, c.g * 3, c.b * 3, 1);
         this.glows.push(x, y, z, 0.32 * big, 0.32 * big, 4, 4, 4, 1);

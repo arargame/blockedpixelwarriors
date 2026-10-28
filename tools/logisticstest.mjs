@@ -19,6 +19,9 @@ out.setup = await page.evaluate(() => {
   g.weaponTimers.main = 1e9; g.updateWeapons = () => {};
   const L = g.logistics; const B = g.blocks;
   const V = g.heli.position.constructor;
+  // The engineer only comes with the FIELD ENGINEER card: hire him and wait for the drop-off.
+  L.hireEngineer();
+  for (let i = 0; i < 30 * 40 && !L.enabled; i++) g.step(1 / 30);
   // Six cubes "knocked off the train" at various rows.
   const colors = ['red', 'green', 'teal', 'red', 'yellow', 'teal'];
   colors.forEach((c, i) => B.dropFromTrain(new V(3, 3, -7 + i * 3), c));

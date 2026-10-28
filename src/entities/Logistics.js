@@ -127,6 +127,7 @@ class Engineer {
 
   /** Cells the forklift occupies or is about to (no block may fall there). */
   reserved(c, r) {
+    if (!this.active) return false;
     if (this.cell[0] === c && this.cell[1] === r) return true;
     const next = this.path[0];
     return !!next && next[0] === c && next[1] === r;
@@ -219,7 +220,22 @@ class Engineer {
     return true;
   }
 
+  /** Puts the forklift into service on `cell` (after the chopper set it down). */
+  activate(cell) {
+    const c = this.blocks.cellCenter(cell[0], cell[1]);
+    this.cell = cell;
+    this.root.position.set(c.x, 0, c.z);
+    this.root.rotation.set(0, this.yaw, 0);
+    this.state = 'idle';
+    this.path = [];
+    this.carry = null;
+    this.crate.visible = false;
+    this.think = 0.6;
+    this.active = true;
+  }
+
   update(dt, dock, effects, onPlaced) {
+    if (!this.active) return;
     this.time += dt;
     const B = this.blocks;
     const speed = GameConfig.logistics.forkliftSpeed;
@@ -542,6 +558,22 @@ class Chinook {
     this.waitTimer = 0;
   }
 
+  /**
+   * Special run: brings `cargo` (the engineer's forklift) slung under the belly and lowers it
+   * onto the board at `spot`, then leaves. `onDropped` fires when it touches down.
+   */
+  deliver(cargo, spot, blocks, onDropped) {
+    this.dockX = blocks.cellCenter(GameConfig.logistics.dockCol, 0).x;
+    this.root.position.set(spot.x - 32, 13, spot.z);
+    this.vel.set(10, 0, 0);
+    this.yaw = this.wantYaw = yawFor(1, 0);
+    this.target.set(spot.x, this.hoverY + 1.2, spot.z);
+    this.state = 'dApproach';
+    this.root.visible = true;
+    this.loaded = 0;
+    this.sling = { cargo, spot, onDropped, t: 0 };
+  }
+
   /** Critically damped move toward `target`. */
   steer(dt, stiffness = 1.6) {
     const p = this.root.position;
@@ -558,7 +590,41 @@ class Chinook {
     for (const [i, r] of this.rotors.entries()) r.rotation.y += (i ? -1 : 1) * dt * 26;
     const p = this.root.position;
 
-    if (this.state === 'approach') {
+    if (this.sling && (this.state === 'dApproach' || this.state === 'dLower')) {
+      const s = this.sling;
+      const belly = p.y + 0.15;
+      let hookY;
+      if (this.state === 'dApproach') {
+        const d = this.steer(dt, 0.9);
+        hookY = belly - 1.0;
+        if (d < 0.4 && this.vel.length() < 0.8) this.state = 'dLower';
+      } else {
+        this.steer(dt, 1.8);
+        s.t += dt;
+        const u = Math.min(1, s.t / 2.4);
+        hookY = THREE.MathUtils.lerp(belly - 1.0, 2.0, u * u * (3 - 2 * u));
+        if (u >= 1) {
+          s.cargo.position.set(s.spot.x, 0, s.spot.z);
+          effects.snowPuff(tmp2.set(s.spot.x, 0.2, s.spot.z), 14);
+          effects.shatter(tmp2.set(s.spot.x, 0.25, s.spot.z), 0xcfc4b0, 8, 0.6, [0.08, 0.16]);
+          this.sling = null;
+          this.cable.visible = false;
+          s.onDropped?.();
+          this.state = 'depart';
+          this.wantYaw = yawFor(-1, 0);
+        }
+      }
+      if (this.sling) {
+        // Forklift hangs 2 units below the hook, swinging a little.
+        s.cargo.position.set(p.x + Math.sin(this.time * 1.7) * 0.06, hookY - 2.0, p.z);
+        s.cargo.rotation.set(0, this.yaw + Math.sin(this.time * 1.1) * 0.08, Math.sin(this.time * 1.7) * 0.03);
+        const pos = this.cable.geometry.attributes.position;
+        pos.setXYZ(0, p.x, belly, p.z);
+        pos.setXYZ(1, s.cargo.position.x, hookY, s.cargo.position.z);
+        pos.needsUpdate = true;
+        this.cable.visible = true;
+      }
+    } else if (this.state === 'approach') {
       const d = this.steer(dt, 0.9);
       if (d < 0.6) {
         this.state = 'turn';
@@ -670,15 +736,61 @@ export class Logistics {
     this.chinook = new Chinook(chinookGltf, scene);
     blocks.isReserved = (c, r) => this.engineer.reserved(c, r);
     blocks.reachableCells = () => this.engineer.reachable(this.dock);
+    // Train cargo only becomes protected, collectable cargo once the engineer is on duty.
+    blocks.cargoEnabled = () => this.enabled;
     this.onDelivered = null;
     this.onChinookLeft = null;
     this.onPackaged = null;
     this.reset();
   }
 
+  /** Back to the start of a run: no engineer yet (he comes with the FIELD ENGINEER card). */
   reset() {
     this.delivered = { red: 0, green: 0, blue: 0 };
     this.timer = GameConfig.logistics.chinookInterval;
+    this.enabled = false;
+    this.hiring = false;
+    this.engineer.active = false;
+    this.engineer.root.visible = false;
+    this.dock.clear();
+    const ch = this.chinook;
+    ch.state = 'away';
+    ch.root.visible = false;
+    ch.cable.visible = false;
+    ch.sling = null;
+  }
+
+  /**
+   * FIELD ENGINEER card: the cargo chopper flies the forklift in and lowers it onto a free yard
+   * cell near the middle of the board; from then on the engineer works and the chopper's
+   * 2-minute schedule starts.
+   */
+  hireEngineer() {
+    if (this.enabled || this.hiring) return;
+    this.hiring = true;
+    const B = this.blocks;
+    let best = [2, 6];
+    let bestD = Infinity;
+    for (let c = 1; c < B.cols; c++) {
+      if (!B.isYardCell(c)) continue;
+      for (let r = 1; r < B.rows - 1; r++) {
+        const l = B.cells.get(B.key(c, r));
+        if (l && l.alive) continue;
+        const d = (c - 3) ** 2 + (r - 6) ** 2;
+        if (d < bestD) { bestD = d; best = [c, r]; }
+      }
+    }
+    const spot = B.cellCenter(best[0], best[1]);
+    const e = this.engineer;
+    e.root.visible = true;
+    e.yaw = yawFor(1, 0);
+    this.chinook.deliver(e.root, spot, B, () => {
+      e.activate(best);
+      this.enabled = true;
+      this.hiring = false;
+      this.timer = GameConfig.logistics.chinookInterval;
+      this.onEngineerReady?.();
+    });
   }
 
   get missionComplete() {
@@ -698,7 +810,7 @@ export class Logistics {
   update(dt, clockRunning) {
     this.engineer.update(dt, this.dock, this.effects, (color) => this.onPackaged?.(color));
     this.dock.update(dt, this.effects);
-    if (!this.chinook.active && clockRunning) {
+    if (this.enabled && !this.chinook.active && clockRunning) {
       this.timer -= dt;
       if (this.timer <= 0) {
         this.chinook.arrive(this.dock, this.blocks);
@@ -718,7 +830,7 @@ export class Logistics {
   /** Rotor wash / wheels push settled floor snow away. */
   snowClearers(out) {
     const e = this.engineer.root.position;
-    out.push({ x: e.x, z: e.z, r: 0.9, rate: 4 });
+    if (this.engineer.active) out.push({ x: e.x, z: e.z, r: 0.9, rate: 4 });
     if (this.chinook.active) {
       const p = this.chinook.root.position;
       if (p.y < 8) out.push({ x: p.x, z: p.z, r: 4.5, rate: 2.2 * (1 - p.y / 8) + 0.6, puffs: true });

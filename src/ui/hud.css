@@ -509,3 +509,78 @@ body {
   .chopper { min-width: 0; }
   .dock { display: none; }
 }
+
+.mission.off, .chopper.off { display: none; }
+
+/* Floating combat text (black gem critical). */
+.float-text {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-weight: 900;
+  font-size: 32px;
+  letter-spacing: 1px;
+  pointer-events: none;
+  -webkit-text-stroke: 1.5px #fff;
+  text-shadow: 0 3px 0 #2a0000, 0 0 12px rgba(255, 40, 40, 0.8);
+  animation: float-up 0.9s ease-out forwards;
+  z-index: 5;
+}
+@keyframes float-up {
+  0% { opacity: 0; transform: translate(-50%, -30%) scale(0.6); }
+  15% { opacity: 1; transform: translate(-50%, -60%) scale(1.25); }
+  30% { transform: translate(-50%, -75%) scale(1); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--drift)), -230%) scale(0.95); }
+}
+
+/* Upgrade card screen: heading above the 3D cards, hint below. */
+.card-ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s;
+  z-index: 4;
+}
+.card-ui.visible { opacity: 1; }
+.card-ui::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(8, 8, 10, 0.62) 0%, rgba(8, 8, 10, 0) 24%, rgba(8, 8, 10, 0) 78%, rgba(8, 8, 10, 0.6) 100%);
+}
+.card-heading {
+  position: absolute;
+  top: 5.5%;
+  left: 0; right: 0;
+  text-align: center;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(20px, 3.4vw, 40px);
+  letter-spacing: 0.32em;
+  color: #f6dc91;
+  text-shadow: 0 2px 0 #1a1004, 0 0 3px #000, 0 0 24px rgba(255, 200, 90, 0.45);
+}
+.card-sub {
+  position: absolute;
+  top: calc(5.5% + clamp(30px, 4.6vw, 54px));
+  left: 0; right: 0;
+  text-align: center;
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-size: clamp(11px, 1.3vw, 15px);
+  letter-spacing: 0.2em;
+  color: rgba(245, 238, 222, 0.9);
+  text-shadow: 0 1px 2px #000;
+}
+.card-hint {
+  position: absolute;
+  bottom: 13%;
+  text-shadow: 0 1px 2px #000;
+  left: 0; right: 0;
+  text-align: center;
+  font-size: clamp(10px, 1.2vw, 13px);
+  letter-spacing: 0.25em;
+  color: rgba(240, 235, 225, 0.8);
+  text-transform: uppercase;
+}
+.card-hint b { color: #f3d78a; border: 1px solid rgba(243, 215, 138, 0.7); border-radius: 3px; padding: 0 5px; }

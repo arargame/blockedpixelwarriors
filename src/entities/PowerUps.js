@@ -16,8 +16,23 @@ export const POWERUPS = Object.freeze({
   G: { name: 'GEM POWER', css: '#ffffff', color: 0xffffff, timed: true },
 });
 
-/** Gem colours (Blocked Pixel Panzer 3D palette): ruby, emerald, sapphire, topaz, aqua. */
-export const GEM_COLORS = Object.freeze([0xf43745, 0x62e153, 0x4184f8, 0xffcf2d, 0x2ae5ec]);
+/**
+ * Gems (Blocked's colour ammo). While a gem is active every shot takes its colour and effect:
+ *   blue   RAPID FIRE  - guns fire twice as fast
+ *   green  ACID        - hit blocks turn green and melt: they lose HP every second
+ *   red    POWER SHOT  - heavy fiery bolts (x2.5 damage)
+ *   black  CRITICAL    - 20% of shots crit for x3 damage with a "CRITICAL!" pop-up
+ * They only drop from blocks once the GEM MINE card is taken.
+ */
+export const GEMS = Object.freeze({
+  blue: { name: 'RAPID FIRE', color: 0x3f8cff, css: '#5ab8ff', glow: 0x4f9cff, damageMul: 1.2, rateMul: 2 },
+  green: { name: 'ACID', color: 0x55e04a, css: '#7be86a', glow: 0x62e153, damageMul: 1, rateMul: 1, acid: true },
+  red: { name: 'POWER SHOT', color: 0xf43745, css: '#ff6b6b', glow: 0xff4a3a, damageMul: 2.5, rateMul: 1, power: true },
+  black: { name: 'CRITICAL', color: 0x1c1a22, css: '#c9b8ff', glow: 0x8a6cff, damageMul: 1.5, rateMul: 1, critChance: 0.2, critMul: 3 },
+});
+export const GEM_KINDS = Object.freeze(Object.keys(GEMS));
+/** @deprecated kept for older call sites: gem body colours. */
+export const GEM_COLORS = Object.freeze(GEM_KINDS.map((k) => GEMS[k].color));
 
 const cssOf = (hex) => `#${hex.toString(16).padStart(6, '0')}`;
 
@@ -44,6 +59,12 @@ export class PowerUpSystem {
   /** Current gem tint (THREE.Color hex) or null. */
   get gemColor() {
     return this.active.get('G')?.color ?? null;
+  }
+
+  /** Active gem definition (GEMS entry + kind) or null. */
+  get gem() {
+    const g = this.active.get('G');
+    return g?.gem ? { kind: g.gem, ...GEMS[g.gem] } : null;
   }
 
   update(dt) {
@@ -96,22 +117,29 @@ export class SupplyCrates {
     this.onPickup = null;
   }
 
-  /** Spawns a supply of a uniformly random type (used when a supply block is destroyed). */
-  spawnRandom(position) {
-    const types = Object.keys(POWERUPS);
+  /**
+   * Spawns a supply of a uniformly random type (used when a supply block is destroyed).
+   * Gems are only in the pool once the GEM MINE card has been taken (`gems`).
+   */
+  spawnRandom(position, gems = true) {
+    const types = Object.keys(POWERUPS).filter((t) => gems || t !== 'G');
     return this.spawn(types[Math.floor(Math.random() * types.length)], position);
   }
 
-  spawn(type, position) {
+  spawn(type, position, gemKind = null) {
+    let gem = null;
     let mesh;
     let color = POWERUPS[type].color;
     if (type === 'H') {
       mesh = this.firstAid.clone();
     } else if (type === 'G') {
-      color = GEM_COLORS[Math.floor(Math.random() * GEM_COLORS.length)];
+      gem = gemKind ?? GEM_KINDS[Math.floor(Math.random() * GEM_KINDS.length)];
+      const def = GEMS[gem];
+      color = def.color;
+      const black = gem === 'black';
       mesh = new THREE.Mesh(this.gemGeometry, new THREE.MeshPhysicalMaterial({
-        color, emissive: color, emissiveIntensity: 0.18, roughness: 0.04, metalness: 0.35,
-        clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 2.2, flatShading: true,
+        color, emissive: black ? 0x3a2a66 : color, emissiveIntensity: black ? 0.5 : 0.18, roughness: 0.04, metalness: black ? 0.6 : 0.35,
+        clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: black ? 3 : 2.2, flatShading: true,
       }));
       mesh.scale.set(0.62, 1.25, 0.62);
     } else {
@@ -119,10 +147,10 @@ export class SupplyCrates {
     }
     mesh.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     const glow = new THREE.Sprite(this.glowMaterial.clone());
-    glow.material.color.set(color).multiplyScalar(type === 'G' ? 1.1 : 1.4);
+    glow.material.color.set(gem ? GEMS[gem].glow : color).multiplyScalar(type === 'G' ? 1.1 : 1.4);
     glow.scale.setScalar(type === 'G' ? 2.6 : 2.2);
     const item = {
-      type, mesh, glow, color,
+      type, mesh, glow, color, gem,
       pos: position.clone(),
       vel: new THREE.Vector3((Math.random() - 0.5) * 1.5, 5.5, (Math.random() - 0.5) * 1.5),
       landed: false, pulled: false, age: 0, spin: Math.random() * 6,
@@ -176,7 +204,7 @@ export class SupplyCrates {
       it.glow.position.y = 0.25;
       // Magnet trail sparkles.
       if (it.pulled && Math.random() < 0.6) {
-        const c = new THREE.Color(it.color);
+        const c = new THREE.Color(it.gem ? GEMS[it.gem].glow : it.color);
         this.effects.fire.emit({ x: it.pos.x, y: it.pos.y, z: it.pos.z, life: 0.25, size0: 0.35, size1: 0.05, color0: [c.r * 3, c.g * 3, c.b * 3, 1], color1: [c.r, c.g, c.b, 0] });
       }
       // Blink during the last seconds (not while being pulled in).

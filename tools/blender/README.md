@@ -43,3 +43,15 @@ python tools/blender/build_props.py --only chinook --render captures   # tek mod
 
 Blender içinden: **Scripting** > **Open** > `tools/blender/build_props.py` > **Run Script** (üçünü de kurar).
 Oyuna yansıması için `npm run build`.
+
+# Geliştirme kartı
+
+`build_card.py` poker kartı inceliğinde (0,63 × 0,88 × 0,003) bir kart üretir: yuvarlak köşeler,
+kabartma altın çift çerçeve, köşe elmasları, tepede taş ve kenarlardan taşıp arkaya kıvrılan 3D kurdele.
+Malzeme adları oyunda kullanılır: `CardFront` (yüz: resim + açıklama), `CardBack`, `CardEdge`, `CardGold`,
+`CardJewel` (karta göre renklenir), `CardBanner` (başlık yazısı), `CardTail`.
+
+```bash
+python tools/blender/build_card.py                                                        # card.glb + card.blend
+python tools/blender/build_card.py --render captures --art assets/textures/cards/engineer.jpg   # sadece önizleme
+```

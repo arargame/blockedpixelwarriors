@@ -21,6 +21,8 @@ export class GradePass extends ShaderPass {
         uHaze: { value: new THREE.Color(0.75, 0.88, 1.0) },
         uHazeStrength: { value: 0.0 },
         uTint: { value: new THREE.Color(1.04, 1.0, 0.95) },
+        // 0..1: drains the world to an ash-grey monochrome (upgrade card screen).
+        uAsh: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -39,6 +41,7 @@ export class GradePass extends ShaderPass {
         uniform vec3 uHaze;
         uniform float uHazeStrength;
         uniform vec3 uTint;
+        uniform float uAsh;
         varying vec2 vUv;
         void main() {
           vec3 c = texture2D(tDiffuse, vUv).rgb * uExposure * uTint;
@@ -54,6 +57,11 @@ export class GradePass extends ShaderPass {
 
           vec2 v = vUv - 0.5;
           c *= 1.0 - dot(v, v) * uVignette;
+          // Ash: colourless, slightly darker and flatter, with a heavier vignette.
+          float al = dot(c, vec3(0.2126, 0.7152, 0.0722));
+          vec3 ash = vec3(0.92, 0.93, 0.96) * (al * 0.62 + 0.03);
+          ash *= 1.0 - dot(v, v) * 1.1;
+          c = mix(c, ash, uAsh);
           gl_FragColor = vec4(c, 1.0);
         }
       `,

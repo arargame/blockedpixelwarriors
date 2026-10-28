@@ -16,7 +16,8 @@ içinde.
 ### Görev
 
 Trenin vagonlarındaki **kırmızı, yeşil ve mavi** kutuları vurup aşağı düşür. Mühendis forkliftiyle
-onları en soldaki iskele sütununa dizer, kargo helikopteri de gelip götürür.
+onları en soldaki iskele sütununa dizer, kargo helikopteri de gelip götürür. Mühendis oyunun başında
+yoktur: ilk treni yenince çıkan **FIELD ENGINEER** kartıyla gelir.
 **100 kırmızı + 100 yeşil + 100 mavi** paket teslim edilince **görev tamamlanır**.
 
 ### Kontroller (klavye, pilot tarzı: helikopterin kendi gövdesine göre)
@@ -50,10 +51,38 @@ gelir ve toplanır. T/D/R/G 8-15 sn arası rastgele bir süre etkin kalır.
 - **D – 8 Yön:** 8 yöne ateş; her yön, o taraftaki hedefe göre yukarı/aşağı nişan alır
 - **R – Güdümlü Roket:** yakındaki rastgele hedeflere güdümlü roketler (Blender'da modellendi, duman izi ve alevle)
 - **H – Tamir Çantası:** anında **+35 can**
-- **G – Mücevher Gücü:** sekizgen elmas (5 renk). Süre boyunca tüm atışlar elmasın rengini alır ve %25 fazla hasar verir.
+- **G – Elmas** (sadece **GEM MINE** kartından sonra düşer). Süre boyunca tüm atışlar elmasın rengini ve
+  etkisini alır (Blocked'daki kurallar):
+  - **Mavi – Hızlı Ateş:** silahlar 2 kat hızlı ateş eder.
+  - **Yeşil – Asit:** vurulan blok yeşile döner (artık yeşil komşularıyla zincirleme patlar), limon
+    yeşili parlar, köpürür ve her saniye 1-2 can kaybederek eriyip çöker. Kargo kutularına işlemez.
+  - **Kırmızı – Güçlü Atış:** iri, alevli mermiler; 2,5 kat hasar ve küçük patlamalar.
+  - **Siyah – Kritik:** atışların %20'si kritik vurur (3 kat hasar). Vurulan yerde kırmızı
+    **CRITICAL!** yazısı çıkar, ekran sarsılır.
 - Etkin olanlar sağ altta sohbet akışı gibi listelenir (ince beyaz çerçeveli çubuklar).
 
 Ayarlar: `GameConfig.supply`. Doğrulama: `node tools/poweruptest.mjs`.
+
+### Geliştirme kartları
+
+Bir tren yok edilince ~1,5 sn sonra ekrana **kartlar** gelir. Oyun **durmaz**, sadece dünya rengini
+kaybedip kül grisine döner; helikopteri uçurmaya devam edebilirsin. Kartlar arkası dönük olarak aşağıdan
+uçarak gelir, havada dönüp yüzünü gösterir ve hafifçe süzülür. Fareyle üstüne gelince kart öne çıkar,
+imlece doğru eğilir, arkası ışıldar ve yüzeyinde bir parlama geçer. **Tıkla / dokun** ya da **1 / 2**
+tuşuyla seç: seçilen kart ortaya gelip parlar ve oyuna karışarak kaybolur, diğeri aşağı düşer, renkler geri gelir.
+
+- **Kart modeli Blender'da** yapıldı (`tools/blender/build_card.py` → `assets/models/card.glb`): poker
+  kartı inceliğinde (0,3 mm oranında), yuvarlak köşeli, kabartma altın çift çerçeve, köşe elmasları,
+  tepede kart rengine göre parlayan bir taş ve kartın kenarlarından taşıp arkaya kıvrılan 3D kırmızı
+  kurdele afiş. Kartın yüzü (resim, tür etiketi, renkli anahtar kelimeli açıklama) ve kurdeledeki başlık
+  oyunda canvas ile çizilir, yani yeni kart eklemek için sadece bir resim ve metin yeter.
+- **İlk tren:** iki kart (sonrakilerde alınmamış olanlar):
+  - **FIELD ENGINEER (Lojistik):** kargo helikopteri mühendisi forkliftiyle birlikte halatla tahtaya
+    indirir. O andan itibaren kargo kutuları korunur, iskele, 2 dakikalık geri sayım ve görev paneli açılır.
+  - **GEM MINE (Güç):** kırılan bloklardan elmas çıkmaya başlar (%14; destek bloklarından da). Kart,
+    dört elmasın ne yaptığını da anlatır.
+- Kartlar `src/ui/UpgradeCards.js` → `CARD_DEFS` listesinde; resimler `assets/textures/cards/`.
+  Ayarlar: `GameConfig.cards`. Doğrulama: `node tools/cardtest.mjs`.
 
 ### Ekran göstergeleri (HUD)
 
@@ -97,7 +126,8 @@ Ayarlar: `GameConfig.supply`. Doğrulama: `node tools/poweruptest.mjs`.
   boş kareye düşer. Kırmızı, yeşil ve mavi küpler **kargo** olur: üzerlerinde koli bandı, barkodlu etiket
   ve "bu taraf yukarı" okları vardır. Sarılar sıradan blok olarak kalır.
 - **Mühendis:** kasketli, üniformalı, çizmeli bir asker sarı bir forklift kullanır (ikisi de Blender'da
-  modellendi). Karolar arasında yol bularak (BFS) en yakın kargoya gider, çatallarını altına sokup kaldırır
+  modellendi). **FIELD ENGINEER** kartı seçilene kadar sahada yoktur; o zamana kadar trenden düşen
+  kutular sıradan blok olur. Karolar arasında yol bularak (BFS) en yakın kargoya gider, çatallarını altına sokup kaldırır
   ve kutuyu **en soldaki sütuna (iskele)** taşır. Çalışırken turuncu tepe lambası yanıp söner.
   Önü bloklarla kapanırsa bekler; bloğu vurarak yolunu açabilirsin.
 - **Hediye paketleri:** iskeleye bırakılan kutu, **altın kurdeleli ve fiyonklu bir hediye paketine**
@@ -169,6 +199,7 @@ URL parametreleri:
 | Helikopter | `tools/blender/build_heli.py` | `assets/models/helicopter.glb / .blend` |
 | Güdümlü roket | `tools/blender/build_rocket.py` | `assets/models/rocket.glb / .blend` |
 | Taret mermisi, forklift + mühendis asker, CH-47F Chinook | `tools/blender/build_props.py` | `assets/models/bullet.glb`, `forklift.glb`, `chinook.glb` (+ `.blend`) |
+| Geliştirme kartı | `tools/blender/build_card.py` | `assets/models/card.glb / .blend` |
 
 Oyun `.glb` dosyalarını yükler; yüklenemezse basit yedek modellere döner. Ayrıntılar: `tools/blender/README.md`.
 
@@ -198,6 +229,7 @@ node tools/traintest.mjs                                       # akıllı nişan
 node tools/weapontest.mjs                                      # çift taret mermisi, toplar, kırılan taretler, kalkan
 node tools/logisticstest.mjs                                   # forklift, iskele, Chinook, geri sayım, görev sonu
 node tools/snowtest.mjs                                        # karolarda kar birikmesi ve erimesi
+node tools/cardtest.mjs                                        # kartlar, gri dünya, mühendisin inişi, elmas etkileri
 node tools/verify-dist.mjs                                     # dist dosyasını file:// ile aç
 ```
 
