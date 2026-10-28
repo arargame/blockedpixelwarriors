@@ -1,0 +1,459 @@
+:root {
+  --hud-font: 'Arial Black', 'Segoe UI Black', Impact, system-ui, sans-serif;
+  --hud-dark: #1b1d21;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #9fd2ff;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+#app canvas {
+  display: block;
+}
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--hud-font);
+  color: #fff;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  box-sizing: border-box;
+}
+
+.hud-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hud-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(20, 28, 40, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(4px);
+}
+
+.hud-panel .label {
+  font-size: 11px;
+  letter-spacing: 2px;
+  opacity: 0.8;
+}
+
+.hud-panel .value {
+  font-size: clamp(18px, 3.2vw, 30px);
+  text-shadow: 0 3px 0 var(--hud-dark);
+}
+
+.hud-bottom {
+  position: absolute;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hud-lives .heart {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  margin-right: 4px;
+  background: #ff3b3b;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  transform: rotate(45deg) scale(0.8);
+  box-shadow: 0 2px 0 var(--hud-dark);
+}
+
+.hud-health {
+  width: min(36vw, 220px);
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+}
+
+.hud-health-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4be04b, #b8ff5a);
+  transform-origin: left center;
+  transition: transform 0.2s ease;
+}
+
+.hud-health-fill.low {
+  background: linear-gradient(90deg, #ff3b3b, #ff9a3b);
+}
+
+.hud-toast {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translate(-50%, -10px);
+  font-size: clamp(16px, 3vw, 28px);
+  text-shadow: 0 3px 0 var(--hud-dark), 0 0 18px rgba(255, 120, 40, 0.8);
+  opacity: 0;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  white-space: nowrap;
+}
+
+.hud-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.hud-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: radial-gradient(ellipse at center, rgba(10, 30, 60, 0.15), rgba(10, 30, 60, 0.45));
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.hud-overlay.visible {
+  opacity: 1;
+}
+
+.logo {
+  text-align: center;
+  line-height: 0.92;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.voxel-logo {
+  display: block;
+  width: min(62vw, 620px);
+  height: auto;
+  filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.35));
+}
+.hud-overlay.poster .voxel-logo {
+  width: 36vw;
+}
+
+.logo-line {
+  font-size: clamp(42px, 9vw, 110px);
+  letter-spacing: 2px;
+  -webkit-text-stroke: 3px #17191d;
+  paint-order: stroke fill;
+}
+
+.logo-line.l1 {
+  color: #fff7e6;
+  text-shadow: 0 4px 0 #b8a98c, 0 8px 0 #17191d, 0 12px 18px rgba(0, 0, 0, 0.35);
+}
+
+.logo-line.l2 {
+  color: #ffcc2b;
+  background: linear-gradient(180deg, #fff27a 0%, #ffc21f 55%, #ff8c12 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 4px 0 #a85a00) drop-shadow(0 4px 0 #17191d);
+  font-size: clamp(36px, 7.5vw, 92px);
+}
+
+.logo-line.l3 {
+  color: #63d43a;
+  text-shadow: 0 4px 0 #2f7a1c, 0 8px 0 #17191d, 0 12px 18px rgba(0, 0, 0, 0.35);
+}
+
+.logo-sub {
+  margin-top: 10px;
+  font-size: clamp(14px, 2.4vw, 24px);
+  letter-spacing: 8px;
+  color: #fff;
+  text-shadow: 0 2px 0 #17191d;
+}
+
+.prompt {
+  font-size: clamp(16px, 2.6vw, 26px);
+  animation: pulse 1.2s ease-in-out infinite;
+  text-shadow: 0 3px 0 var(--hud-dark);
+}
+
+.help {
+  font-family: system-ui, sans-serif;
+  font-weight: 700;
+  font-size: clamp(12px, 1.6vw, 16px);
+  text-align: center;
+  opacity: 0.92;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+.gameover {
+  font-size: clamp(40px, 8vw, 96px);
+  color: #ff4a3b;
+  -webkit-text-stroke: 3px #17191d;
+  paint-order: stroke fill;
+  text-shadow: 0 6px 0 #17191d;
+}
+
+.final {
+  font-size: clamp(20px, 3.5vw, 36px);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+}
+
+.hud-overlay.poster {
+  background: none;
+  justify-content: flex-start;
+  align-items: flex-start;
+  padding: 0.6% 0 0 31.5%;
+  transition: none;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Active power-up feed (bottom right): stacked like a chat log, thin outlined bars.
+   --------------------------------------------------------------------------------------------- */
+.skill-feed {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.skill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(250px, 46vw);
+  padding: 7px 10px 8px 8px;
+  border-radius: 8px;
+  background: rgba(14, 20, 30, 0.42);
+  backdrop-filter: blur(4px);
+  animation: skill-in 0.35s ease-out;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.skill.leaving {
+  opacity: 0;
+  transform: translateX(24px);
+}
+@keyframes skill-in {
+  from { opacity: 0; transform: translateX(28px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.skill-key {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--skill-color);
+  color: #fff;
+  font-size: 15px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.25), inset 0 2px 0 rgba(255, 255, 255, 0.35);
+}
+.skill-body {
+  flex: 1;
+  min-width: 0;
+}
+.skill-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 5px;
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  color: rgba(255, 255, 255, 0.92);
+}
+.skill-time {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  opacity: 0.85;
+}
+/* White outline, a clear gap, then the white fill that drains toward the left. */
+.skill-bar {
+  height: 9px;
+  padding: 2px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+.skill-fill {
+  height: 100%;
+  background: #fff;
+  border-radius: 1px;
+  transform-origin: left center;
+  transition: transform 0.1s linear;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Top centre: segmented heli HP + train damage panel (car by car, left to right).
+   --------------------------------------------------------------------------------------------- */
+.hud-top { align-items: flex-start; }
+.hud-center {
+  flex: 1;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  pointer-events: none;
+}
+.hp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(14, 20, 30, 0.42);
+  backdrop-filter: blur(4px);
+}
+.hp-label, .hp-num {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.9);
+}
+.hp-num { min-width: 22px; text-align: right; font-variant-numeric: tabular-nums; }
+.seg-bar {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 3px;
+}
+.seg-bar i {
+  width: clamp(5px, 1.1vw, 10px);
+  height: 9px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 0.15s;
+}
+.seg-bar i.on { background: #6ee05a; box-shadow: 0 0 4px rgba(110, 224, 90, 0.6); }
+.seg-bar.low i.on { background: #ff4d4d; box-shadow: 0 0 5px rgba(255, 77, 77, 0.8); animation: hp-pulse 0.6s ease-in-out infinite alternate; }
+@keyframes hp-pulse { to { opacity: 0.45; } }
+
+.train-panel {
+  padding: 5px 8px 7px;
+  border-radius: 8px;
+  background: rgba(14, 20, 30, 0.42);
+  backdrop-filter: blur(4px);
+  transition: opacity 0.4s;
+}
+.train-panel.hidden { opacity: 0; }
+.train-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 4px;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.train-pct { font-variant-numeric: tabular-nums; }
+.train-panel.destroyed .train-pct { color: #ffcf2d; }
+.train-cars { display: flex; gap: 5px; }
+.car {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 3px;
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  border-radius: 3px;
+  transition: opacity 0.3s;
+}
+.car.loco { border-color: #ff5a64; }
+.car.wrecked { opacity: 0.35; }
+.car.wrecked::after {
+  content: '';
+  position: absolute;
+  left: -2px; right: -2px; top: 50%;
+  height: 1.5px;
+  background: #fff;
+  transform: rotate(-18deg);
+}
+.tick {
+  position: relative;
+  width: 6px;
+  height: 14px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.tick b {
+  position: absolute;
+  inset: 0;
+  background: var(--tick, #c9ced6);
+  transform-origin: bottom;
+  transition: transform 0.15s;
+}
+.tick.gem { width: 12px; --tick: #ff2a3a; }
+.tick.turret { --tick: #b8bec8; }
+.tick.hit b { filter: brightness(1.25); }
+.tick.dead { background: transparent; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); }
+
+.hud-notice {
+  position: absolute;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 18px;
+  text-shadow: 0 2px 0 #17191d;
+  opacity: 0;
+  pointer-events: none;
+}
+.hud-notice.show { animation: notice-up 1.2s ease-out; }
+@keyframes notice-up {
+  0% { opacity: 0; transform: translate(-50%, 10px); }
+  15% { opacity: 1; transform: translate(-50%, 0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -12px); }
+}
+@media (max-width: 700px) {
+  .hud-panel .label { font-size: 9px; }
+  .train-head { font-size: 8px; }
+  .tick { width: 4px; height: 11px; }
+  .tick.gem { width: 8px; }
+}
+
+/* Heli HP (bottom left): 20 segments x 5 HP = 100. */
+.hud-bottom .hp-row { padding: 6px 10px; }
+.hud-bottom .seg-bar i { width: clamp(7px, 1.25vw, 12px); height: 12px; }
+.hud-bottom .hp-num { font-size: 12px; min-width: 48px; }
+
+/* Damage feedback (Blocked style): red vignette from ~20% radius to the edges, darker rim. */
+.damage-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 30%, rgba(150, 0, 0, 0.2) 55%, rgba(200, 0, 0, 0.66) 84%, rgba(60, 0, 0, 0.85) 100%);
+}
