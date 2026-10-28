@@ -573,17 +573,81 @@ body {
   text-shadow: 0 1px 2px #000;
 }
 .card-hint {
-  position: absolute;
-  bottom: 13%;
-  text-shadow: 0 1px 2px #000;
-  left: 0; right: 0;
-  text-align: center;
-  font-size: clamp(10px, 1.2vw, 13px);
-  letter-spacing: 0.25em;
-  color: rgba(240, 235, 225, 0.8);
+  display: block;
+  margin-top: 6px;
+  font-style: normal;
+  font-family: system-ui, sans-serif;
+  font-size: clamp(9px, 1vw, 12px);
+  letter-spacing: 0.22em;
+  color: rgba(240, 235, 225, 0.85);
   text-transform: uppercase;
 }
+.card-sub-title { display: block; }
 .card-hint b { color: #f3d78a; border: 1px solid rgba(243, 215, 138, 0.7); border-radius: 3px; padding: 0 5px; }
 
 /* While the upgrade cards are up, toasts and notices stay out of the way. */
 .cards-open .hud-toast, .cards-open .hud-notice { opacity: 0 !important; transition: opacity 0.2s; }
+
+/* Card layer: its own full-resolution canvas above the game. */
+.card-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Log feed (bottom left, above the chopper timer): terminal / kill-feed lines. */
+.log-feed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  max-width: min(460px, 70vw);
+  pointer-events: none;
+}
+.log-line {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  padding: 3px 9px 3px 7px;
+  border-radius: 4px;
+  background: rgba(8, 12, 18, 0.58);
+  border-left: 2px solid rgba(110, 224, 90, 0.85);
+  font-family: Consolas, "SF Mono", Menlo, "Courier New", monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.4px;
+  color: #e9ecef;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  animation: log-in 0.25s ease-out;
+  transition: opacity 0.6s, transform 0.6s;
+}
+.log-line.event { border-left-color: #ffcf6a; }
+.log-line .log-prompt { color: #6ee05a; font-weight: 700; }
+.log-line.event .log-prompt { color: #ffcf6a; }
+.log-line:last-child { background: rgba(8, 12, 18, 0.72); }
+.log-line:last-child .log-text::after {
+  content: '_';
+  margin-left: 2px;
+  color: #6ee05a;
+  animation: log-caret 1s steps(1) infinite;
+}
+.log-line.waiting { opacity: 0; }
+.log-line.fading { opacity: 0; transform: translateX(-12px); }
+@keyframes log-in { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+@keyframes log-caret { 50% { opacity: 0; } }
+.log-ghost {
+  position: absolute;
+  transform-origin: left top;
+  white-space: nowrap;
+  color: #fff;
+  text-shadow: 0 3px 0 var(--hud-dark), 0 0 18px rgba(255, 120, 40, 0.8);
+  transition: transform 0.5s cubic-bezier(0.5, 0, 0.3, 1), opacity 0.5s ease-in;
+  pointer-events: none;
+  z-index: 6;
+}
+@media (max-width: 700px) {
+  .log-line { font-size: 10px; padding: 2px 6px; }
+}

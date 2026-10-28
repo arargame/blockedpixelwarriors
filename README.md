@@ -72,6 +72,14 @@ uçarak gelir, havada dönüp yüzünü gösterir ve hafifçe süzülür. Fareyl
 imlece doğru eğilir, arkası ışıldar ve yüzeyinde bir parlama geçer. **Tıkla / dokun** ya da **1 / 2**
 tuşuyla seç: seçilen kart ortaya gelip parlar ve oyuna karışarak kaybolur, diğeri aşağı düşer, renkler geri gelir.
 
+- **Resimlerin net görünmesi için:**
+  - Kartlar kendi ayrı tuvalinde (canvas), cihazın tam piksel yoğunluğunda çizilir. Oyun FPS için
+    çözünürlüğünü düşürse bile kartlar keskin kalır.
+  - Her kartın resmi, kurdelenin üstündeki pencereye o resmin **önemli noktasına** göre yerleşir
+    (`focus`) ve gerekirse biraz uzaklaşır (`zoom`); kenarlarda resmin bulanık bir kopyası kalır.
+  - **İnceleme modu:** fareyle resmin üstüne gelince kurdele ve yazı kaybolur, **resmin tamamı** kartın
+    üstünde görünür (Chinook'un taşıdığı kutular, sürpriz yumurtadaki toplar vb.). Yazının üstüne gelince
+    yazı geri gelir. Dokunmatik ekranda resme dokun = incele, kurdeleye dokun = seç.
 - **Kart modeli Blender'da** yapıldı (`tools/blender/build_card.py` → `assets/models/card.glb`): poker
   kartı inceliğinde (0,3 mm oranında), yuvarlak köşeli, kabartma altın çift çerçeve, köşe elmasları,
   tepede kart rengine göre parlayan bir taş ve kartın kenarlarından taşıp arkaya kıvrılan 3D kırmızı
@@ -102,6 +110,11 @@ tuşuyla seç: seçilen kart ortaya gelip parlar ve oyuna karışarak kaybolur, 
 ### Ekran göstergeleri (HUD)
 
 - **Sol alt, alttan yukarı:**
+  - En üstte **günlük akışı** (terminal / kill feed gibi): ekranın ortasında çıkan duyurular okunduktan
+    sonra küçülüp buraya uçar ve satır olarak bir süre kalır. Olaylar Counter-Strike'taki gibi
+    "KİM ➜ NE" yazılır: `HELI ➜ TURRET +100`, `ENGINEER ➜ RED PACKAGE → dock`,
+    `HELI ➜ BLUE GEM · RAPID FIRE`, `ARMORED TRAIN ➜ HELI ☠`... En fazla 6 satır, her biri ~9 sn
+    sonra kayarak kaybolur.
   - Helikopterin canı (100 can, 5'erlik 20 parça). %25'in altında kırmızı yanıp söner ve helikopterden
     ince kara duman çıkar.
   - Üstünde **kargo helikopteri geri sayımı** (2:00'dan geriye). Son 10 saniyede büyüyüp yanıp söner,
@@ -247,6 +260,7 @@ node tools/logisticstest.mjs                                   # forklift, iskel
 node tools/snowtest.mjs                                        # karolarda kar birikmesi ve erimesi
 node tools/cardtest.mjs                                        # kart teklifleri, mühendis, çift sıra, roket, sürpriz yumurta
 node tools/gemtest.mjs                                         # elmas etkileri: hızlı ateş, asit, güçlü atış, kritik
+node tools/cardviewtest.mjs                                    # kart netliği, inceleme modu, günlük akışı
 node tools/verify-dist.mjs                                     # dist dosyasını file:// ile aç
 ```
 

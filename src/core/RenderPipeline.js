@@ -118,15 +118,6 @@ export class RenderPipeline {
 
   render(deltaTime) {
     this.composer.render(deltaTime);
-    // Overlays drawn on top of the graded frame (upgrade cards keep their full colour).
-    if (this.overlay) {
-      const r = this.renderer;
-      const auto = r.autoClear;
-      r.autoClear = false;
-      r.clearDepth();
-      this.overlay(r, deltaTime);
-      r.autoClear = auto;
-    }
     this.adaptResolution(deltaTime);
   }
 

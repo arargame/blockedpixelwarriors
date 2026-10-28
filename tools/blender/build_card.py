@@ -182,7 +182,7 @@ def bezel(mat, x, y, z, r):
     return new_object("CardBezel", bm, [mat])
 
 
-def banner(mat_band, mat_tail, y0=-0.135, height=0.092, z0=T / 2 + 0.0009):
+def banner(mat_band, mat_tail, y0=-0.175, height=0.092, z0=T / 2 + 0.0009):
     """
     Ribbon band across the card, gently arched (centre higher) and bulging toward the viewer,
     overhanging both card edges; tails fold back behind the edges with a V-notch.

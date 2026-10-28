@@ -14,13 +14,16 @@ import { TrainModelFactory } from '../entities/TrainModels.js';
 import { SpikeMines } from '../entities/SpikeMines.js';
 import { Logistics } from '../entities/Logistics.js';
 import { Hud } from '../ui/Hud.js';
-import { PowerUpSystem, SupplyCrates, GEMS } from '../entities/PowerUps.js';
+import { PowerUpSystem, SupplyCrates, GEMS, POWERUPS } from '../entities/PowerUps.js';
 import { CardPicker, CARD_DEFS } from '../ui/UpgradeCards.js';
 import { fxRandom as rnd } from '../util/Random.js';
 import { Palette, BLOCK_COLOR_KEYS } from '../config/Palette.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
 
 const SCORE = Object.freeze({ block: 10, cargo: 25, turret: 100, gem: 500, mine: 50, supply: 50, delivery: 100 });
+// Kill-feed name colours.
+const FEED = Object.freeze({ heli: '#7be86a', train: '#ff6b6b', engineer: '#ffcf6a', grey: '#c9ced6' });
+const BOX_CSS = Object.freeze({ red: '#ff6b6b', green: '#7be86a', teal: '#5ab8ff', yellow: '#ffd34a' });
 const GameState = Object.freeze({ TITLE: 'title', PLAYING: 'playing', DEAD: 'dead', OVER: 'over', WON: 'won' });
 
 const v1 = new THREE.Vector3();
@@ -98,7 +101,10 @@ export class Game {
       if (block.type === 'supply' && this.state !== GameState.OVER) this.supplies.spawnRandom(v1.set(block.x, GameConfig.blockSize * 0.6, block.z), this.supplyPool);
       // GEM MINE card: ordinary blocks may crack open a gem too.
       else if (this.gemDrops && !block.cargo && Math.random() < GameConfig.cards.gemDropChance) this.supplies.spawn('G', v1.set(block.x, GameConfig.blockSize * 0.6, block.z));
-      if (block.cargo && this.state === GameState.PLAYING) this.hud.notice('CARGO LOST!', '#ff6b6b');
+      if (block.cargo && this.state === GameState.PLAYING) {
+        this.hud.notice('CARGO LOST!', '#ff6b6b');
+        this.hud.kill('HELI', FEED.heli, `${block.color === 'teal' ? 'BLUE' : block.color.toUpperCase()} CARGO`, BOX_CSS[block.color], ['✖ lost', '#ff8a7a']);
+      }
       if (depth > 0) this.shake = Math.max(this.shake, 0.12);
     };
     // Power-ups + supply crates (25% drop chance from destroyed board blocks).
@@ -106,6 +112,10 @@ export class Game {
     this.supplies = new SupplyCrates(this.scene, this.effects, this.textures, this.materials);
     this.supplies.onPickup = (type, item) => {
       this.addScore(SCORE.supply);
+      if (this.state === GameState.PLAYING) {
+        const gem = type === 'G' ? GEMS[item.gem] : null;
+        this.hud.kill('HELI', FEED.heli, gem ? `${item.gem.toUpperCase()} GEM · ${gem.name}` : POWERUPS[type].name, gem ? gem.css : POWERUPS[type].css);
+      }
       if (type === 'H') {
         const before = this.heli.hp;
         this.heli.hp = Math.min(GameConfig.heli.maxHp, this.heli.hp + GameConfig.supply.healAmount);
@@ -126,7 +136,10 @@ export class Game {
       scene: this.scene, blocks: this.blocks, materials: this.materials, effects: this.effects,
       forkliftGltf: options.forkliftGltf ?? null, chinookGltf: options.chinookGltf ?? null,
     });
-    this.logistics.onPackaged = () => this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
+    this.logistics.onPackaged = (color) => {
+      this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
+      if (color && this.state === GameState.PLAYING) this.hud.kill('ENGINEER', FEED.engineer, `${color === 'teal' ? 'BLUE' : color.toUpperCase()} PACKAGE`, BOX_CSS[color], ['→ dock', 'rgba(255,255,255,0.6)']);
+    };
     this.logistics.onChinookArrive = (count) => {
       if (this.state === GameState.PLAYING) this.hud.toast(count ? `CARGO CHOPPER INBOUND - ${count} PACKAGES` : 'CARGO CHOPPER INBOUND - DOCK IS EMPTY!');
     };
@@ -247,7 +260,9 @@ export class Game {
     this.train.onTargetDestroyed = (kind, position) => {
       this.addScore(SCORE[kind] ?? 0);
       this.shake = Math.max(this.shake, kind === 'gem' ? 0.9 : 0.25);
+      if (kind === 'turret') this.hud.kill('HELI', FEED.heli, 'TURRET', FEED.grey, [`+${SCORE.turret}`, '#ffd34a']);
       if (kind === 'gem') {
+        this.hud.kill('HELI', FEED.heli, `ARMORED TRAIN #${this.wave}`, FEED.train, ['☠', '#ff6b6b']);
         this.hud.toast('TRAIN DESTROYED! +500');
         if (!this.options.poster) this.cardTimer = GameConfig.cards.offerDelay;
       }
@@ -316,7 +331,9 @@ export class Game {
         if (this.mines.damage(mine, (p.damage ?? p.def.damage), point)) {
           this.addScore(SCORE.mine);
           // SURPRISE EGG balls crack open: 20% chance of a supply.
-          if (mine.egg && Math.random() < GameConfig.cards.eggSupplyChance) this.supplies.spawnRandom(v1.copy(mine.pos).setY(0.8), this.supplyPool);
+          const lucky = mine.egg && Math.random() < GameConfig.cards.eggSupplyChance;
+          if (lucky) this.supplies.spawnRandom(v1.copy(mine.pos).setY(0.8), this.supplyPool);
+          this.hud.kill('HELI', FEED.heli, mine.egg ? 'EGG BALL' : 'SPIKE BALL', FEED.grey, lucky ? ['+ SUPPLY', '#ffd34a'] : null);
         }
       });
       return true;
@@ -355,6 +372,7 @@ export class Game {
   }
 
   onHeliDestroyed() {
+    this.hud.kill('ARMORED TRAIN', FEED.train, 'HELI', FEED.heli, ['☠', '#ff6b6b']);
     this.effects.explosion(this.heli.position, 2.2, 0x6a9a33, 26);
     this.heli.object3d.visible = false;
     this.shake = 1.2;

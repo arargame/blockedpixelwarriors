@@ -21,6 +21,7 @@ export class Hud {
         <div class="hud-panel hud-wave"><span class="label">WAVE</span><span class="value" data-wave>1</span></div>
       </div>
       <div class="hud-bottom">
+        <div class="log-feed" data-log></div>
         <div class="mission" data-mission>
           <span class="mission-title">MISSION</span>
           <span class="mc red"><i></i><b data-m="red">0</b>/<em data-g="red">100</em></span>
@@ -77,6 +78,7 @@ export class Hud {
     this.missionEls = Object.fromEntries(['red', 'green', 'blue'].map((k) => [k, root.querySelector(`[data-m="${k}"]`)]));
     this.goalEls = Object.fromEntries(['red', 'green', 'blue'].map((k) => [k, root.querySelector(`[data-g="${k}"]`)]));
     this.dockEl = root.querySelector('[data-dock]');
+    this.logEl = root.querySelector('[data-log]');
     this.setLives(3);
   }
 
@@ -296,13 +298,89 @@ export class Hud {
     });
   }
 
-  toast(text) {
+  /**
+   * Big centre message. After it has been read it shrinks and flies down into the log feed
+   * (bottom left), where it stays for a while like a terminal line.
+   */
+  toast(text, color = '#ffcf6a') {
+    // A toast still on screen goes to the log right away.
+    if (this.toastPending) this.toastToLog(this.toastPending, false);
     this.toastEl.textContent = text;
     this.toastEl.classList.remove('show');
     void this.toastEl.offsetWidth;
     this.toastEl.classList.add('show');
+    this.toastPending = { text, color };
     clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => this.toastEl.classList.remove('show'), 2200);
+    this.toastTimer = setTimeout(() => {
+      const pending = this.toastPending;
+      this.toastPending = null;
+      if (pending) this.toastToLog(pending, true);
+      this.toastEl.classList.remove('show');
+    }, 2200);
+  }
+
+  /** Moves a toast into the log; with `fly`, a copy shrinks from the toast spot onto its line. */
+  toastToLog({ text, color }, fly) {
+    const line = this.log([[text, color]], { kind: 'event' });
+    if (!fly || !line || getComputedStyle(this.toastEl).opacity < 0.05) return;
+    const from = this.toastEl.getBoundingClientRect();
+    const to = line.querySelector('.log-text').getBoundingClientRect();
+    const host = this.root.getBoundingClientRect();
+    if (!from.width || !to.width) return;
+    const ghost = document.createElement('div');
+    ghost.className = 'log-ghost';
+    ghost.textContent = text;
+    const fs = parseFloat(getComputedStyle(this.toastEl).fontSize);
+    Object.assign(ghost.style, { left: `${from.left - host.left}px`, top: `${from.top - host.top}px`, fontSize: `${fs}px` });
+    this.root.appendChild(ghost);
+    line.classList.add('waiting');
+    const k = to.height / Math.max(1, from.height);
+    requestAnimationFrame(() => {
+      ghost.style.transform = `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(${Math.max(0.3, k)})`;
+      ghost.style.opacity = '0.2';
+    });
+    setTimeout(() => {
+      ghost.remove();
+      line.classList.remove('waiting');
+    }, 520);
+  }
+
+  /**
+   * Bottom-left feed (above the chopper timer): terminal-style lines that fade out after a while.
+   * `parts` is a list of [text, css colour?]; kill-feed style lines read "HELI ➜ TURRET".
+   * @returns {HTMLElement|null} the line
+   */
+  log(parts, { ttl = 9, kind = 'kill' } = {}) {
+    if (!this.logEl) return null;
+    const line = document.createElement('div');
+    line.className = `log-line ${kind}`;
+    const prompt = document.createElement('span');
+    prompt.className = 'log-prompt';
+    prompt.textContent = kind === 'kill' ? '›' : '$';
+    const body = document.createElement('span');
+    body.className = 'log-text';
+    for (const [text, color] of parts) {
+      const span = document.createElement('span');
+      span.textContent = text;
+      if (color) span.style.color = color;
+      body.appendChild(span);
+    }
+    line.append(prompt, body);
+    this.logEl.appendChild(line);
+    // Keep the feed short: the oldest lines scroll away.
+    while (this.logEl.children.length > 6) this.logEl.firstChild.remove();
+    setTimeout(() => {
+      line.classList.add('fading');
+      setTimeout(() => line.remove(), 700);
+    }, ttl * 1000);
+    return line;
+  }
+
+  /** Kill-feed line: who ➜ what. */
+  kill(who, whoColor, what, whatColor, extra = null) {
+    const parts = [[who, whoColor], ['  ➜  ', 'rgba(255,255,255,0.55)'], [what, whatColor]];
+    if (extra) parts.push([`  ${extra[0]}`, extra[1]]);
+    this.log(parts, { kind: 'kill' });
   }
 
   logoMarkup() {

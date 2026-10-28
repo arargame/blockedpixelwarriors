@@ -17,56 +17,61 @@ import surpriseEggArtUrl from '../../assets/textures/cards/surprise_egg.jpg?url'
 export const CARD_DEFS = Object.freeze([
   {
     id: 'engineer',
+    // Art framing above the banner: vertical point of interest (0 top..1 bottom) and zoom (<1 shows more).
+    focus: 0.5,
+    zoom: 0.9,
     title: 'FIELD ENGINEER',
     kind: 'LOGISTICS',
     art: engineerArtUrl,
     jewel: 0xff9a2a,
     glow: 0xffb050,
     text: [
-      ['A cargo chopper drops off an '], ['engineer', '#ffcf6a'], [' with his '], ['forklift', '#ffcf6a'], ['.\n'],
-      ['He gathers the '], ['red', '#ff6b6b'], [', '], ['green', '#7be86a'], [' and '], ['blue', '#5ab8ff'],
-      [' cubes you shoot off the train and lines them up as gift packages on the dock.'],
-    ],
-  },
+      ['The chopper drops off an '], ['engineer', '#ffcf6a'], [' with a '], ['forklift', '#ffcf6a'], ['. He stacks the '],
+      ['red', '#ff6b6b'], [', '], ['green', '#7be86a'], [' and '], ['blue', '#5ab8ff'], [' cubes you shoot off the train on the dock.'],
+    ],  },
   {
     id: 'cargoChopper',
+    focus: 0.5,
+    zoom: 0.84,
     title: 'CARGO CHOPPER',
     kind: 'LOGISTICS',
     art: cargoChopperArtUrl,
     jewel: 0xe8c23a,
     glow: 0xffd860,
     text: [
-      ['The '], ['CH-47F Chinook', '#ffcf6a'], [' comes back '], ['every 2 minutes', '#ffcf6a'], [' and winches the gift packages up from the dock.\n'],
-      ['Every delivered package counts toward the mission. '], ['Without it the mission cannot be completed.', '#ff8a7a'],
-    ],
-  },
+      ['The '], ['Chinook', '#ffcf6a'], [' returns '], ['every 2 minutes', '#ffcf6a'], [' to winch the packages off the dock. '],
+      ['No mission without it.', '#ff8a7a'],
+    ],  },
   {
     id: 'gemMine',
+    focus: 0.46,
+    zoom: 0.9,
     title: 'GEM MINE',
     kind: 'POWER',
     art: gemMineArtUrl,
     jewel: 0x47c8ff,
     glow: 0x7fd0ff,
     text: [
-      ['Destroyed blocks may now drop '], ['gems', '#ffe08a'], ['.\n'],
-      ['Blue', '#5ab8ff'], [' rapid fire  ·  '], ['Green', '#7be86a'], [' acid melts blocks\n'],
-      ['Red', '#ff6b6b'], [' power shots  ·  '], ['Black', '#c9b8ff'], [' critical hits'],
-    ],
-  },
+      ['Blocks may drop '], ['gems', '#ffe08a'], ['.\n'],
+      ['Blue', '#5ab8ff'], [' rapid fire · '], ['Green', '#7be86a'], [' acid\n'],
+      ['Red', '#ff6b6b'], [' power · '], ['Black', '#c9b8ff'], [' critical'],
+    ],  },
   {
     id: 'homing',
+    focus: 0.44,
+    zoom: 0.88,
     title: 'HOMING ROCKETS',
     kind: 'POWER',
     art: homingArtUrl,
     jewel: 0xff6a4a,
     glow: 0xff8a5a,
     text: [
-      ['Unlocks the '], ['R', '#ff8a5a'], [' supply: '], ['homing rockets', '#ff8a5a'], [' fired from the wing pods curve onto nearby targets.\n'],
-      ['Until you take this card, supply blocks never drop it.'],
-    ],
-  },
+      ['Unlocks the '], ['R', '#ff8a5a'], [' supply: '], ['homing rockets', '#ff8a5a'], [' that curve onto nearby targets. Never dropped before this card.'],
+    ],  },
   {
     id: 'doubleRow',
+    focus: 0.6,
+    zoom: 0.86,
     title: 'DOUBLE ROW',
     kind: 'LOGISTICS',
     art: doubleRowArtUrl,
@@ -74,30 +79,31 @@ export const CARD_DEFS = Object.freeze([
     jewel: 0x7be86a,
     glow: 0x9cff8a,
     text: [
-      ['The dock gets a '], ['second lane', '#ffcf6a'], [': the engineer can line up '], ['twice as many', '#ffcf6a'], [' gift packages.\n'],
-      ['When the dock is full he has to wait for the chopper.'],
-    ],
-  },
+      ['A '], ['second dock lane', '#ffcf6a'], [': the engineer lines up '], ['twice as many', '#ffcf6a'], [' packages before the chopper comes.'],
+    ],  },
   {
     id: 'surpriseEgg',
+    focus: 0.66,
+    zoom: 0.86,
     title: 'SURPRISE EGG',
     kind: 'SUPPLY',
     art: surpriseEggArtUrl,
     jewel: 0xffd34a,
     glow: 0xffe08a,
     text: [
-      ['Whenever the board runs '], ['out of blocks', '#ffcf6a'], [', '], ['3 spiked balls', '#ffcf6a'], [' drop from the sky and roll around.\n'],
-      ['Blow them up: each has a '], ['20%', '#7be86a'], [' chance to drop a supply. Ammo while you wait for the next train.'],
-    ],
-  },
+      ['Board '], ['out of blocks', '#ffcf6a'], ['? '], ['3 spiked balls', '#ffcf6a'], [' drop from the sky. Each one blown up has a '],
+      ['20%', '#7be86a'], [' chance to drop a supply.'],
+    ],  },
 ]);
 
 const CARD_W = 0.63;
 const CARD_H = 0.88;
-const FRONT_W = 1024;
+const FRONT_W = 1280;
 const FRONT_H = Math.round(FRONT_W * CARD_H / CARD_W);
 // Banner band in card space (matches tools/blender/build_card.py): centre y, height, span.
-const BANNER = { y0: -0.135, h: 0.092, span: CARD_W + 0.07 };
+const BANNER = { y0: -0.175, h: 0.092, span: CARD_W + 0.07 };
+// Card-space y above which the pointer is "on the picture" (inspect mode).
+const ART_EDGE = BANNER.y0 + BANNER.h / 2 + 0.01;
 const SERIF = 'Georgia, "Times New Roman", serif';
 
 const loadImage = (url) => new Promise((resolve) => {
@@ -128,8 +134,19 @@ export class CardPicker {
     this.template = cardGltf?.scene ?? null;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(30, 16 / 9, 0.1, 20);
-    this.camera.position.set(0, 0, 2.75);
-    const pmrem = new THREE.PMREMGenerator(pipeline.renderer);
+    this.camera.position.set(0, 0, 2.45);
+    // Cards get their own transparent canvas at the full device pixel ratio, so they stay sharp
+    // even when the game lowers its render resolution to keep the frame rate up.
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.setClearColor(0x000000, 0);
+    this.canvas = this.renderer.domElement;
+    this.canvas.className = 'card-canvas';
+    container.appendChild(this.canvas);
+    this.maxAniso = this.renderer.capabilities.getMaxAnisotropy();
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     this.scene.environmentIntensity = 0.9;
     const key = new THREE.DirectionalLight(0xfff1dc, 2.2);
@@ -154,10 +171,9 @@ export class CardPicker {
     // DOM: heading + hint.
     this.ui = document.createElement('div');
     this.ui.className = 'card-ui';
-    this.ui.innerHTML = '<div class="card-heading">CHOOSE AN UPGRADE</div><div class="card-sub">the train is down</div><div class="card-hint">click a card &middot; or press <b>1</b> / <b>2</b></div>';
+    this.ui.innerHTML = '<div class="card-heading">CHOOSE AN UPGRADE</div><div class="card-sub"><span class="card-sub-title">the train is down</span><span class="card-hint"></span></div>';
     container.appendChild(this.ui);
 
-    pipeline.overlay = (renderer) => this.render(renderer);
     window.addEventListener('pointermove', (e) => this.onPointer(e), { passive: true });
     window.addEventListener('pointerdown', (e) => this.onPointerDown(e), { capture: true });
     window.addEventListener('keydown', (e) => this.onKey(e));
@@ -176,6 +192,7 @@ export class CardPicker {
     this.onPick = onPick;
     this.active = true;
     this.picked = null;
+    this.inspect = -1;
     this.time = 0;
     this.hover = -1;
     const n = defs.length;
@@ -191,7 +208,11 @@ export class CardPicker {
     });
     this.ui.classList.add('visible');
     this.container.classList.add('cards-open');
-    this.ui.querySelector('.card-hint').innerHTML = n > 1 ? 'click a card &middot; or press <b>1</b> / <b>2</b>' : 'click the card &middot; or press <b>1</b>';
+    const touch = matchMedia('(pointer: coarse)').matches;
+    const keys = n > 1 ? '<b>1</b> / <b>2</b>' : '<b>1</b>';
+    this.ui.querySelector('.card-hint').innerHTML = touch
+      ? 'tap the picture to see it whole &middot; tap the banner to choose'
+      : `click a card or press ${keys} &middot; point at the picture to see it whole`;
   }
 
   clearCards() {
@@ -202,6 +223,7 @@ export class CardPicker {
       });
       c.frontTex.dispose();
       c.bannerTex.dispose();
+      c.artTex.dispose();
     }
     this.cards = [];
   }
@@ -209,14 +231,21 @@ export class CardPicker {
   /** One card: clone of the Blender model with this card's art, banner title and text. */
   buildCard(def) {
     const object = new THREE.Group();
-    const frontTex = new THREE.CanvasTexture(frontCanvas(def, this.images.get(def.id)));
+    const img = this.images.get(def.id);
+    const frontTex = new THREE.CanvasTexture(frontCanvas(def, img));
     frontTex.colorSpace = THREE.SRGBColorSpace;
-    frontTex.anisotropy = 8;
+    frontTex.anisotropy = this.maxAniso;
+    // Inspect mode: the whole painting, fitted to the card, blended in over banner + text.
+    const artTex = new THREE.CanvasTexture(artCanvas(img));
+    artTex.colorSpace = THREE.SRGBColorSpace;
+    artTex.anisotropy = this.maxAniso;
+    artTex.flipY = !this.template;
+    const reveal = { value: 0 };
     // glTF UVs have their origin at the top-left: textures on glTF meshes must not be flipped.
     frontTex.flipY = !this.template;
     const bannerTex = new THREE.CanvasTexture(bannerCanvas(def.title));
     bannerTex.colorSpace = THREE.SRGBColorSpace;
-    bannerTex.anisotropy = 8;
+    bannerTex.anisotropy = this.maxAniso;
     bannerTex.flipY = !this.template;
     const sheen = { value: 0 };
     const sweep = { value: -1 };
@@ -236,8 +265,13 @@ export class CardPicker {
         m.onBeforeCompile = (shader) => {
           shader.uniforms.uSheen = sheen;
           shader.uniforms.uSweep = sweep;
+          shader.uniforms.uArt = { value: artTex };
+          shader.uniforms.uReveal = reveal;
           shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\nuniform float uSheen;\nuniform float uSweep;')
+            .replace('#include <common>', '#include <common>\nuniform float uSheen;\nuniform float uSweep;\nuniform sampler2D uArt;\nuniform float uReveal;')
+            .replace('#include <map_fragment>', `#ifdef USE_MAP
+              diffuseColor *= mix(texture2D(map, vMapUv), texture2D(uArt, vMapUv), uReveal);
+            #endif`)
             .replace('#include <dithering_fragment>', `#include <dithering_fragment>
               float sd = dot(vMapUv - 0.5, normalize(vec2(1.0, 0.55))) - uSweep;
               gl_FragColor.rgb += vec3(1.0, 0.94, 0.8) * uSheen * (smoothstep(0.09, 0.0, abs(sd)) * 0.55 + smoothstep(0.02, 0.0, abs(sd)) * 0.5);`);
@@ -256,6 +290,7 @@ export class CardPicker {
         m = new THREE.MeshStandardMaterial({ color: 0xe6d9b8, roughness: 0.7 }); // paper edge
       }
       m.transparent = true;
+      m.userData.banner = name === 'CardBanner' || name === 'CardTail';
       o.material = m;
     });
     object.add(model);
@@ -266,13 +301,18 @@ export class CardPicker {
     );
     glow.position.z = -0.04;
     object.add(glow);
-    return { def, object, model, glow, frontTex, bannerTex, sheen, sweep, hoverT: 0, lift: 0 };
+    return { def, object, model, glow, frontTex, bannerTex, artTex, sheen, sweep, reveal, revealT: 0, onArt: 0, hoverT: 0, lift: 0 };
   }
 
   /** Fit the row of cards on narrow screens. */
   layout() {
-    const r = this.pipeline.renderer.domElement;
-    const aspect = r.clientWidth / Math.max(1, r.clientHeight);
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
+    if (w !== this.size?.w || h !== this.size?.h) {
+      this.size = { w, h };
+      this.renderer.setSize(w, h, false);
+    }
+    const aspect = w / Math.max(1, h);
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
     const visibleW = 2 * this.camera.position.z * Math.tan(THREE.MathUtils.degToRad(15)) * aspect;
@@ -282,8 +322,7 @@ export class CardPicker {
   }
 
   onPointer(e) {
-    const el = this.pipeline.renderer.domElement;
-    const rect = el.getBoundingClientRect();
+    const rect = this.container.getBoundingClientRect();
     this.pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
   }
 
@@ -292,11 +331,14 @@ export class CardPicker {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     let best = -1;
     let bestD = Infinity;
+    this.hoverOnArt = false;
     this.cards.forEach((c, i) => {
       const hit = this.raycaster.intersectObject(c.model, true)[0];
       if (hit && hit.distance < bestD) {
         bestD = hit.distance;
         best = i;
+        // Above the banner = on the painting.
+        this.hoverOnArt = c.object.worldToLocal(hit.point.clone()).y > ART_EDGE;
       }
     });
     return best;
@@ -309,6 +351,11 @@ export class CardPicker {
     if (i < 0 || this.time < this.cards[i].delay + 0.6) return;
     e.stopPropagation();
     e.preventDefault();
+    // Touch: tapping the picture shows the whole painting (tap again or tap the banner to choose).
+    if (e.pointerType === 'touch' && this.hoverOnArt && this.inspect !== i) {
+      this.inspect = i;
+      return;
+    }
     this.pick(i);
   }
 
@@ -333,7 +380,10 @@ export class CardPicker {
     if (this.ash < 0.002 && !target) this.ash = 0;
     const grade = this.pipeline.gradePass;
     if (grade) grade.uniforms.uAsh.value = this.ash;
-    if (!this.active) return;
+    if (!this.active) {
+      this.render();
+      return;
+    }
     this.time += dt;
     this.layout();
     this.hover = this.picked ? this.hover : this.hitCard();
@@ -358,12 +408,20 @@ export class CardPicker {
         ry += px * 0.28 * c.hoverT;
         rx += -py * 0.22 * c.hoverT;
       }
+      let scaleBoost = 0;
       let scale = 1 + c.hoverT * 0.07;
       let fade = 1;
       // Shine sweeping across the face: once when it lands, then on hover.
       if (u >= 1 && c.sweep.value < 1.2) c.sweep.value += dt * 1.6;
       if (hovered && c.sweep.value >= 1.2) c.sweep.value = -0.9;
       c.sheen.value = 0.75 + c.hoverT * 0.5;
+      // Inspect: pointer resting on the picture (or a touch tap) fades banner + text away.
+      const onArt = (hovered && this.hoverOnArt) || this.inspect === c.index;
+      c.onArt = onArt ? c.onArt + dt : 0;
+      const wantReveal = !this.picked && (this.inspect === c.index || c.onArt > 0.25) ? 1 : 0;
+      c.revealT += (wantReveal - c.revealT) * (1 - Math.exp(-(wantReveal ? 7 : 9) * dt));
+      c.reveal.value = c.revealT;
+      if (c.revealT > 0.01) scaleBoost = c.revealT * 0.03;
       let glow = c.hoverT * 0.55;
 
       if (this.picked) {
@@ -400,10 +458,10 @@ export class CardPicker {
       }
       o.position.set(x, y, z);
       o.rotation.set(rx, ry, rz);
-      o.scale.setScalar(scale);
+      o.scale.setScalar(scale + scaleBoost);
       c.glow.material.opacity = glow;
       o.traverse((m) => {
-        if (m.isMesh && m !== c.glow) m.material.opacity = fade;
+        if (m.isMesh && m !== c.glow) m.material.opacity = fade * (m.material.userData.banner ? 1 - c.revealT : 1);
       });
     }
     if (this.picked) {
@@ -418,11 +476,19 @@ export class CardPicker {
         this.clearCards();
       }
     }
+    this.render();
   }
 
-  render(renderer) {
-    if (!this.active && this.cards.length === 0) return;
-    renderer.render(this.scene, this.camera);
+  render() {
+    if (!this.active && this.cards.length === 0) {
+      if (this.drawn) {
+        this.renderer.clear();
+        this.drawn = false;
+      }
+      return;
+    }
+    this.renderer.render(this.scene, this.camera);
+    this.drawn = true;
   }
 
   /** Hides the picker without choosing (e.g. game over). */
@@ -449,10 +515,7 @@ function frontCanvas(def, img) {
   const g = c.getContext('2d');
   g.fillStyle = '#1a1512';
   g.fillRect(0, 0, W, H);
-  if (img) {
-    const s = Math.max(W / img.width, H / img.height);
-    g.drawImage(img, (W - img.width * s) / 2, (H - img.height * s) / 2, img.width * s, img.height * s);
-  }
+  if (img) drawFramedArt(g, img, W, H, def.focus ?? 0.5, def.zoom ?? 1);
   // Vignette + reading panel: the lower part fades into dark leather-brown.
   const bannerTop = H * (0.5 - (BANNER.y0 + BANNER.h / 2) / CARD_H);
   const grad = g.createLinearGradient(0, bannerTop - H * 0.12, 0, H);
@@ -468,9 +531,9 @@ function frontCanvas(def, img) {
   g.fillRect(0, 0, W, H);
 
   const bannerBottom = H * (0.5 - (BANNER.y0 - BANNER.h / 2) / CARD_H);
-  const margin = W * 0.12;
+  const margin = W * 0.1;
   // Type label, flanked by thin gold rules.
-  let y = bannerBottom + H * 0.045;
+  let y = bannerBottom + H * 0.034;
   g.font = `600 ${Math.round(W * 0.032)}px ${SERIF}`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
@@ -493,11 +556,12 @@ function frontCanvas(def, img) {
     g.restore();
   }
   // Description: word-wrapped, coloured keywords, centred.
-  y += H * 0.05;
+  y += H * 0.022;
   // Largest font size whose wrapped text still fits the reading panel.
-  let size = Math.round(W * 0.042);
-  while (size > 22 && !drawRichText(g, def.text, W / 2, y, W - margin * 2, size, H * 0.935, true)) size -= 2;
-  drawRichText(g, def.text, W / 2, y, W - margin * 2, size, H * 0.935);
+  const maxY = H * 0.945;
+  let size = Math.round(W * 0.05);
+  while (size > W * 0.03 && !drawRichText(g, def.text, W / 2, y, W - margin * 2, size, maxY, true)) size -= 2;
+  drawRichText(g, def.text, W / 2, y, W - margin * 2, size, maxY);
   return c;
 }
 
@@ -549,6 +613,68 @@ function drawRichText(g, segments, cx, top, maxW, size, maxY, measure = false) {
     y += lineH;
     if (y > maxY) break;
   }
+}
+
+/**
+ * Paints the art into the window above the banner. The painting is centred on its point of
+ * interest (`focus`) and may be zoomed out (`zoom` < 1) so more of it fits; the sides then show a
+ * blurred, darkened copy that the sharp picture feathers into.
+ */
+function drawFramedArt(g, img, W, H, focus, zoom) {
+  const winH = H * (0.5 - BANNER.y0 / CARD_H); // top edge down to the banner's centre line
+  const cover = W / img.width;
+  const s = cover * zoom;
+  const iw = img.width * s;
+  const ih = img.height * s;
+  // Background: blurred cover fill of the whole card.
+  const bs = Math.max(W / img.width, H / img.height) * 1.1;
+  g.save();
+  g.filter = 'blur(22px) brightness(0.55) saturate(1.2)';
+  g.drawImage(img, (W - img.width * bs) / 2, (H - img.height * bs) / 2, img.width * bs, img.height * bs);
+  g.restore();
+  // Sharp picture: focus point on the window centre, clamped so it never leaves a gap at the top.
+  let y = winH / 2 - focus * ih;
+  y = Math.min(0, Math.max(y, winH - ih * 0.98));
+  const x = (W - iw) / 2;
+  const tmp = document.createElement('canvas');
+  tmp.width = W;
+  tmp.height = H;
+  const t = tmp.getContext('2d');
+  t.drawImage(img, x, y, iw, ih);
+  if (zoom < 1) {
+    // Feather the left/right edges into the blurred fill.
+    const f = W * 0.05;
+    t.globalCompositeOperation = 'destination-in';
+    const grad = t.createLinearGradient(x, 0, x + iw, 0);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(f / iw, 'rgba(0,0,0,1)');
+    grad.addColorStop(1 - f / iw, 'rgba(0,0,0,1)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    t.fillStyle = grad;
+    t.fillRect(0, 0, W, H);
+  }
+  g.drawImage(tmp, 0, 0);
+}
+
+/** Whole painting fitted to the card (inspect mode), blurred fill behind. */
+function artCanvas(img) {
+  const W = 1024;
+  const H = Math.round(W * CARD_H / CARD_W);
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#15110e';
+  g.fillRect(0, 0, W, H);
+  if (!img) return c;
+  const bs = Math.max(W / img.width, H / img.height) * 1.1;
+  g.save();
+  g.filter = 'blur(22px) brightness(0.5)';
+  g.drawImage(img, (W - img.width * bs) / 2, (H - img.height * bs) / 2, img.width * bs, img.height * bs);
+  g.restore();
+  const s = Math.min(W / img.width, H / img.height) * 0.97;
+  g.drawImage(img, (W - img.width * s) / 2, (H - img.height * s) / 2, img.width * s, img.height * s);
+  return c;
 }
 
 /** Ribbon band texture: crimson silk with gold edges and the gold title. */
