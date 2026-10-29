@@ -78,6 +78,9 @@ export const GameConfig = Object.freeze({
   train: Object.freeze({
     speed: 3.2,
     wagonCount: 6,
+    // The train grows by one wagon every `growEvery` waves (wave 1: 6, wave 2: 7, ...), up to maxWagons.
+    growEvery: 1,
+    maxWagons: 14,
     respawnDelay: 4,
     turretFireInterval: 1.4,
     // Per-trip speed plan: FAST trips never stop; NORMAL / SLOW may halt once on the board.
@@ -157,7 +160,8 @@ export const GameConfig = Object.freeze({
   }),
 
   mines: Object.freeze({
-    count: 3,
+    // No roaming balls at the start: they only come from the SURPRISE EGG card.
+    count: 0,
     speed: 1.6,
     radius: 0.62,
     damage: 18,

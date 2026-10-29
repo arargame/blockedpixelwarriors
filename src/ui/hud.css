@@ -381,7 +381,7 @@ body {
 }
 .train-pct { font-variant-numeric: tabular-nums; }
 .train-panel.destroyed .train-pct { color: #ffcf2d; }
-.train-cars { display: flex; gap: 5px; }
+.train-cars { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; max-width: min(560px, 62vw); }
 .car {
   position: relative;
   display: flex;

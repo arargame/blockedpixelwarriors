@@ -164,7 +164,8 @@ export class Game {
       if (this.state === GameState.PLAYING && loaded) this.hud.toast(`CARGO CHOPPER AWAY - ${loaded} DELIVERED`);
     };
 
-    this.mines = new SpikeMines(this.materials, this.world.board, this.blocks, this.effects);
+    // Spiked balls only come from the SURPRISE EGG card; the key-art poster frame still shows three.
+    this.mines = new SpikeMines(this.materials, this.world.board, this.blocks, this.effects, options.poster ? 3 : GameConfig.mines.count);
     this.scene.add(this.mines.group);
 
     this.heli = new Helicopter(this.materials, this.textures, this.world.board, options.heliGltf ?? null);

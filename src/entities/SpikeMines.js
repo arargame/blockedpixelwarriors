@@ -9,7 +9,8 @@ import { Random } from '../util/Random.js';
  * reward clean shooting.
  */
 export class SpikeMines {
-  constructor(materials, board, blockField, effects) {
+  /** @param {number} [count] balls rolling from the start (0 in play; the poster frame shows some) */
+  constructor(materials, board, blockField, effects, count = GameConfig.mines.count) {
     this.board = board;
     this.blockField = blockField;
     this.effects = effects;
@@ -25,7 +26,7 @@ export class SpikeMines {
       [-1.8, 3.8],
       [-3.6, 6.4],
     ];
-    for (let i = 0; i < cfg.count; i++) {
+    for (let i = 0; i < count; i++) {
       const mesh = new THREE.Mesh(geometry, materials.ironBall());
       mesh.castShadow = true;
       mesh.receiveShadow = true;

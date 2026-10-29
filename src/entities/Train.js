@@ -38,7 +38,8 @@ export class Train {
     const cars = [factory.buildLocomotive()];
     // Key-art order: locomotive, armoured car, cargo, armoured car, cargo, cargo...
     const pattern = ['armored', 'cargo', 'armored', 'cargo', 'cargo', 'armored', 'cargo'];
-    for (let i = 0; i < GameConfig.train.wagonCount; i++) {
+    this.wagonCount = Train.wagonsForWave(wave);
+    for (let i = 0; i < this.wagonCount; i++) {
       cars.push(pattern[i % pattern.length] === 'armored' ? factory.buildArmoredWagon(seed * 31 + i) : factory.buildCargoWagon(seed * 17 + i, 0.6));
     }
     let offset = 0;
@@ -81,6 +82,12 @@ export class Train {
         o.castShadow = o.castShadow !== false;
       }
     });
+  }
+
+  /** Wagons behind the locomotive on a given wave: one more every `growEvery` waves. */
+  static wagonsForWave(wave) {
+    const cfg = GameConfig.train;
+    return Math.min(cfg.maxWagons, cfg.wagonCount + Math.floor((Math.max(1, wave) - 1) / cfg.growEvery));
   }
 
   get locomotive() {

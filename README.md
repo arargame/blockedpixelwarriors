@@ -106,7 +106,8 @@ tuşuyla seç: seçilen kart ortaya gelip parlar ve oyuna karışarak kaybolur, 
     hasar almazsın.
   - **RUSH DELIVERY (Lojistik, Cargo Chopper'dan sonra):** kargo helikopteri **%30 daha sık** gelir:
     2:00 yerine 1:24. O anda işleyen geri sayım da %30 kısalır.
-  - **SURPRISE EGG (Destek):** tahtada hiç blok kalmayınca gökyüzünden **3 dikenli top** düşer, sekip
+  - **SURPRISE EGG (Destek):** bu kart alınana kadar tahtada hiç dikenli top yoktur. Kart alındıktan
+    sonra tahtada kırılacak blok kalmayınca gökyüzünden **3 dikenli top** düşer, sekip
     diğerleri gibi yuvarlanmaya başlar. Her biri patlatılınca **%20** ihtimalle bir destek düşürür; tren
     gelip blok bırakana kadar mühimmat kaynağıdır. Toplar bitince ve tahta hâlâ boşsa yeni üçlü gelir.
 - Kartlar `src/ui/UpgradeCards.js` → `CARD_DEFS` listesinde; resimler `assets/textures/cards/`.
@@ -132,6 +133,8 @@ tuşuyla seç: seçilen kart ortaya gelip parlar ve oyuna karışarak kaybolur, 
 
 ### Zırhlı tren
 
+- **Her dalgada tren bir vagon uzar:** 1. dalga 6 vagon, 2. dalga 7, 3. dalga 8... en fazla 14 vagon
+  (`GameConfig.train.growEvery / maxWagons`). Üstteki tren paneli uzun trenlerde iki satıra geçer.
 - A ile B arasında mal taşır gibi her turda yön değiştirir. Her tur rastgele **HIZLI** (hiç durmaz),
   **NORMAL** veya **YAVAŞ** gider. Normal ve yavaş turlarda tahtanın üstünde **3 sn durabilir**;
   dururken taretler 2,5 kat hızlı ateş eder.
@@ -266,6 +269,7 @@ node tools/snowtest.mjs                                        # karolarda kar b
 node tools/cardtest.mjs                                        # kart teklifleri, mühendis, çift sıra, roket, sürpriz yumurta
 node tools/gemtest.mjs                                         # elmas etkileri: hızlı ateş, asit, güçlü atış, kritik
 node tools/cardviewtest.mjs                                    # kart netliği, inceleme modu, günlük akışı
+node tools/wavetest.mjs                                        # kartsız top yok, dalga başına bir vagon
 node tools/verify-dist.mjs                                     # dist dosyasını file:// ile aç
 ```
 
