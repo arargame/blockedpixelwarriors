@@ -46,6 +46,8 @@ export class Helicopter {
     this.time = 0;
     this.hitFlash = 0;
     this.invulnerable = 0;
+    /** FLICKER card: multiplies every post-hit / respawn flicker (invulnerability) window. */
+    this.flickerMul = 1;
     this.alive = true;
     this.radius = 1.3;
     this.object3d.position.copy(this.position);
@@ -164,7 +166,7 @@ export class Helicopter {
     if (!this.alive || this.invulnerable > 0) return false;
     this.hp = Math.max(0, this.hp - amount);
     this.hitFlash = 0.15;
-    this.invulnerable = 0.25;
+    this.invulnerable = 0.25 * this.flickerMul;
     if (this.hp <= 0) this.alive = false;
     return true;
   }
@@ -172,7 +174,7 @@ export class Helicopter {
   respawn() {
     this.hp = GameConfig.heli.maxHp;
     this.alive = true;
-    this.invulnerable = 2.5;
+    this.invulnerable = 2.5 * this.flickerMul;
     this.position.copy(this.spawn);
     this.velocity.set(0, 0, 0);
     this.yaw = this.targetYaw = this.defaultYaw;

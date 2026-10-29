@@ -768,7 +768,8 @@ export class Logistics {
   /** Back to the start of a run: no engineer yet (he comes with the FIELD ENGINEER card). */
   reset() {
     this.delivered = { red: 0, green: 0, blue: 0 };
-    this.timer = GameConfig.logistics.chinookInterval;
+    this.intervalMul = 1;
+    this.timer = this.interval;
     this.enabled = false;
     this.hiring = false;
     // The chopper only comes for packages with the CARGO CHOPPER card.
@@ -813,7 +814,7 @@ export class Logistics {
       e.activate(best);
       this.enabled = true;
       this.hiring = false;
-      this.timer = GameConfig.logistics.chinookInterval;
+      this.timer = this.interval;
       this.onEngineerReady?.();
     });
   }
@@ -821,6 +822,17 @@ export class Logistics {
   get missionComplete() {
     const goal = GameConfig.logistics.goal;
     return Object.keys(goal).every((k) => this.delivered[k] >= goal[k]);
+  }
+
+  /** Seconds between chopper visits (RUSH DELIVERY card: 30% shorter). */
+  get interval() {
+    return GameConfig.logistics.chinookInterval * (this.intervalMul ?? 1);
+  }
+
+  /** RUSH DELIVERY card: the chopper comes sooner, the running countdown shrinks with it. */
+  speedUpChopper(mul) {
+    this.intervalMul = mul;
+    this.timer *= mul;
   }
 
   /** The 2-minute pick-up schedule runs once there is an engineer AND the cargo chopper contract. */
@@ -832,7 +844,7 @@ export class Logistics {
   enableChopper() {
     if (this.chopperEnabled) return;
     this.chopperEnabled = true;
-    this.timer = GameConfig.logistics.chinookInterval;
+    this.timer = this.interval;
   }
 
   /**
@@ -884,7 +896,7 @@ export class Logistics {
       if (key) this.delivered[key] += 1;
       this.onDelivered?.(color, key);
     }, (loaded) => {
-      this.timer = GameConfig.logistics.chinookInterval;
+      this.timer = this.interval;
       this.onChinookLeft?.(loaded);
     });
   }

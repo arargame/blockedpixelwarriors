@@ -6,6 +6,8 @@ import cargoChopperArtUrl from '../../assets/textures/cards/cargo_chopper.jpg?ur
 import homingArtUrl from '../../assets/textures/cards/homing_missile.jpg?url';
 import doubleRowArtUrl from '../../assets/textures/cards/double_row.jpg?url';
 import surpriseEggArtUrl from '../../assets/textures/cards/surprise_egg.jpg?url';
+import flickerArtUrl from '../../assets/textures/cards/flicker.jpg?url';
+import cargoTimeArtUrl from '../../assets/textures/cards/cargo_time.jpg?url';
 
 /**
  * Upgrade cards (offered after a train is destroyed).
@@ -94,6 +96,34 @@ export const CARD_DEFS = Object.freeze([
       ['Board '], ['out of blocks', '#ffcf6a'], ['? '], ['3 spiked balls', '#ffcf6a'], [' drop from the sky. Each one blown up has a '],
       ['20%', '#7be86a'], [' chance to drop a supply.'],
     ],  },
+  {
+    id: 'flicker',
+    title: 'FLICKER',
+    kind: 'DEFENSE',
+    art: flickerArtUrl,
+    focus: 0.42,
+    zoom: 0.9,
+    jewel: 0x5ad8ff,
+    glow: 0x8fe4ff,
+    text: [
+      ['After every hit the heli '], ['flickers twice as long', '#8fe4ff'], ['. While it flickers, '],
+      ['no damage', '#7be86a'], [' gets through.'],
+    ],
+  },
+  {
+    id: 'cargoTime',
+    title: 'RUSH DELIVERY',
+    kind: 'LOGISTICS',
+    art: cargoTimeArtUrl,
+    requires: 'cargoChopper',
+    focus: 0.45,
+    zoom: 0.86,
+    jewel: 0xe8c23a,
+    glow: 0xffd860,
+    text: [
+      ['The cargo chopper comes '], ['30% sooner', '#ffcf6a'], [': every '], ['1:24', '#ffcf6a'], [' instead of 2:00.'],
+    ],
+  },
 ]);
 
 const CARD_W = 0.63;

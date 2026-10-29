@@ -95,6 +95,18 @@ out.gemMine = await page.evaluate(() => {
   g.applyCard({ id: 'gemMine' });
   return { gemDrops: g.gemDrops, pool: g.supplyPool };
 });
+out.flickerAndRush = await page.evaluate(() => {
+  const g = window.__game; const h = g.heli; const L = g.logistics;
+  delete h.takeDamage; // restore the real method (prototype)
+  h.invulnerable = 0; h.hp = 100; h.takeDamage(4); const base = h.invulnerable;
+  g.applyCard({ id: 'flicker' }); g.takenCards.add('flicker');
+  h.invulnerable = 0; h.takeDamage(4); const doubled = h.invulnerable;
+  const hp = h.hp; const blocked = h.takeDamage(4) === false && h.hp === hp;
+  L.timer = 100; const before = L.interval;
+  g.applyCard({ id: 'cargoTime' });
+  h.takeDamage = () => false;
+  return { flickerBase: base, flickerWithCard: doubled, hitDuringFlickerBlocked: blocked, intervalBefore: before, intervalAfter: L.interval, timerScaled: Math.round(L.timer) };
+});
 console.log(JSON.stringify(out, null, 1));
 console.log('errors', errors);
 await browser.close();

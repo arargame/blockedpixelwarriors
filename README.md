@@ -101,6 +101,11 @@ tuşuyla seç: seçilen kart ortaya gelip parlar ve oyuna karışarak kaybolur, 
     dört elmasın ne yaptığını da anlatır. Bu kart olmadan elmas hiç düşmez.
   - **HOMING ROCKETS (Güç):** **R** desteğini açar; bu kart alınana kadar destek bloklarından R çıkmaz.
     Kart seçilince ilk R hemen yanına düşer.
+  - **FLICKER (Savunma):** her hasardan sonraki yanıp sönme (dokunulmazlık) süresi **2 katına** çıkar:
+    normal vuruşta 0,25 → 0,5 sn, trene çarpınca 1,5 → 3 sn, yeniden doğunca 2,5 → 5 sn. Yanıp sönerken
+    hasar almazsın.
+  - **RUSH DELIVERY (Lojistik, Cargo Chopper'dan sonra):** kargo helikopteri **%30 daha sık** gelir:
+    2:00 yerine 1:24. O anda işleyen geri sayım da %30 kısalır.
   - **SURPRISE EGG (Destek):** tahtada hiç blok kalmayınca gökyüzünden **3 dikenli top** düşer, sekip
     diğerleri gibi yuvarlanmaya başlar. Her biri patlatılınca **%20** ihtimalle bir destek düşürür; tren
     gelip blok bırakana kadar mühimmat kaynağıdır. Toplar bitince ve tahta hâlâ boşsa yeni üçlü gelir.

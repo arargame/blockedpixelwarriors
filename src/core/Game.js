@@ -218,6 +218,7 @@ export class Game {
   }
 
   startRun() {
+    this.heli.flickerMul = 1;
     this.powerups.clear();
     this.state = GameState.PLAYING;
     this.score = 0;
@@ -230,6 +231,7 @@ export class Game {
     this.hud.setHealth(1);
     this.logistics.reset();
     this.takenCards.clear();
+    this.heli.flickerMul = 1;
     this.offersMade = 0;
     this.gemDrops = false;
     this.cardTimer = 0;
@@ -459,7 +461,7 @@ export class Game {
     if (Math.abs(p.x - t.group.position.x) > halfWidth || p.z < t.minZ - 0.5 || p.z > t.maxZ + 0.5) return;
     const side = Math.sign(p.x - t.group.position.x) || -1;
     if (h.takeDamage(GameConfig.train.collisionDamage)) {
-      h.invulnerable = 1.5;
+      h.invulnerable = 1.5 * h.flickerMul;
       h.velocity.x = side * 13;
       h.velocity.z += t.dir * t.speed;
       this.effects.explosion(v1.set(t.group.position.x + side * 1.6, p.y - 0.4, p.z), 0.8, 0x3a3d42, 8);
@@ -815,7 +817,7 @@ export class Game {
 
     this.blocks.update(dt);
     this.logistics.update(dt, playing);
-    this.hud.setChopper(this.logistics.chinook.active && this.logistics.chinook.mission === 'pickup' ? { active: true, loaded: this.logistics.chinook.loaded, left: this.logistics.dock.count } : { active: false, remaining: this.logistics.timer, total: GameConfig.logistics.chinookInterval });
+    this.hud.setChopper(this.logistics.chinook.active && this.logistics.chinook.mission === 'pickup' ? { active: true, loaded: this.logistics.chinook.loaded, left: this.logistics.dock.count } : { active: false, remaining: this.logistics.timer, total: this.logistics.interval });
     this.mines.update(dt);
     this.projectiles.update(dt);
     this.powerups.update(dt);
@@ -900,6 +902,12 @@ export class Game {
       this.logistics.widenDock();
       this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
       this.hud.toast('DOUBLE ROW - THE DOCK HOLDS TWICE AS MANY');
+    } else if (def.id === 'flicker') {
+      this.heli.flickerMul = GameConfig.cards.flickerMul;
+      this.hud.toast('FLICKER - LONGER SAFE TIME AFTER HITS');
+    } else if (def.id === 'cargoTime') {
+      this.logistics.speedUpChopper(GameConfig.cards.cargoTimeMul);
+      this.hud.toast('RUSH DELIVERY - CHOPPER COMES 30% SOONER');
     } else if (def.id === 'surpriseEgg') {
       this.hud.toast('SURPRISE EGG - EMPTY BOARD? BALLS FROM THE SKY');
       this.eggTimer = 0;

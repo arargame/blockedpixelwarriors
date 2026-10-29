@@ -134,6 +134,9 @@ export const GameConfig = Object.freeze({
     eggCount: 3,
     eggCooldown: 4,
     eggSupplyChance: 0.2,
+    // FLICKER: post-hit invulnerability (flicker) x2. RUSH DELIVERY: chopper interval x0.7.
+    flickerMul: 2,
+    cargoTimeMul: 0.7,
   }),
 
   supply: Object.freeze({
