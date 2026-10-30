@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Android (phones / tablets, landscape). Same shared code as Desktop; content comes from the
+    shared project: models, fonts and data from Content/, textures and shaders from
+    Content.Mobile/ (half-size textures, MOBILE shader variants), all packed as assets under
+    Content/ so the game loads the same paths on every platform. No MGCB step.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>23</SupportedOSPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RootNamespace>BlockedPixelWarriors.Android</RootNamespace>
+    <AssemblyName>BlockedPixelWarriors</AssemblyName>
+    <ApplicationId>com.arargames.blockedpixelwarriors</ApplicationId>
+    <ApplicationTitle>Blocked Pixel Warriors</ApplicationTitle>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <!-- Meshes / data are read with BinaryReader: keep them uncompressed for fast streaming. -->
+    <AndroidStoreUncompressedFileExtensions>.bpm;.bpi;.bin;.mgfx</AndroidStoreUncompressedFileExtensions>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <AndroidLinkMode>SdkOnly</AndroidLinkMode>
+    <RunAOTCompilation>true</RunAOTCompilation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MonoGame.Framework.Android" Version="3.8.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BlockedPixelWarriors.Shared\BlockedPixelWarriors.Shared.csproj" />
+  </ItemGroup>
+
+  <!-- Shared content (except textures / effects, which come in their mobile versions below). -->
+  <ItemGroup>
+    <AndroidAsset Include="..\BlockedPixelWarriors.Shared\Content\**\*"
+                  Exclude="..\BlockedPixelWarriors.Shared\Content\Textures\**;..\BlockedPixelWarriors.Shared\Content\Effects\**"
+                  Link="Assets\Content\%(RecursiveDir)%(Filename)%(Extension)" />
+    <AndroidAsset Include="..\BlockedPixelWarriors.Shared\Content.Mobile\**\*"
+                  Link="Assets\Content\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

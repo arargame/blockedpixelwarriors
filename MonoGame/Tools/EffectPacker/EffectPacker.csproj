@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Packs hand-written GLSL effects (Shaders/*.glfx) into MonoGame's MGFX binary format for the
+    OpenGL profile (DesktopGL + Android). No MGCB / mgfxc / Windows shader compiler needed:
+    MonoGame compiles the GLSL on the device at load time.
+      dotnet run (in Tools/EffectPacker) with arguments: Shaders BlockedPixelWarriors.Shared/Content/Effects
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$([MSBuild]::ValueOrDefault('$(BPW_TFM)', 'net9.0'))</TargetFramework>
+    <RollForward>Major</RollForward>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>

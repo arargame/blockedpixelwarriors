@@ -1,0 +1,430 @@
+// Lit surfaces: a port of Three.js MeshStandardMaterial as the web build uses it.
+// Linear HDR output (tone mapping happens in Post.glfx). GLSL ES 1.00 / desktop GLSL 1.10.
+//
+//   - albedo  = BaseColor * decoded map * vertex colour (linear) or instance colour (linear)
+//   - micro-voxel cell pattern in object space (VoxelMaterial.js)
+//   - direct light: sun (PCF shadow, normal-offset) + fill + 6 point lights (explosion flashes,
+//     the locomotive gem glow); Lambert diffuse + GGX specular
+//   - indirect: hemisphere light + the RoomEnvironment IBL (exported equirect levels sampled
+//     like textureCubeUV) with Three's DFG approximation and multiple scattering
+//   - linear fog on view depth (Three's fog), emissive (optionally * map), normal mapping
+// Matrices follow MonoGame (row vectors): transform with  vec4(p, 1.0) * M.
+
+@uniform vs mat4 World
+@uniform vs mat4 ViewProj
+@uniform vs mat4 ShadowViewProj
+@uniform vs vec4 UvScroll
+@uniform vs vec3 CameraPosVs
+@uniform vs vec3 CameraForward
+
+@uniform ps vec4 BaseColor
+@uniform ps vec3 EmissiveColor
+@uniform ps vec4 MatParams
+@uniform ps vec4 Flags
+@uniform ps vec4 Flags2
+@uniform ps vec4 Voxel
+@uniform ps vec2 NormalScale
+@uniform ps vec3 SunDir
+@uniform ps vec3 SunColor
+@uniform ps vec3 FillDir
+@uniform ps vec3 FillColor
+@uniform ps vec3 HemiSky
+@uniform ps vec3 HemiGround
+@uniform ps float EnvIntensity
+@uniform ps vec3 CameraPos
+@uniform ps vec3 FogColor
+@uniform ps vec2 FogRange
+@uniform ps vec4 ShadowParams
+@uniform ps vec4 TileParams
+@uniform ps vec4 TileParams2
+@uniform ps vec3 GroutColor
+@uniform ps vec4 SnowRect
+@uniform ps vec4 PointPos0
+@uniform ps vec4 PointPos1
+@uniform ps vec4 PointPos2
+@uniform ps vec4 PointPos3
+@uniform ps vec4 PointPos4
+@uniform ps vec4 PointPos5
+@uniform ps vec4 PointColor0
+@uniform ps vec4 PointColor1
+@uniform ps vec4 PointColor2
+@uniform ps vec4 PointColor3
+@uniform ps vec4 PointColor4
+@uniform ps vec4 PointColor5
+
+@sampler Albedo 0
+@sampler NormalMap 1
+@sampler ShadowMap 2
+@sampler SnowMap 3
+@sampler EnvMap 4
+
+@attribute a_pos POSITION 0
+@attribute a_normal NORMAL 0
+@attribute a_uv TEXCOORD 0
+@attribute a_color COLOR 0
+@attribute a_i0 TEXCOORD 1
+@attribute a_i1 TEXCOORD 2
+@attribute a_i2 TEXCOORD 3
+@attribute a_i3 TEXCOORD 4
+@attribute a_icolor TEXCOORD 5
+
+@technique Lit vs=VsStatic ps=PsLit
+@technique LitInstanced vs=VsInstanced ps=PsLit
+@technique Tile vs=VsStatic ps=PsTile
+@technique Shadow vs=VsShadowStatic ps=PsShadow
+@technique ShadowInstanced vs=VsShadowInstanced ps=PsShadow
+
+#common
+varying vec3 v_world;
+varying vec3 v_object;
+varying vec3 v_normal;
+varying vec2 v_uv;
+varying vec4 v_color;
+varying vec4 v_shadow;
+varying float v_depth;
+
+vec3 srgbToLinear(vec3 c) { return c * (c * (c * 0.305306011 + 0.682171111) + 0.012522878); }
+
+#vs VsStatic
+void main()
+{
+    vec4 world = vec4(a_pos.xyz, 1.0) * World;
+    vec3 n = normalize((vec4(a_normal.xyz, 0.0) * World).xyz);
+    v_world = world.xyz;
+    v_object = a_pos.xyz;
+    v_normal = n;
+    v_uv = a_uv.xy + UvScroll.xy;
+    // Three stores vertex colours linear and interpolates them linear.
+    v_color = vec4(srgbToLinear(a_color.rgb), a_color.a);
+    v_shadow = vec4(world.xyz + n * UvScroll.z, 1.0) * ShadowViewProj;
+    v_depth = dot(world.xyz - CameraPosVs, CameraForward);
+    gl_Position = world * ViewProj;
+}
+
+#vs VsInstanced
+void main()
+{
+    // Instance rows (MonoGame order): position = x*row0 + y*row1 + z*row2 + row3.
+    vec3 local = a_pos.x * a_i0.xyz + a_pos.y * a_i1.xyz + a_pos.z * a_i2.xyz + a_i3.xyz;
+    vec3 ln = a_normal.x * a_i0.xyz + a_normal.y * a_i1.xyz + a_normal.z * a_i2.xyz;
+    vec4 world = vec4(local, 1.0) * World;
+    vec3 n = normalize((vec4(ln, 0.0) * World).xyz + vec3(0.0, 1e-6, 0.0));
+    v_world = world.xyz;
+    // Voxel cells follow the template mesh (VoxelMaterial uses the geometry position).
+    v_object = a_pos.xyz;
+    v_normal = n;
+    v_uv = a_uv.xy + UvScroll.xy;
+    // Instance colour times the template's own vertex colours (pines: green needles, snow caps).
+    v_color = UvScroll.w > 0.5 ? a_icolor * vec4(srgbToLinear(a_color.rgb), a_color.a) : a_icolor;
+    v_shadow = vec4(world.xyz + n * UvScroll.z, 1.0) * ShadowViewProj;
+    v_depth = dot(world.xyz - CameraPosVs, CameraForward);
+    gl_Position = world * ViewProj;
+}
+
+#vs VsShadowStatic
+varying vec2 v_sdepth;
+void main()
+{
+    vec4 p = vec4(a_pos.xyz, 1.0) * World * ShadowViewProj;
+    v_sdepth = p.zw;
+    gl_Position = p;
+}
+
+#vs VsShadowInstanced
+varying vec2 v_sdepth;
+void main()
+{
+    vec3 local = a_pos.x * a_i0.xyz + a_pos.y * a_i1.xyz + a_pos.z * a_i2.xyz + a_i3.xyz;
+    vec4 p = vec4(local, 1.0) * World * ShadowViewProj;
+    v_sdepth = p.zw;
+    gl_Position = p;
+}
+
+#pscommon
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#endif
+#define PI 3.14159265
+
+float unpackDepth(vec4 c) { return dot(c, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0)); }
+
+float shadowAt(vec2 uv, float depth)
+{
+    return step(depth, unpackDepth(texture2D(ShadowMap, uv)));
+}
+
+// PCF soft shadow (bilinear-weighted taps like Three's PCFSoftShadowMap).
+float shadowFactor()
+{
+    if (ShadowParams.w < 0.5) return 1.0;
+    vec3 p = v_shadow.xyz / v_shadow.w;
+    vec2 uv = p.xy * vec2(0.5, -0.5) + 0.5;
+    if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0 || p.z >= 1.0) return 1.0;
+    float depth = p.z - ShadowParams.y;
+    float t = ShadowParams.x;
+    vec2 f = fract(uv / t + 0.5);
+    vec2 base = (floor(uv / t + 0.5) - 0.5) * t;
+    float s = 0.0;
+#ifdef MOBILE
+    for (int y = 0; y <= 1; y++)
+        for (int x = 0; x <= 1; x++)
+            s += shadowAt(base + vec2(float(x), float(y)) * t, depth)
+                * (x == 0 ? 1.0 - f.x : f.x) * (y == 0 ? 1.0 - f.y : f.y);
+    return s;
+#else
+    for (int y = -1; y <= 2; y++)
+    {
+        for (int x = -1; x <= 2; x++)
+        {
+            float wx = x == -1 ? 1.0 - f.x : (x == 2 ? f.x : 1.0);
+            float wy = y == -1 ? 1.0 - f.y : (y == 2 ? f.y : 1.0);
+            s += shadowAt(base + vec2(float(x), float(y)) * t, depth) * wx * wy;
+        }
+    }
+    return s / 9.0;
+#endif
+}
+
+// Environment: 8 equirect levels stacked vertically (roughness 0.0525 .. 1, see exporter.js).
+vec3 envLevel(vec2 uv, float level)
+{
+    float v = (clamp(uv.y, 0.5 / 128.0, 1.0 - 0.5 / 128.0) + level) / 8.0;
+    return texture2D(EnvMap, vec2(uv.x, v)).rgb;
+}
+
+vec3 envAt(vec3 d, float rough)
+{
+    float l;
+    if (rough <= 0.1) l = (rough - 0.0525) / 0.0475;
+    else if (rough <= 0.4) l = 1.0 + (rough - 0.1) / 0.1;
+    else if (rough <= 0.55) l = 4.0 + (rough - 0.4) / 0.15;
+    else if (rough <= 0.75) l = 5.0 + (rough - 0.55) / 0.2;
+    else l = 6.0 + (rough - 0.75) / 0.25;
+    l = clamp(l, 0.0, 7.0);
+    float l0 = floor(l);
+    vec2 uv = vec2(atan(d.x, -d.z) * (0.5 / PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI);
+    return mix(envLevel(uv, l0), envLevel(uv, min(l0 + 1.0, 7.0)), l - l0);
+}
+
+float D_GGX(float a, float nh)
+{
+    float a2 = a * a;
+    float d = nh * nh * (a2 - 1.0) + 1.0;
+    return a2 / (PI * d * d);
+}
+
+float V_Smith(float a, float nl, float nv)
+{
+    float a2 = a * a;
+    float gv = nl * sqrt(a2 + (1.0 - a2) * nv * nv);
+    float gl = nv * sqrt(a2 + (1.0 - a2) * nl * nl);
+    return 0.5 / max(gv + gl, 1e-5);
+}
+
+vec3 F_Schlick(vec3 f0, float vh)
+{
+    float f = exp2((-5.55473 * vh - 6.98316) * vh);
+    return f0 * (1.0 - f) + f;
+}
+
+vec3 directLight(vec3 n, vec3 v, vec3 l, vec3 color, vec3 diffuse, vec3 f0, float rough)
+{
+    float nl = clamp(dot(n, l), 0.0, 1.0);
+    if (nl <= 0.0) return vec3(0.0);
+    vec3 h = normalize(l + v);
+    float nv = clamp(dot(n, v), 1e-3, 1.0);
+    float nh = clamp(dot(n, h), 0.0, 1.0);
+    float vh = clamp(dot(v, h), 0.0, 1.0);
+    float a = rough * rough;
+    vec3 spec = F_Schlick(f0, vh) * (V_Smith(a, nl, nv) * D_GGX(a, nh));
+    return color * nl * (diffuse / PI + spec);
+}
+
+// Three's punctual light: inverse-power falloff with a smooth cut-off at `distance`.
+vec3 pointLight(vec4 pos, vec4 color, vec3 n, vec3 v, vec3 diffuse, vec3 f0, float rough)
+{
+    if (color.r + color.g + color.b <= 0.0) return vec3(0.0);
+    vec3 d = pos.xyz - v_world;
+    float dist = length(d);
+    if (dist >= pos.w) return vec3(0.0);
+    float falloff = 1.0 / max(pow(dist, color.w), 0.01);
+    float r = dist / pos.w;
+    float cut = clamp(1.0 - r * r * r * r, 0.0, 1.0);
+    falloff *= cut * cut;
+    return directLight(n, v, d / max(dist, 1e-4), color.rgb * falloff, diffuse, f0, rough);
+}
+
+// MeshStandardMaterial lighting: direct lights + hemisphere + IBL (DFG + multiscattering).
+vec3 shade(vec3 albedo, vec3 n, float rough, float metal, float shadow)
+{
+    vec3 v = normalize(CameraPos - v_world);
+    vec3 diffuse = albedo * (1.0 - metal);
+    vec3 f0 = mix(vec3(0.04), albedo, metal);
+
+    vec3 col = directLight(n, v, normalize(SunDir), SunColor, diffuse, f0, rough) * shadow;
+    col += directLight(n, v, normalize(FillDir), FillColor, diffuse, f0, rough);
+    col += pointLight(PointPos0, PointColor0, n, v, diffuse, f0, rough);
+    col += pointLight(PointPos1, PointColor1, n, v, diffuse, f0, rough);
+    col += pointLight(PointPos2, PointColor2, n, v, diffuse, f0, rough);
+    col += pointLight(PointPos3, PointColor3, n, v, diffuse, f0, rough);
+    col += pointLight(PointPos4, PointColor4, n, v, diffuse, f0, rough);
+    col += pointLight(PointPos5, PointColor5, n, v, diffuse, f0, rough);
+
+    // Hemisphere light (RE_IndirectDiffuse); colours arrive divided by PI.
+    col += mix(HemiGround, HemiSky, 0.5 * n.y + 0.5) * diffuse;
+
+    // Image-based light (RE_IndirectSpecular_Physical).
+    float nv = clamp(dot(n, v), 0.0, 1.0);
+    vec3 irradiance = envAt(n, 1.0) * EnvIntensity;
+    vec3 r = normalize(mix(reflect(-v, n), n, rough * rough));
+    vec3 radiance = envAt(r, rough) * EnvIntensity;
+    vec4 rr = rough * vec4(-1.0, -0.0275, -0.572, 0.022) + vec4(1.0, 0.0425, 1.04, -0.04);
+    float a004 = min(rr.x * rr.x, exp2(-9.28 * nv)) * rr.x + rr.y;
+    vec2 fab = vec2(-1.04, 1.04) * a004 + rr.zw;
+    vec3 fssEss = f0 * fab.x + fab.y;
+    float ems = 1.0 - (fab.x + fab.y);
+    vec3 favg = f0 + (1.0 - f0) * 0.047619;
+    vec3 fms = fssEss * favg / (1.0 - ems * favg);
+    vec3 multi = fms * ems;
+    vec3 total = fssEss + multi;
+    col += radiance * fssEss + multi * irradiance;
+    col += diffuse * (1.0 - max(max(total.r, total.g), total.b)) * irradiance;
+    return col;
+}
+
+vec3 applyFog(vec3 c)
+{
+    return mix(c, FogColor, smoothstep(FogRange.x, FogRange.y, v_depth));
+}
+
+#ps PsShadow
+varying vec2 v_sdepth;
+// Depth (0..1, D3D-style projection) packed into RGBA8: works on every GLES device.
+vec4 packDepth(float d)
+{
+    vec4 enc = fract(vec4(1.0, 255.0, 65025.0, 16581375.0) * d);
+    enc -= enc.yzww * vec4(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0, 0.0);
+    return enc;
+}
+void main()
+{
+    gl_FragColor = packDepth(clamp(v_sdepth.x / v_sdepth.y, 0.0, 0.99999));
+}
+
+#ps PsLit
+float voxHash(vec3 p)
+{
+    p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+// Object-space micro-voxel cells with per-cell brightness jitter and dark seams.
+float voxelPattern(vec3 pos, vec3 nrm)
+{
+    vec3 an = abs(normalize(nrm));
+    vec3 q = pos / Voxel.x;
+    vec2 p;
+    float depthCell;
+    if (an.x > an.y && an.x > an.z) { p = q.yz; depthCell = floor(q.x + 0.5); }
+    else if (an.y > an.z) { p = q.xz; depthCell = floor(q.y + 0.5); }
+    else { p = q.xy; depthCell = floor(q.z + 0.5); }
+    vec2 cell = floor(p);
+    vec2 f = fract(p);
+    float h = voxHash(vec3(cell, depthCell));
+    float e = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
+    float seamMask = 1.0 - smoothstep(0.0, 0.07, e);
+    return (1.0 - Voxel.y * 0.5 + Voxel.y * h) * (1.0 - seamMask * Voxel.z);
+}
+
+// Tangent-free normal mapping (screen-space derivatives).
+vec3 perturbNormal(vec3 n, vec3 pos, vec2 uv)
+{
+    vec3 dp1 = dFdx(pos);
+    vec3 dp2 = dFdy(pos);
+    vec2 duv1 = dFdx(uv);
+    vec2 duv2 = dFdy(uv);
+    vec3 dp2perp = cross(dp2, n);
+    vec3 dp1perp = cross(n, dp1);
+    vec3 t = dp2perp * duv1.x + dp1perp * duv2.x;
+    vec3 b = dp2perp * duv1.y + dp1perp * duv2.y;
+    float invmax = inversesqrt(max(dot(t, t), dot(b, b)) + 1e-12);
+    vec3 m = texture2D(NormalMap, uv).xyz * 2.0 - 1.0;
+    m.xy *= NormalScale;
+    // MonoGame UVs have v pointing down the image: flip the bitangent.
+    return normalize(t * invmax * m.x - b * invmax * m.y + n * m.z);
+}
+
+void main()
+{
+    vec4 albedo = BaseColor;
+    vec4 texel = vec4(1.0);
+    if (Flags.x > 0.5)
+    {
+        texel = texture2D(Albedo, v_uv);
+        if (Flags.x < 1.5) texel.rgb = srgbToLinear(texel.rgb);
+        albedo *= texel;
+    }
+    if (Flags.z > 0.5) albedo *= v_color;
+    if (albedo.a < MatParams.w) discard;
+    if (Voxel.w > 0.5) albedo.rgb *= voxelPattern(v_object, v_normal);
+    vec3 col;
+    if (Flags.w > 0.5)
+    {
+        col = albedo.rgb;
+    }
+    else
+    {
+        vec3 n = normalize(v_normal);
+        // Double-sided: back faces use the flipped normal (robust to GL front-face state).
+        if (Flags2.y > 0.5 && dot(n, CameraPos - v_world) < 0.0) n = -n;
+        if (Flags.y > 0.5) n = perturbNormal(n, v_world, v_uv);
+        col = shade(albedo.rgb, n, clamp(MatParams.x, 0.0525, 1.0), MatParams.y, shadowFactor());
+    }
+    col += Flags2.x > 0.5 ? EmissiveColor * texel.rgb : EmissiveColor;
+    gl_FragColor = vec4(applyFog(col), albedo.a);
+}
+
+#ps PsTile
+// Polished marble floor tiles ("kalebodur"): one photo, a different random crop and 90-degree
+// rotation per tile, grout joints, a slight bevel and settled snow (TileFloorMaterial.js).
+float tileHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+
+void main()
+{
+    vec2 t = (v_world.xz - TileParams.xy) / TileParams.z;
+    vec2 cell = floor(t);
+    vec2 f = fract(t);
+    float h1 = tileHash(cell);
+    float h2 = tileHash(cell + 17.3);
+    float h3 = tileHash(cell + 41.7);
+    float r = floor(h3 * 4.0);
+    vec2 q = f - 0.5;
+    if (r == 1.0) q = vec2(-q.y, q.x);
+    else if (r == 2.0) q = -q;
+    else if (r == 3.0) q = vec2(q.y, -q.x);
+    q += 0.5;
+    vec2 cropSize = vec2(TileParams2.x, TileParams2.x * TileParams2.y);
+    vec2 cropOrigin = vec2(h1, h2) * (vec2(1.0) - cropSize);
+    vec2 uv = cropOrigin + q * cropSize;
+    // Three.js samples this photo with flipY: flip v for MonoGame's top-down images.
+    vec4 texel = texture2D(Albedo, vec2(uv.x, 1.0 - uv.y));
+    texel.rgb = srgbToLinear(texel.rgb) * (0.86 + 0.1 * tileHash(cell + 7.1));
+    float e = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
+    float groutMask = 1.0 - smoothstep(TileParams.w * 0.6, TileParams.w, e);
+    float bevel = smoothstep(TileParams.w, TileParams.w * 2.6, e);
+    texel.rgb *= mix(0.86, 1.0, bevel);
+    texel.rgb = mix(texel.rgb, GroutColor, groutMask);
+    // Settled snow (FloorSnow): coverage map + fine flake grain.
+    vec2 suv = (v_world.xz - SnowRect.xy) / SnowRect.zw;
+    float snowDepth = texture2D(SnowMap, suv).r;
+    float grain = tileHash(floor(v_world.xz * 22.0)) * 0.6 + tileHash(floor(v_world.xz * 7.0) + 3.1) * 0.4;
+    float st = snowDepth * 1.25 + groutMask * 0.15 - (1.0 - grain) * 0.75;
+    float snowCover = smoothstep(0.02, 0.3, st) * smoothstep(0.02, 0.12, snowDepth);
+    texel.rgb = mix(texel.rgb, vec3(0.84, 0.88, 0.94), snowCover * 0.78);
+    vec3 albedo = texel.rgb * BaseColor.rgb;
+    float rough = mix(0.9, MatParams.x, smoothstep(TileParams.w * 0.6, TileParams.w, e));
+    rough = mix(rough, 0.8, snowCover);
+    vec3 col = shade(albedo, vec3(0.0, 1.0, 0.0), clamp(rough, 0.0525, 1.0), 0.0, shadowFactor());
+    gl_FragColor = vec4(applyFog(col), 1.0);
+}

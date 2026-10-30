@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>$([MSBuild]::ValueOrDefault('$(BPW_TFM)', 'net9.0'))</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RollForward>Major</RollForward>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <TieredCompilation>false</TieredCompilation>
+    <AssemblyName>BlockedPixelWarriors</AssemblyName>
+    <RootNamespace>BlockedPixelWarriors.Desktop</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.*" Condition="'$(BPW_MONOGAME_DLL)' == ''" />
+    <Reference Include="MonoGame.Framework" Condition="'$(BPW_MONOGAME_DLL)' != ''">
+      <HintPath>$(BPW_MONOGAME_DLL)</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\BlockedPixelWarriors.Shared\BlockedPixelWarriors.Shared.csproj" />
+  </ItemGroup>
+</Project>

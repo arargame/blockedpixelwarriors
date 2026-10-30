@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Full screen, no title bar, sky-blue window background while the game loads. -->
+  <style name="MainTheme" parent="android:Theme.Material.NoActionBar.Fullscreen">
+    <item name="android:windowBackground">@color/sky</item>
+    <item name="android:windowFullscreen">true</item>
+    <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+  </style>
+  <color name="sky">#9fd2ff</color>
+</resources>

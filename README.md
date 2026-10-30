@@ -279,3 +279,9 @@ Tanıtım görseli yapay zekâyla üretilmiş bir illüstrasyon; perspektifi fiz
 (sol duvar, uzak duvar ve ray tek bir kamerayla aynı anda o açılarda görünemiyor). Kamera bu yüzden en
 yakın tutarlı çözüme oturtuldu. Elle boyanmış detay seviyesi (kayalardaki fırça dokusu, her çamın ayrı
 çizimi) gerçek zamanlı çizimde birebir değil; yerleşim, açı, renkler ve nesnelerin tasarımı aynı.
+
+## MonoGame sürümü (Desktop + Android)
+
+`MonoGame/` klasöründe aynı oyunun MonoGame portu var: Shared projede yönetilen içerik, DesktopGL ve
+Android (yatay, sanal joystick + dönüş butonları). İçerik bu web sahnesinden
+`node tools/export-monogame.mjs` ile üretilir. Ayrıntılar: [MonoGame/README.md](MonoGame/README.md).

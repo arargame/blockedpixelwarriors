@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Shared game code + content for Desktop (DesktopGL) and Android, the same way as Blocked:
+    the code compiles against MonoGame.Framework.DesktopGL here (PrivateAssets) and each
+    platform project brings its own MonoGame runtime.
+
+    Content/          full-quality assets (models, textures, fonts, packed GLSL effects, data)
+    Content.Mobile/   half-size textures + mobile shader variants (Android packs these instead)
+    No MGCB: meshes/textures/fonts load at runtime, effects are pre-packed .mgfx (Tools/EffectPacker).
+  -->
+  <PropertyGroup>
+    <TargetFramework>$([MSBuild]::ValueOrDefault('$(BPW_TFM)', 'net9.0'))</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>BlockedPixelWarriors</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.*" PrivateAssets="All" Condition="'$(BPW_MONOGAME_DLL)' == ''" />
+    <Reference Include="MonoGame.Framework" Condition="'$(BPW_MONOGAME_DLL)' != ''">
+      <HintPath>$(BPW_MONOGAME_DLL)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Desktop gets the full-quality content next to the executable (Content/...). -->
+  <ItemGroup>
+    <Content Include="Content\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

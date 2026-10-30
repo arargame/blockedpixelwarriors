@@ -1,0 +1,43 @@
+// Gradient sky dome with the warm sun halo (Sky.js). The dome is centred on the camera and tilted
+// with the backdrop; depth is pushed to the far plane.
+@uniform vs mat4 WorldViewProj
+@uniform ps vec3 Top
+@uniform ps vec3 Mid
+@uniform ps vec3 Horizon
+@uniform ps vec3 Bottom
+@uniform ps vec3 SunDirection
+@uniform ps vec3 SunTint
+@uniform ps float HorizonOffset
+@attribute a_pos POSITION 0
+@technique Sky vs=VS ps=PS
+#common
+varying vec3 v_dir;
+#vs VS
+void main()
+{
+    v_dir = normalize(a_pos.xyz);
+    vec4 p = vec4(a_pos.xyz, 1.0) * WorldViewProj;
+    gl_Position = vec4(p.xy, p.w * 0.9999, p.w);
+}
+#ps PS
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#endif
+void main()
+{
+    vec3 d = normalize(v_dir);
+    float h = d.y - HorizonOffset;
+    vec3 col;
+    if (h > 0.0)
+    {
+        col = mix(Horizon, Mid, smoothstep(0.0, 0.35, h));
+        col = mix(col, Top, smoothstep(0.35, 1.1, h));
+    }
+    else
+    {
+        col = mix(Horizon, Bottom, smoothstep(0.0, 0.25, -h));
+    }
+    float s = max(dot(d, normalize(SunDirection)), 0.0);
+    col += SunTint * (pow(s, 6.0) * 0.55 + pow(s, 60.0) * 1.2 + pow(s, 900.0) * 18.0);
+    gl_FragColor = vec4(col, 1.0);
+}

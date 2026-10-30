@@ -1,0 +1,52 @@
+// Camera-facing quads for particles, clouds, projectiles and glows (BillboardBatch.js). Each
+// vertex carries its quad's centre, corner, size, rotation, stretch direction and RGBA tint;
+// the quad is expanded in view space. Colours are linear and may exceed 1 (HDR glow).
+@uniform vs mat4 View
+@uniform vs mat4 Projection
+@uniform vs vec2 Anchor
+@uniform ps float Additive
+@uniform ps float MapSrgb
+@uniform ps vec3 FogColor
+@uniform ps vec2 FogRange
+@sampler Map 0
+@attribute a_center POSITION 0
+@attribute a_corner TEXCOORD 0
+@attribute a_size TEXCOORD 1
+@attribute a_color TEXCOORD 2
+@attribute a_dir TEXCOORD 3
+@technique Billboard vs=VS ps=PS
+#common
+varying vec2 v_uv;
+varying vec4 v_color;
+varying float v_depth;
+#vs VS
+void main()
+{
+    vec4 mv = vec4(a_center.xyz, 1.0) * View;
+    vec3 dirView = (vec4(a_dir.xyz, 0.0) * View).xyz;
+    float dl = length(dirView.xy);
+    float rot = a_size.z;
+    // Stretched billboards align their v axis with the projected velocity.
+    vec2 axisY = dl > 1e-5 ? dirView.xy / dl : vec2(-sin(rot), cos(rot));
+    vec2 axisX = vec2(axisY.y, -axisY.x);
+    vec2 corner = (a_corner.xy + Anchor) * a_size.xy;
+    mv.xy += axisX * corner.x + axisY * corner.y;
+    // Three's PlaneGeometry uv (v up) on images stored top row first.
+    v_uv = vec2(a_corner.x + 0.5, 0.5 - a_corner.y);
+    v_color = a_color;
+    v_depth = -mv.z;
+    gl_Position = mv * Projection;
+}
+#ps PS
+vec3 srgbToLinear(vec3 c) { return c * (c * (c * 0.305306011 + 0.682171111) + 0.012522878); }
+void main()
+{
+    vec4 t = texture2D(Map, v_uv);
+    if (MapSrgb > 0.5) t.rgb = srgbToLinear(t.rgb);
+    vec4 c = t * v_color;
+    if (c.a < 0.003) discard;
+    float f = smoothstep(FogRange.x, FogRange.y, v_depth);
+    c.rgb = mix(c.rgb, FogColor, f);
+    // Premultiplied additive: the texture's white core stays hot, edges take the tint.
+    gl_FragColor = Additive > 0.5 ? vec4(c.rgb * c.a, c.a) : c;
+}
