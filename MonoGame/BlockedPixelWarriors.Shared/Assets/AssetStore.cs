@@ -34,19 +34,29 @@ public sealed class AssetStore : IDisposable
         }
     }
 
-    /// <summary>Texture by export name (Content/Textures/name.png), with mipmaps.</summary>
+    private static readonly string[] TextureExtensions = { ".png", ".jpg" };
+
+    /// <summary>Texture by export name (Content/Textures/name.png or .jpg), with mipmaps.</summary>
     public Texture2D Texture(string name)
     {
         if (string.IsNullOrEmpty(name)) return null;
         if (_textures.TryGetValue(name, out var t)) return t;
-        try
+        t = null;
+        // Paintings (upgrade cards) ship as JPEG, everything else as PNG.
+        foreach (var ext in TextureExtensions)
         {
-            using var stream = Open($"Textures/{name}.png");
-            t = LoadWithMipmaps(stream);
-        }
-        catch (FileNotFoundException)
-        {
-            t = null;
+            Stream stream;
+            try
+            {
+                stream = Open($"Textures/{name}{ext}");
+            }
+            catch (Exception)
+            {
+                // Missing in this format (Android's asset manager throws its own exception types).
+                continue;
+            }
+            using (stream) t = LoadWithMipmaps(stream);
+            break;
         }
         _textures[name] = t;
         return t;

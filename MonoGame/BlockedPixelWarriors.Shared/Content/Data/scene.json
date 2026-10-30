@@ -2141,17 +2141,17 @@
   },
   "heli": {
    "rotorMatrix": [
-    0.21116735735169118,
+    0.7249221542697423,
     0,
-    -0.709230813761714,
+    -0.14861988510598434,
     0,
     0,
     0.74,
     0,
     0,
-    0.709230813761714,
+    0.14861988510598434,
     0,
-    0.21116735735169118,
+    0.7249221542697423,
     0,
     0,
     1.4651999258995057,
@@ -2164,12 +2164,12 @@
     0,
     0,
     0,
-    -0.6852116122706016,
-    -0.27943701689204153,
+    -0.285453473714644,
+    0.6827271155771117,
     0,
     0,
-    0.27943701689204153,
-    -0.6852116122706016,
+    -0.6827271155771117,
+    -0.285453473714644,
     0,
     0.10360000044107437,
     0.925,
@@ -2230,7 +2230,220 @@
    "T": "supply_crate_map",
    "D": "crate_D",
    "R": "crate_R"
-  }
+  },
+  "forklift": {
+   "forksMatrix": [
+    0.8,
+    0,
+    0,
+    0,
+    0,
+    0.8,
+    0,
+    0,
+    0,
+    0,
+    0.8,
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "crateMatrix": [
+    1.4375,
+    0,
+    0,
+    0,
+    0,
+    1.4375,
+    0,
+    0,
+    0,
+    0,
+    1.4375,
+    0,
+    0,
+    1.0387499999999998,
+    -1.38,
+    1
+   ],
+   "beacon": [
+    0.3,
+    2.2,
+    0.6
+   ]
+  },
+  "chinook": {
+   "rotors": [
+    [
+     0.55,
+     0,
+     0,
+     0,
+     0,
+     0.55,
+     0,
+     0,
+     0,
+     0,
+     0.55,
+     0,
+     0,
+     1.8975000262260437,
+     -2.0625,
+     1
+    ],
+    [
+     0.55,
+     0,
+     0,
+     0,
+     0,
+     0.55,
+     0,
+     0,
+     0,
+     0,
+     0.55,
+     0,
+     0,
+     2.2825000524520878,
+     1.9799999475479129,
+     1
+    ]
+   ]
+  },
+  "cards": [
+   {
+    "id": "engineer",
+    "title": "FIELD ENGINEER",
+    "kind": "LOGISTICS",
+    "requires": null,
+    "jewel": [
+     1,
+     0.3231432091022285,
+     0.023153366173251363
+    ],
+    "glow": [
+     1,
+     0.43415363616478553,
+     0.08021982030622662
+    ]
+   },
+   {
+    "id": "cargoChopper",
+    "title": "CARGO CHOPPER",
+    "kind": "LOGISTICS",
+    "requires": null,
+    "jewel": [
+     0.8069522576650873,
+     0.5394794890033748,
+     0.04231141061442144
+    ],
+    "glow": [
+     1,
+     0.6866853124288864,
+     0.11697066774917994
+    ]
+   },
+   {
+    "id": "gemMine",
+    "title": "GEM MINE",
+    "kind": "POWER",
+    "requires": null,
+    "jewel": [
+     0.06301001764564068,
+     0.5775804404214573,
+     1
+    ],
+    "glow": [
+     0.21223075740342198,
+     0.6307571363387763,
+     1
+    ]
+   },
+   {
+    "id": "homing",
+    "title": "HOMING ROCKETS",
+    "kind": "POWER",
+    "requires": null,
+    "jewel": [
+     1,
+     0.14412847084818123,
+     0.06847816983662762
+    ],
+    "glow": [
+     1,
+     0.2541520943200296,
+     0.10224173307914941
+    ]
+   },
+   {
+    "id": "doubleRow",
+    "title": "DOUBLE ROW",
+    "kind": "LOGISTICS",
+    "requires": "engineer",
+    "jewel": [
+     0.19806931954941637,
+     0.8069522576650873,
+     0.14412847084818123
+    ],
+    "glow": [
+     0.33245153633549385,
+     1,
+     0.2541520943200296
+    ]
+   },
+   {
+    "id": "surpriseEgg",
+    "title": "SURPRISE EGG",
+    "kind": "SUPPLY",
+    "requires": null,
+    "jewel": [
+     1,
+     0.6514056374127929,
+     0.06847816983662762
+    ],
+    "glow": [
+     1,
+     0.7454042095350284,
+     0.2541520943200296
+    ]
+   },
+   {
+    "id": "flicker",
+    "title": "FLICKER",
+    "kind": "DEFENSE",
+    "requires": null,
+    "jewel": [
+     0.10224173307914941,
+     0.6866853124288864,
+     1
+    ],
+    "glow": [
+     0.2746773120495699,
+     0.775822218312646,
+     1
+    ]
+   },
+   {
+    "id": "cargoTime",
+    "title": "RUSH DELIVERY",
+    "kind": "LOGISTICS",
+    "requires": "cargoChopper",
+    "jewel": [
+     0.8069522576650873,
+     0.5394794890033748,
+     0.04231141061442144
+    ],
+    "glow": [
+     1,
+     0.6866853124288864,
+     0.11697066774917994
+    ]
+   }
+  ]
  },
  "instanceSets": {
   "world_static": [
@@ -2252,6 +2465,32 @@
  },
  "textures": {
   "ui_logo": "srgb",
+  "card_engineer_front": "srgb",
+  "card_engineer_art": "srgb",
+  "card_engineer_banner": "srgb",
+  "card_cargoChopper_front": "srgb",
+  "card_cargoChopper_art": "srgb",
+  "card_cargoChopper_banner": "srgb",
+  "card_gemMine_front": "srgb",
+  "card_gemMine_art": "srgb",
+  "card_gemMine_banner": "srgb",
+  "card_homing_front": "srgb",
+  "card_homing_art": "srgb",
+  "card_homing_banner": "srgb",
+  "card_doubleRow_front": "srgb",
+  "card_doubleRow_art": "srgb",
+  "card_doubleRow_banner": "srgb",
+  "card_surpriseEgg_front": "srgb",
+  "card_surpriseEgg_art": "srgb",
+  "card_surpriseEgg_banner": "srgb",
+  "card_flicker_front": "srgb",
+  "card_flicker_art": "srgb",
+  "card_flicker_banner": "srgb",
+  "card_cargoTime_front": "srgb",
+  "card_cargoTime_art": "srgb",
+  "card_cargoTime_banner": "srgb",
+  "card_back": "srgb",
+  "card_glow": "linear",
   "sunGlare": "linear",
   "wood_map": "srgb",
   "wood_normalMap": "linear",
@@ -2280,6 +2519,7 @@
   "supply_crate_map": "srgb",
   "crate_D": "srgb",
   "crate_R": "srgb",
+  "dock_marking_map": "srgb",
   "fx_comet": "linear",
   "ui_reticle": "srgb"
  },
@@ -2434,6 +2674,42 @@
   },
   "spike_ball": {
    "vertices": 294
+  },
+  "forklift_body": {
+   "vertices": 12544,
+   "parts": 14
+  },
+  "forklift_forks": {
+   "vertices": 696,
+   "parts": 2
+  },
+  "gift_box": {
+   "vertices": 1764,
+   "parts": 1
+  },
+  "gift_ribbon": {
+   "vertices": 451,
+   "parts": 1
+  },
+  "dock_marking": {
+   "vertices": 4,
+   "parts": 1
+  },
+  "chinook_body": {
+   "vertices": 25468,
+   "parts": 9
+  },
+  "chinook_rotor0": {
+   "vertices": 1452,
+   "parts": 2
+  },
+  "chinook_rotor1": {
+   "vertices": 1452,
+   "parts": 2
+  },
+  "card": {
+   "vertices": 834,
+   "parts": 7
   }
  }
 }

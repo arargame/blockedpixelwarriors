@@ -20,6 +20,10 @@ public sealed class LaunchOptions
     public bool ForceMobileQuality { get; private set; }
     /// <summary>Seconds simulated (no rendering) before the captured frames, with an autopilot.</summary>
     public float Warmup { get; private set; }
+    /// <summary>Extra simulated seconds after a scenario's setup (cards / logistics captures).</summary>
+    public float Extra { get; private set; }
+    /// <summary>Card to play automatically in the cards scenario (-1: none).</summary>
+    public int PickCard { get; private set; } = -1;
     /// <summary>Show the touch controls (desktop testing of the phone layout).</summary>
     public bool Touch { get; private set; }
 
@@ -39,6 +43,8 @@ public sealed class LaunchOptions
                 case "--mobile": o.ForceMobileQuality = true; break;
                 case "--warmup": o.Warmup = float.Parse(Next(), System.Globalization.CultureInfo.InvariantCulture); break;
                 case "--touch": o.Touch = true; break;
+                case "--extra": o.Extra = float.Parse(Next(), System.Globalization.CultureInfo.InvariantCulture); break;
+                case "--pick": o.PickCard = int.Parse(Next()); break;
             }
         }
         return o;

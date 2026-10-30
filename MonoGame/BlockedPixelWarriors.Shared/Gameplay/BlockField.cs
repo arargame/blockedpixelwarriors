@@ -55,6 +55,12 @@ public sealed class BlockField : IRenderable
     public int DockColumns = 1;
     /// <summary>Whether red / green / blue train cubes land as protected cargo (engineer on duty).</summary>
     public Func<bool> CargoEnabled = () => false;
+    /// <summary>Cells the forklift occupies or is about to (no block may fall there).</summary>
+    public Func<int, int, bool> IsReserved = (_, _) => false;
+    /// <summary>Cell keys (c * Rows + r) the forklift can drive to, or null.</summary>
+    public Func<HashSet<int>> ReachableCells = () => null;
+
+    public int Key(int c, int r) => c * Rows + r;
 
     public BlockField(ModelLibrary models, Effects effects)
     {
@@ -172,6 +178,8 @@ public sealed class BlockField : IRenderable
     public bool DropFromTrain(Vector3 from, BlockColor color)
     {
         var cargo = IsGoalColor(color) && CargoEnabled();
+        // Cargo lands where the forklift can get at it (closest such cell), else the closest free one.
+        var reach = cargo ? ReachableCells() : null;
         int bc = -1, br = -1;
         var bestD = float.MaxValue;
         for (var c = 0; c < Cols; c++)
@@ -180,14 +188,26 @@ public sealed class BlockField : IRenderable
             for (var r = 0; r < Rows; r++)
             {
                 var b = Cell(c, r);
-                if (b is { Alive: true }) continue;
+                if (b is { Alive: true } || IsReserved(c, r)) continue;
                 var (x, z) = CellCenter(c, r);
                 var d = (x - from.X) * (x - from.X) + (z - from.Z) * (z - from.Z);
+                if (reach != null && !reach.Contains(Key(c, r))) d += 1000;
                 if (d < bestD) { bestD = d; bc = c; br = r; }
             }
         }
-        if (bc < 0 || bestD > GameConfig.Blocks.MaxDropDistance * GameConfig.Blocks.MaxDropDistance) return false;
+        var md = GameConfig.Blocks.MaxDropDistance * GameConfig.Blocks.MaxDropDistance;
+        if (bc < 0 || (bestD >= 1000 ? bestD - 1000 : bestD) > md) return false;
         PlaceBlock(bc, br, color, cargo ? BlockType.Normal : null, from: from, cargo: cargo);
+        return true;
+    }
+
+    /// <summary>The engineer lifts a cargo block off the board (no explosion, no score).</summary>
+    public bool TakeBlock(Block b)
+    {
+        if (!b.Alive) return false;
+        b.Alive = false;
+        b.ChainAt = 0;
+        _dirty = true;
         return true;
     }
 

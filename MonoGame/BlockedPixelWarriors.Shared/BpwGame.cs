@@ -28,6 +28,7 @@ public sealed class BpwGame : Game
     private GameInput _input;
     private UiKit _ui;
     private Hud _hud;
+    private CardPicker _cards;
     private RenderQuality _quality;
     private RenderTarget2D _capture;
     private int _frame;
@@ -87,17 +88,47 @@ public sealed class BpwGame : Game
         _hud = new Hud(_ui, _assets.UiTexture("ui_logo")) { ShowQuit = _platform.IsMobile, TouchHelp = _platform.PrefersTouchControls };
         _input = new GameInput(_platform.PrefersTouchControls);
         _session = new GameSession(device, _models, scene, _lights, _quality, _hud);
+        _cards = new CardPicker(device, _assets, _models, _renderer.Post, _ui, _lights);
+        _session.Cards = _cards;
         _renderer.BackdropWorld = _session.World.Backdrop;
         _renderer.SetSnowMap(_session.World.FloorSnow.Texture, _session.World.FloorSnow.Rect);
         _poster = _options.Scenario is "poster" or "static";
-        if (_options.Scenario == "play")
+        if (_options.Scenario is "play" or "cards" or "logistics")
         {
             _session.StartRun();
-            // Capture runs: simulate a stretch of play with an autopilot before the frames.
-            for (float t = 0; t < _options.Warmup; t += 1 / 30f)
+            var vp = Viewport;
+            _ui.Scale = UiScale(vp);
+            void Sim(float seconds)
             {
-                _session.Step(1 / 30f, AutoPilot(t));
-                _hud.Update(1 / 30f, _session.PowerUps.Active);
+                for (float t = 0; t < seconds; t += 1 / 30f)
+                {
+                    _session.Step(1 / 30f, AutoPilot(_session.Time));
+                    _cards.Update(1 / 30f, _input, vp);
+                    _hud.CardsOpen = _cards.Open;
+                    _hud.Update(1 / 30f, _session.PowerUps.Active);
+                }
+            }
+            // Capture runs: simulate a stretch of play with an autopilot before the frames.
+            Sim(_options.Warmup);
+            if (_options.Scenario == "logistics")
+            {
+                // Engineer + cargo chopper contract, a few cargo cubes on the yard, chopper due soon.
+                foreach (var id in new[] { "engineer", "cargoChopper", "doubleRow", "surpriseEgg" })
+                    _session.ApplyCard(_session.CardDefs.First(d => d.Id == id));
+                Sim(14);
+                foreach (var (c, r, color) in new[] { (3, 4, BlockColor.Red), (4, 8, BlockColor.Green), (2, 10, BlockColor.Teal), (5, 2, BlockColor.Red) })
+                    if (_session.Blocks.Cell(c, r) is not { Alive: true }) _session.Blocks.PlaceBlock(c, r, color, BlockType.Normal, cargo: true);
+                Sim(_options.Extra > 0 ? _options.Extra : 20);
+            }
+            if (_options.Scenario == "cards")
+            {
+                _session.OfferCards();
+                Sim(_options.Extra > 0 ? _options.Extra : 1.6f);
+                if (_options.PickCard >= 0)
+                {
+                    _cards.Pick(_options.PickCard);
+                    Sim(0.5f);
+                }
             }
         }
         if (_options.Touch) _input.TouchMode = true;
@@ -140,7 +171,12 @@ public sealed class BpwGame : Game
             _graphics.ToggleFullScreen();
         }
         var command = _options.CapturePath != null && _options.Scenario == "play" ? AutoPilot(_session.Time) : _input.Command;
-        if (!_session.Paused && !_poster) _session.Step(dt, command);
+        if (!_session.Paused && !_poster)
+        {
+            _session.Step(dt, command);
+            _cards.Update(dt, _input, vp);
+        }
+        _hud.CardsOpen = _cards.Open;
         _hud.Update(dt, _session.PowerUps.Active);
         base.Update(gameTime);
     }
@@ -153,12 +189,13 @@ public sealed class BpwGame : Game
         {
             case GameState.Title:
             case GameState.Over:
+            case GameState.Won:
                 if (_input.BackPressed && _platform.IsMobile)
                 {
                     Exit();
                     return;
                 }
-                if (_input.AnyAction && _hud.Overlay is Overlay.Title or Overlay.GameOver) s.StartRun();
+                if (_input.AnyAction && _hud.Overlay is Overlay.Title or Overlay.GameOver or Overlay.Won) s.StartRun();
                 break;
             default:
                 if (s.Paused)
@@ -227,7 +264,17 @@ public sealed class BpwGame : Game
         _renderer.Render(_queue, camera, target, vp);
         GraphicsDevice.SetRenderTarget(target);
         GraphicsDevice.Viewport = new Viewport(vp);
-        if (!_poster) _hud.Draw(vp, _session, camera, _input.Touch, _input.TouchMode);
+        if (!_poster)
+        {
+            _hud.Draw(vp, _session, camera, _input.Touch, _input.TouchMode);
+            if (!_session.Paused && _cards.Active)
+            {
+                _cards.Draw(vp);
+                _ui.Begin();
+                _cards.DrawUi(vp);
+                _ui.End();
+            }
+        }
         if (target != null) GraphicsDevice.SetRenderTarget(null);
         base.Draw(gameTime);
 
@@ -264,6 +311,7 @@ public sealed class BpwGame : Game
         _renderer?.Dispose();
         _models?.Dispose();
         _ui?.Dispose();
+        _cards?.Dispose();
         _assets?.Dispose();
         _capture?.Dispose();
         base.UnloadContent();

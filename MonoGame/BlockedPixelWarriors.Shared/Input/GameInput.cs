@@ -17,7 +17,7 @@ public struct PilotCommand
 }
 
 /// <summary>A pointer press this frame (mouse click or new touch), in back-buffer pixels.</summary>
-public readonly record struct Tap(Vector2 Position);
+public readonly record struct Tap(Vector2 Position, bool Touch = false);
 
 /// <summary>
 /// Unified input (Input.js + mobile controls): keyboard pilot keys, mouse drag joystick on desktop,
@@ -39,6 +39,9 @@ public sealed class GameInput
     public bool AnyAction { get; private set; }
     public bool PausePressed { get; private set; }
     public bool BackPressed => _backPressed;
+    /// <summary>Last pointer position (mouse, or the latest touch) and whether it moved this frame.</summary>
+    public Vector2 Pointer { get; private set; } = new(-9999, -9999);
+    public bool PointerMoved { get; private set; }
     /// <summary>The last input came from touch: show the on-screen controls.</summary>
     public bool TouchMode { get; set; }
 
@@ -73,13 +76,24 @@ public sealed class GameInput
         foreach (var t in touches)
         {
             if (t.State != TouchLocationState.Pressed) continue;
-            _taps.Add(new Tap(t.Position));
+            _taps.Add(new Tap(t.Position, true));
             AnyAction = true;
+        }
+        PointerMoved = false;
+        if (touches.Count > 0)
+        {
+            Pointer = touches[0].Position;
+            PointerMoved = true;
         }
         if (Touch.PauseTapped) PausePressed = true;
 
         // Mouse (desktop): click = tap, drag = joystick anywhere (web behaviour).
         var mousePos = new Vector2(_mouse.X, _mouse.Y);
+        if (touches.Count == 0 && (_mouse.X != _prevMouse.X || _mouse.Y != _prevMouse.Y))
+        {
+            Pointer = mousePos;
+            PointerMoved = true;
+        }
         var leftDown = _mouse.LeftButton == ButtonState.Pressed;
         var leftWasDown = _prevMouse.LeftButton == ButtonState.Pressed;
         if (touches.Count == 0 && leftDown && !leftWasDown)

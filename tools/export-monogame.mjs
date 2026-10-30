@@ -33,6 +33,7 @@ const report = await page.evaluate(async () => {
 await browser.close();
 await server.close();
 
+// Card faces / art / banners / back are opaque paintings: JPEG keeps the repo and the APK small.
 // Mobile textures: half size (min 32 px), same names. Fonts and UI art stay full size.
 fs.mkdirSync(path.join(mobile, 'Textures'), { recursive: true });
 const py = `
@@ -40,13 +41,19 @@ import sys, os
 from PIL import Image
 src, dst = sys.argv[1], sys.argv[2]
 for f in os.listdir(src):
-    if not f.endswith('.png') or f.startswith('.'): continue
+    if f.startswith('card_') and f.endswith('.png') and f != 'card_glow.png':
+        im = Image.open(os.path.join(src, f)).convert('RGB')
+        im.save(os.path.join(src, f[:-4] + '.jpg'), quality=90, optimize=True)
+        os.remove(os.path.join(src, f))
+for f in os.listdir(src):
+    if not f.endswith(('.png', '.jpg')) or f.startswith('.'): continue
     im = Image.open(os.path.join(src, f))
     if f.startswith('ui_'):
         im.save(os.path.join(dst, f)); continue
     w, h = im.size
     im = im.resize((max(32, w // 2), max(32, h // 2)), Image.LANCZOS)
-    im.save(os.path.join(dst, f), optimize=True)
+    if f.endswith('.jpg'): im.save(os.path.join(dst, f), quality=88, optimize=True)
+    else: im.save(os.path.join(dst, f), optimize=True)
 `;
 execFileSync('python3', ['-c', py, path.join(content, 'Textures'), path.join(mobile, 'Textures')]);
 console.log(JSON.stringify(report.models, null, 1));

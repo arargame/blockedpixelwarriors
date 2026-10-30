@@ -169,6 +169,32 @@ public sealed class PrefabData
     public HeliData Heli { get; set; }
     public Dictionary<string, float[]> BlockColors { get; set; }
     public Dictionary<string, string> SupplyCrateTextures { get; set; }
+    public ForkliftData Forklift { get; set; }
+    public ChinookData Chinook { get; set; }
+    public List<CardDefData> Cards { get; set; }
+}
+
+public sealed class ForkliftData
+{
+    public float[] ForksMatrix { get; set; }
+    public float[] CrateMatrix { get; set; }
+    public float[] Beacon { get; set; }
+}
+
+public sealed class ChinookData
+{
+    public List<float[]> Rotors { get; set; }
+}
+
+/// <summary>Upgrade card definition (UpgradeCards.js CARD_DEFS; text is baked into the face texture).</summary>
+public sealed class CardDefData
+{
+    public string Id { get; set; }
+    public string Title { get; set; }
+    public string Kind { get; set; }
+    public string Requires { get; set; }
+    public float[] Jewel { get; set; }
+    public float[] Glow { get; set; }
 }
 
 public sealed class CarData

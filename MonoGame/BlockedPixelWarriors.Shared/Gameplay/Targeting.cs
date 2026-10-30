@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework;
 
 namespace BlockedPixelWarriors.Gameplay;
 
-public enum AimKind { Block, Gem, Turret, Cargo }
+public enum AimKind { Block, Gem, Turret, Cargo, Mine }
 
 /// <summary>
 /// A live thing the heli's guns can aim at (board block or train part). A value type, so smart
@@ -16,6 +16,7 @@ public readonly struct AimTarget
     public readonly Train Train;
     public readonly TrainCar Car;
     public readonly TrainTarget Part;
+    public readonly Mine Mine;
 
     public AimTarget(Block block)
     {
@@ -24,6 +25,17 @@ public readonly struct AimTarget
         Train = null;
         Car = null;
         Part = null;
+        Mine = null;
+    }
+
+    public AimTarget(Mine mine)
+    {
+        Kind = AimKind.Mine;
+        Block = null;
+        Train = null;
+        Car = null;
+        Part = null;
+        Mine = mine;
     }
 
     public AimTarget(Train train, TrainCar car, TrainTarget part)
@@ -33,13 +45,14 @@ public readonly struct AimTarget
         Train = train;
         Car = car;
         Part = part;
+        Mine = null;
     }
 
-    public bool IsValid => Block != null || Part != null;
+    public bool IsValid => Block != null || Part != null || Mine != null;
 
-    public bool Alive => Block != null ? Block.Alive && Block.Drop <= 0 : Part != null && Part.Alive && !Train.Destroyed;
+    public bool Alive => Block != null ? Block.Alive && Block.Drop <= 0 : Mine != null ? Mine.Alive : Part != null && Part.Alive && !Train.Destroyed;
 
-    public Vector3 Position => Block != null ? new Vector3(Block.X, GameConfig.BlockSize * 0.55f, Block.Z) : Car.ToWorld(Part.Center);
+    public Vector3 Position => Block != null ? new Vector3(Block.X, GameConfig.BlockSize * 0.55f, Block.Z) : Mine != null ? Mine.Pos : Car.ToWorld(Part.Center);
 }
 
 /// <summary>Spatial queries for weapons: targets in range of the helicopter, smart-aim lock.</summary>
@@ -60,6 +73,9 @@ public sealed class Targeting
 
     private readonly List<Candidate> _buffer = new(256);
     private AimTarget _lock;
+
+    /// <summary>Spiked balls are targets too (SURPRISE EGG).</summary>
+    public SpikeMines Mines { get; set; }
     private float _lockAt = -1;
 
     /// <summary>
@@ -76,6 +92,15 @@ public sealed class Targeting
             if (!b.Alive || b.Drop > 0 || b.Cargo) continue;
             float dx = b.X - from.X, dz = b.Z - from.Z;
             if (dx * dx + dz * dz <= r2) list.Add(new Candidate(new AimTarget(b), dx, dz));
+        }
+        if (Mines != null)
+        {
+            foreach (var m in Mines.Mines)
+            {
+                if (!m.Alive || m.Falling) continue;
+                float dx = m.Pos.X - from.X, dz = m.Pos.Z - from.Z;
+                if (dx * dx + dz * dz <= r2) list.Add(new Candidate(new AimTarget(m), dx, dz));
+            }
         }
         if (train != null && !train.Destroyed)
         {

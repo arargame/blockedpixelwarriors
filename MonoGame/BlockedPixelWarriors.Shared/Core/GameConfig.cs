@@ -72,6 +72,33 @@ public static class GameConfig
         public const float GemDamageMul = 1.25f;
     }
 
+    /// <summary>Engineer's forklift, dock and the CH-47F cargo chopper (GameConfig.logistics).</summary>
+    public static class Logistics
+    {
+        public const int DockCol = 0;
+        public const float ForkliftSpeed = 3.4f;
+        public const float ChinookInterval = 120;
+        public const int GoalRed = 100, GoalGreen = 100, GoalBlue = 100;
+    }
+
+    /// <summary>Upgrade cards (GameConfig.cards).</summary>
+    public static class Cards
+    {
+        public const float OfferDelay = 1.6f;
+        public const float GemDropChance = 0.14f;
+        public const int GuaranteedOffers = 2;
+        public static readonly string[] MustHave = { "cargoChopper", "engineer" };
+        public const int EggCount = 3;
+        public const float EggCooldown = 4, EggSupplyChance = 0.2f;
+        public const float FlickerMul = 2, CargoTimeMul = 0.7f;
+    }
+
+    /// <summary>Spiked iron balls (SURPRISE EGG card).</summary>
+    public static class Mines
+    {
+        public const float Speed = 1.6f, Radius = 0.62f;
+    }
+
     public static class Camera
     {
         public const float FollowStrength = 0.2f;

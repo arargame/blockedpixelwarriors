@@ -9,7 +9,7 @@ using Microsoft.Xna.Framework.Graphics;
 
 namespace BlockedPixelWarriors.Gameplay;
 
-public enum GameState { Title, Playing, Dead, Over }
+public enum GameState { Title, Playing, Dead, Over, Won }
 
 /// <summary>
 /// Composition root of one game (Game.js): wires the systems, runs the simulation step and acts
@@ -19,7 +19,7 @@ public sealed class GameSession : IRenderable
 {
     private static class Score
     {
-        public const int Block = 10, Cargo = 25, Turret = 100, Gem = 500, Supply = 50;
+        public const int Block = 10, Cargo = 25, Turret = 100, Gem = 500, Mine = 50, Supply = 50, Delivery = 100;
     }
 
     private readonly GraphicsDevice _device;
@@ -36,7 +36,15 @@ public sealed class GameSession : IRenderable
     private bool _lastShotAimed;
     private (Train train, int lap, HashSet<int> rows) _restock;
     private readonly List<FloorSnow.Clearer> _clearers = new(4);
+    private readonly HashSet<string> _takenCards = new();
+    private readonly List<CardDefData> _cardDefs;
+    private readonly List<CardDefData> _offer = new(2);
+    private bool _gemDrops;
+    private float _cardTimer, _eggTimer;
+    private int _offersMade;
     private static Rng R => Rng.Shared;
+    private static readonly Color[] BoxCss = { new(0xff, 0x6b, 0x6b), new(0x7b, 0xe8, 0x6a), new(0x5a, 0xb8, 0xff), new(0xff, 0xd3, 0x4a) };
+    private static readonly Color[] MissionCss = { new(0xff, 0x5a, 0x5a), new(0x6e, 0xe0, 0x5a), new(0x38, 0xc8, 0xff) };
     private static readonly string[] RearPods = { "podRearL", "podRearR" };
     private static readonly float[] TripleAngles = { -0.26f, 0f, 0.26f };
 
@@ -49,6 +57,12 @@ public sealed class GameSession : IRenderable
     public PowerUpSystem PowerUps { get; } = new();
     public CameraRig Rig { get; }
     public Train Train { get; private set; }
+    public Logistics Logistics { get; }
+    public SpikeMines Mines { get; }
+    /// <summary>Upgrade-card UI (set by the game once the UI exists).</summary>
+    public ICardPicker Cards { get; set; }
+    public IReadOnlyCollection<string> TakenCards => _takenCards;
+    public IReadOnlyList<CardDefData> CardDefs => _cardDefs;
     public GameState State { get; private set; } = GameState.Title;
     public int ScoreValue { get; private set; }
     public int Lives { get; private set; } = 3;
@@ -84,6 +98,30 @@ public sealed class GameSession : IRenderable
         Blocks = new BlockField(models, Effects) { OnBlockDestroyed = OnBlockDestroyed };
         Supplies = new SupplyCrates(device, models, scene.Prefabs.SupplyCrateTextures, Effects) { OnPickup = OnPickup };
         Heli = new Helicopter(models, scene.Prefabs.Heli, World.Board) { Spawn = Rig.HeliAnchor, Position = Rig.HeliAnchor };
+        Logistics = new Logistics(models, scene.Prefabs.Forklift, scene.Prefabs.Chinook, Blocks, Effects, lights)
+        {
+            OnPackaged = c =>
+            {
+                if (c.HasValue && State == GameState.Playing)
+                    _hud.Kill("ENGINEER", FeedColors.Engineer, $"{ColorName(c.Value)} PACKAGE", BoxCss[(int)c.Value], "→ dock", Color.White * 0.6f);
+            },
+            OnChinookArrive = count =>
+            {
+                if (State == GameState.Playing) _hud.Toast(count > 0 ? $"CARGO CHOPPER INBOUND - {count} PACKAGES" : "CARGO CHOPPER INBOUND - DOCK IS EMPTY!");
+            },
+            OnDelivered = OnPackageDelivered,
+            OnEngineerReady = () =>
+            {
+                if (State == GameState.Playing) _hud.Toast("ENGINEER ON DUTY - SHOOT CARGO OFF THE TRAIN");
+            },
+            OnChinookLeft = loaded =>
+            {
+                if (State == GameState.Playing && loaded > 0) _hud.Toast($"CARGO CHOPPER AWAY - {loaded} DELIVERED");
+            },
+        };
+        Mines = new SpikeMines(models, World.Board, Blocks, Effects);
+        _targeting.Mines = Mines;
+        _cardDefs = scene.Prefabs.Cards ?? new List<CardDefData>();
         _trainFactory = new TrainFactory(models, scene.Prefabs);
         var (ret, retSrgb) = models.Texture("ui_reticle");
         _reticle = new BillboardBatch(device, ret, retSrgb, 1, false, 30) { DepthTest = false };
@@ -96,6 +134,14 @@ public sealed class GameSession : IRenderable
     public void StartRun()
     {
         PowerUps.Clear();
+        Logistics.Reset();
+        _takenCards.Clear();
+        _offersMade = 0;
+        _gemDrops = false;
+        _cardTimer = 0;
+        _eggTimer = 0;
+        Cards?.Cancel();
+        Mines.ClearEggs();
         State = GameState.Playing;
         ScoreValue = 0;
         Lives = 3;
@@ -136,15 +182,40 @@ public sealed class GameSession : IRenderable
         {
             _hud.Kill("HELI", FeedColors.Heli, $"ARMORED TRAIN #{Wave}", FeedColors.Train, "☠", FeedColors.Train);
             _hud.Toast("TRAIN DESTROYED! +500");
+            _cardTimer = GameConfig.Cards.OfferDelay;
         }
     }
+
+    private static string ColorName(BlockColor c) => c == BlockColor.Teal ? "BLUE" : Palette.Key(c).ToUpperInvariant();
+
+    /// <summary>Supply types allowed to drop: G with GEM MINE, R with HOMING ROCKETS.</summary>
+    private SupplyCrates.Item SpawnSupply(Vector3 p) => Supplies.SpawnRandom(p, _gemDrops, _takenCards.Contains("homing"));
 
     private void OnBlockDestroyed(Block block, int depth)
     {
         AddScore(Score.Block * (1 + depth));
-        if (block.Type == BlockType.Supply && State != GameState.Over)
-            Supplies.SpawnRandom(new Vector3(block.X, GameConfig.BlockSize * 0.6f, block.Z), gems: false, homing: false);
+        var at = new Vector3(block.X, GameConfig.BlockSize * 0.6f, block.Z);
+        if (block.Type == BlockType.Supply && State != GameState.Over) SpawnSupply(at);
+        // GEM MINE card: ordinary blocks may crack open a gem too.
+        else if (_gemDrops && !block.Cargo && R.Next() < GameConfig.Cards.GemDropChance) Supplies.Spawn(SupplyType.G, at);
+        if (block.Cargo && State == GameState.Playing)
+        {
+            _hud.Notice("CARGO LOST!", new Color(0xff, 0x6b, 0x6b));
+            _hud.Kill("HELI", FeedColors.Heli, $"{ColorName(block.Color)} CARGO", BoxCss[(int)block.Color], "✖ lost", new Color(0xff, 0x8a, 0x7a));
+        }
         if (depth > 0) Rig.AddShake(0.12f);
+    }
+
+    private void OnPackageDelivered(BlockColor color, MissionColor? key)
+    {
+        AddScore(Score.Delivery);
+        if (key.HasValue && State == GameState.Playing) _hud.Notice($"+1 {key.Value.ToString().ToUpperInvariant()}", MissionCss[(int)key.Value]);
+        if (Logistics.MissionComplete && State == GameState.Playing)
+        {
+            State = GameState.Won;
+            Cards?.Cancel();
+            _hud.ShowMissionComplete(ScoreValue, Logistics.Delivered);
+        }
     }
 
     private void OnPickup(SupplyType type, SupplyCrates.Item item)
@@ -243,6 +314,20 @@ public sealed class GameSession : IRenderable
                 GemImpact(p, point, null);
                 return true;
             }
+        }
+        var mine = Mines.HitTest(exact ? point : new Vector3(point.X, GameConfig.Mines.Radius, point.Z));
+        if (mine != null && point.Y < 3.5f)
+        {
+            ApplyPlayerDamage(p, point, () =>
+            {
+                if (!Mines.Damage(mine, p.Damage, point)) return;
+                AddScore(Score.Mine);
+                // SURPRISE EGG balls crack open: 20% chance of a supply.
+                var lucky = mine.Egg && R.Next() < GameConfig.Cards.EggSupplyChance;
+                if (lucky) SpawnSupply(new Vector3(mine.Pos.X, 0.8f, mine.Pos.Z));
+                _hud.Kill("HELI", FeedColors.Heli, mine.Egg ? "EGG BALL" : "SPIKE BALL", FeedColors.Grey, lucky ? "+ SUPPLY" : null, FeedColors.Gold);
+            });
+            return true;
         }
         var block = Blocks.BlockAt(point.X, exact ? point.Y : MathF.Min(point.Y, GameConfig.BlockSize * 0.9f), point.Z);
         if (block != null && point.Y < 3.6f)
@@ -575,6 +660,7 @@ public sealed class GameSession : IRenderable
                 else
                 {
                     State = GameState.Over;
+                    Cards?.Cancel();
                     _hud.ShowGameOver(ScoreValue);
                 }
             }
@@ -603,8 +689,16 @@ public sealed class GameSession : IRenderable
         RestockFarSide();
 
         Blocks.Update(dt);
+        Logistics.Update(dt, playing);
+        Mines.Update(dt);
         Projectiles.Update(dt);
         PowerUps.Update(dt);
+        if (_cardTimer > 0)
+        {
+            _cardTimer -= dt;
+            if (_cardTimer <= 0) OfferCards();
+        }
+        UpdateSurpriseEggs(dt);
         Supplies.Update(dt, Heli.Position, Heli.Alive && State == GameState.Playing);
         UpdateReticle(dt);
         UpdateDamageSmoke(dt);
@@ -613,8 +707,97 @@ public sealed class GameSession : IRenderable
         World.RailSnow.Update(dt, Train, Effects);
         _clearers.Clear();
         if (Heli.Alive && Heli.Visible) _clearers.Add(new FloorSnow.Clearer(Heli.Position.X, Heli.Position.Z, 2.3f, 2.5f, true));
+        Logistics.SnowClearers(_clearers);
         World.FloorSnow.Update(dt, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_clearers), Effects);
         Rig.Update(dt, Heli.Position);
+    }
+
+    // ---- Upgrade cards ------------------------------------------------------------------------
+
+    private bool CardOpen(CardDefData d) => !_takenCards.Contains(d.Id) && (d.Requires == null || _takenCards.Contains(d.Requires));
+
+    /// <summary>
+    /// Two cards (or the last one left) the player hasn't taken yet, after a train went down. The
+    /// mission can't be won without the cargo chopper and the engineer, so in the first offers one
+    /// of the two is always the first of <see cref="GameConfig.Cards.MustHave"/> not taken yet.
+    /// </summary>
+    public void OfferCards()
+    {
+        if (State is not (GameState.Playing or GameState.Dead) || Cards == null || Cards.Active) return;
+        var pool = _cardDefs.Where(CardOpen).ToList();
+        if (pool.Count == 0) return;
+        _offer.Clear();
+        if (_offersMade < GameConfig.Cards.GuaranteedOffers)
+        {
+            var must = GameConfig.Cards.MustHave.Select(id => pool.Find(d => d.Id == id)).FirstOrDefault(d => d != null);
+            if (must != null) _offer.Add(must);
+        }
+        foreach (var d in pool.Where(x => !_offer.Contains(x)).OrderBy(_ => R.Next()))
+        {
+            if (_offer.Count >= 2) break;
+            _offer.Add(d);
+        }
+        _offersMade++;
+        Cards.Show(_offer.ToArray(), ApplyCard);
+    }
+
+    /// <summary>SURPRISE EGG: an empty board brings 3 rolling balls down from the sky (one wave at a time).</summary>
+    private void UpdateSurpriseEggs(float dt)
+    {
+        if (!_takenCards.Contains("surpriseEgg") || State != GameState.Playing) return;
+        _eggTimer = MathF.Max(0, _eggTimer - dt);
+        if (_eggTimer > 0 || Mines.EggsAlive > 0) return;
+        if (Blocks.Blocks.Exists(b => b.Alive && !b.Cargo)) return;
+        var e = Logistics.Engineer;
+        var minX = Blocks.CellCenter(Logistics.Dock.Columns, 0).x - 0.75f;
+        bool Free(float x, float z) =>
+            !(e.Active && MathF.Sqrt((e.Position.X - x) * (e.Position.X - x) + (e.Position.Z - z) * (e.Position.Z - z)) < 2) && x > minX;
+        if (Mines.DropEggs(GameConfig.Cards.EggCount, Free) > 0)
+        {
+            _eggTimer = GameConfig.Cards.EggCooldown;
+            _hud.Toast("SURPRISE EGGS INCOMING!");
+        }
+    }
+
+    public void ApplyCard(CardDefData def)
+    {
+        _takenCards.Add(def.Id);
+        switch (def.Id)
+        {
+            case "engineer":
+                Logistics.HireEngineer();
+                _hud.Toast("FIELD ENGINEER INBOUND");
+                break;
+            case "gemMine":
+                _gemDrops = true;
+                _hud.Toast("GEM MINE - BLOCKS NOW DROP GEMS");
+                break;
+            case "cargoChopper":
+                Logistics.EnableChopper();
+                _hud.Toast(Logistics.Enabled ? "CARGO CHOPPER - PICK-UP EVERY 2 MINUTES" : "CARGO CHOPPER SIGNED - NOW YOU NEED AN ENGINEER");
+                break;
+            case "homing":
+                _hud.Toast("HOMING ROCKETS UNLOCKED - LOOK FOR R SUPPLIES");
+                // A first taste right away.
+                Supplies.Spawn(SupplyType.R, new Vector3(Heli.Position.X, 2, Heli.Position.Z));
+                break;
+            case "doubleRow":
+                Logistics.WidenDock();
+                _hud.Toast("DOUBLE ROW - THE DOCK HOLDS TWICE AS MANY");
+                break;
+            case "flicker":
+                Heli.FlickerMul = GameConfig.Cards.FlickerMul;
+                _hud.Toast("FLICKER - LONGER SAFE TIME AFTER HITS");
+                break;
+            case "cargoTime":
+                Logistics.SpeedUpChopper(GameConfig.Cards.CargoTimeMul);
+                _hud.Toast("RUSH DELIVERY - CHOPPER COMES 30% SOONER");
+                break;
+            case "surpriseEgg":
+                _hud.Toast("SURPRISE EGG - EMPTY BOARD? BALLS FROM THE SKY");
+                _eggTimer = 0;
+                break;
+        }
     }
 
     /// <summary>
@@ -625,6 +808,7 @@ public sealed class GameSession : IRenderable
     {
         _hud.HideOverlay();
         Heli.Steerable = false;
+        Mines.AddPosterBalls();
         SpawnTrain();
         Train.ForceCruise();
         Heli.Position = Rig.HeliAnchor;
@@ -689,6 +873,8 @@ public sealed class GameSession : IRenderable
     {
         World.Submit(queue);
         Blocks.Submit(queue);
+        Logistics.Submit(queue);
+        Mines.Submit(queue);
         Train?.Submit(queue);
         Heli.Submit(queue);
         Supplies.Submit(queue);

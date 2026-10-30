@@ -16,6 +16,8 @@ public interface IHudEvents
     void FloatText(string text, Vector3 world, Color color);
     void ShowTitle();
     void ShowGameOver(int score);
+    /// <summary>All 300 packages delivered: red, green, blue counts.</summary>
+    void ShowMissionComplete(int score, IReadOnlyList<int> delivered);
     void HideOverlay();
 }
 

@@ -64,13 +64,19 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
 - MonoGame GL yalnızca 8-bit MSAA hedefi oluşturabildiği için HDR sahne MSAA yerine **FXAA** ile
   yumuşatılır (bloom HDR'de kalır). Telefonda (web "low" preset gibi) FXAA, önplan bulanıklığı yok,
   1024 gölge haritası, en fazla 720 satır render + dinamik çözünürlük.
-- Bu ilk port "çekirdek oyun"dur: helikopter, tren (taret, top, mücevher kalkanı, turlar),
-  bloklar, mermiler, ikmaller (T / D / H), HUD, menüler, kar. Mühendis / Chinook, yükseltme
-  kartları (ve onlara bağlı R / G ikmalleri) sonraki adım.
+- Oyun web sürümüyle aynı: helikopter, tren (taret, top, mücevher kalkanı, turlar), bloklar,
+  mermiler, ikmaller (T / D / R / H / G), **yükseltme kartları** (8 kart, kül-gri dünya, tıkla /
+  dokun / 1-2, resmin tamamını görme), **saha mühendisi + forklift** (BFS ile kargo toplar,
+  rıhtıma hediye paketi dizer), **CH-47F Chinook** (forklifti getirir, 2 dakikada bir paket
+  toplar, geri sayım), görev paneli (100 kırmızı / yeşil / mavi → MISSION COMPLETE),
+  DOUBLE ROW, GEM MINE, HOMING ROCKETS, FLICKER, RUSH DELIVERY, SURPRISE EGG (dikenli toplar),
+  HUD, menüler, kar.
+- Kartlar sahnenin post zincirinden sonra tam çözünürlükte çizilir (`Card.glfx`: key + rim ışık,
+  RoomEnvironment, clearcoat, fragment başına ACES + sRGB — web'deki ayrı kart canvas'ı gibi).
 
 ## Test / ekran görüntüsü
 
 ```bash
-BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|title|play [--warmup 25] [--touch] [--mobile]
+BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|title|play|cards|logistics [--warmup 25] [--extra 30] [--pick 0] [--touch] [--mobile]
 node tools/staticshot.mjs web.png   # aynı "static" kareyi web sürümünden alır (karşılaştırma)
 ```

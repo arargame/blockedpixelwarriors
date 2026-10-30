@@ -7,7 +7,7 @@ using Microsoft.Xna.Framework.Graphics;
 
 namespace BlockedPixelWarriors.UI;
 
-public enum Overlay { None, Title, GameOver, Pause }
+public enum Overlay { None, Title, GameOver, Pause, Won }
 
 /// <summary>
 /// Heads-up display (port of Hud.js + hud.css): score / wave panels, the train damage panel,
@@ -44,6 +44,7 @@ public sealed class Hud : IHudEvents
     private float _time;
     private readonly Dictionary<SupplyType, float> _skillAge = new();
     private int _finalScore;
+    private int[] _delivered = new int[3];
 
     public Overlay Overlay { get; private set; } = Overlay.Title;
     /// <summary>Pause menu buttons (screen rects, valid after Draw).</summary>
@@ -53,6 +54,9 @@ public sealed class Hud : IHudEvents
     public bool ShowQuit { get; set; }
     /// <summary>Title help text for touch screens.</summary>
     public bool TouchHelp { get; set; }
+    /// <summary>While the upgrade cards are up, toasts and notices stay out of the way.</summary>
+    public bool CardsOpen { get; set; }
+    private float _cardsFade = 1;
 
     public Hud(UiKit ui, Texture2D logo)
     {
@@ -93,6 +97,13 @@ public sealed class Hud : IHudEvents
         Overlay = Overlay.GameOver;
     }
 
+    public void ShowMissionComplete(int score, IReadOnlyList<int> delivered)
+    {
+        _finalScore = score;
+        _delivered = delivered.ToArray();
+        Overlay = Overlay.Won;
+    }
+
     public void ShowPause() => Overlay = Overlay.Pause;
 
     public void HideOverlay() => Overlay = Overlay.None;
@@ -121,6 +132,7 @@ public sealed class Hud : IHudEvents
     public void Update(float dt, IReadOnlyList<ActivePower> powers)
     {
         _time += dt;
+        _cardsFade = MathHelper.Clamp(_cardsFade + (CardsOpen ? -dt : dt) / 0.2f, 0, 1);
         foreach (var key in _skillAge.Keys.ToList())
             if (!powers.Any(p => p.Type == key)) _skillAge.Remove(key);
         foreach (var p in powers)
@@ -355,12 +367,32 @@ public sealed class Hud : IHudEvents
         var num = $"{MathF.Round(ratio * 100)}/100";
         _ui.Text(_ui.Hud, num, new Vector2(bar.Right + 8 * k, hpRect.Center.Y - numPx * 0.55f), numPx, Color.White * 0.9f * alpha, 0, 0.17f);
 
-        // Kill feed / terminal log above the HP row.
+        // Mission + chopper countdown next to the HP row (above it; below it on phones).
         var top = topAnchor.HasValue;
+        var anchorTop = hpRect.Y;
+        var anchorBottom = hpRect.Bottom;
+        var L = s.Logistics;
+        if (L.Enabled)
+        {
+            var narrow = vp.Width / k < 700;
+            if (L.CountdownActive)
+            {
+                var h = (narrow ? 22 : 28) * k;
+                var r = DrawChopper(new Vector2(x, top ? anchorBottom + 6 * k : anchorTop - 6 * k - h), h, s, k, alpha, narrow);
+                if (top) anchorBottom = r.Bottom; else anchorTop = r.Y;
+            }
+            {
+                var h = (narrow ? 20 : 24) * k;
+                var r = DrawMission(new Vector2(x, top ? anchorBottom + 6 * k : anchorTop - 6 * k - h), h, L, k, alpha, narrow);
+                if (top) anchorBottom = r.Bottom; else anchorTop = r.Y;
+            }
+        }
+
+        // Kill feed / terminal log above the HP row.
         var px = (vp.Width / k < 700 ? 10 : 11.5f) * k;
         var lh = px * 1.25f + 6 * k;
         // Bottom layout: newest line right above the HP row; top layout: right below it.
-        var lineY = top ? hpRect.Bottom + 6 * k - lh : hpRect.Y - 6 * k;
+        var lineY = top ? anchorBottom + 6 * k - lh : anchorTop - 6 * k;
         for (var i = _log.Count - 1; i >= 0; i--)
         {
             var l = _log[i];
@@ -399,12 +431,127 @@ public sealed class Hud : IHudEvents
             var from = new Vector2(vp.Center.X - _ui.Hud.Measure(g.text, toastPx) / 2, vp.Y + vp.Height * 0.18f);
             var idx = _log.IndexOf(g.line);
             var to = top
-                ? new Vector2(x + 7 * k + 12 * k, hpRect.Bottom + 6 * k + (_log.Count - 1 - idx) * lh + 3 * k)
-                : new Vector2(x + 7 * k + 12 * k, hpRect.Y - 6 * k - (_log.Count - idx) * lh + 3 * k);
+                ? new Vector2(x + 7 * k + 12 * k, anchorBottom + 6 * k + (_log.Count - 1 - idx) * lh + 3 * k)
+                : new Vector2(x + 7 * k + 12 * k, anchorTop - 6 * k - (_log.Count - idx) * lh + 3 * k);
             var p = Vector2.Lerp(from, to, t);
             var size = MathHelper.Lerp(toastPx, px, t);
             _ui.Text(_ui.Hud, g.text, p, size, Color.White * (1 - 0.8f * t), 3 * k);
         }
+    }
+
+    private static readonly Color[] MissionSwatch = { new(0xe0, 0x1d, 0x22), new(0x36, 0xc2, 0x25), new(0x0e, 0xa2, 0xa8) };
+
+    /// <summary>MISSION  [r] n/100  [g] n/100  [b] n/100 | DOCK n/cap</summary>
+    private RectangleF DrawMission(Vector2 pos, float h, Logistics l, float k, float alpha, bool narrow)
+    {
+        var px = (narrow ? 9 : 11) * k;
+        var titlePx = (narrow ? 8 : 9) * k;
+        var gap = (narrow ? 6 : 9) * k;
+        var pad = (narrow ? 7 : 10) * k;
+        var sw = 10 * k;
+        var w = pad + _ui.Hud.Measure("MISSION", titlePx, 0.2f);
+        var counts = new string[3];
+        var goals = new string[3];
+        for (var i = 0; i < 3; i++)
+        {
+            counts[i] = l.Delivered[i].ToString();
+            goals[i] = $"/{Logistics.Goal[i]}";
+            w += gap + sw + 5 * k + MathF.Max(18 * k, _ui.Hud.Measure(counts[i], px, 0.14f)) + _ui.Hud.Measure(goals[i], px, 0.14f);
+        }
+        var dock = $"DOCK {l.Dock.Count}/{l.Dock.Capacity}";
+        if (!narrow) w += gap + 5 * k + _ui.Hud.Measure(dock, titlePx, 0.2f);
+        w += pad;
+        var r = new RectangleF(pos.X, pos.Y, w, h);
+        _ui.Panel(r, 8 * k, PanelFill * alpha);
+        var cy = r.Center.Y;
+        var tx = r.X + pad;
+        _ui.Text(_ui.Hud, "MISSION", new Vector2(tx, cy - titlePx * 0.55f), titlePx, Color.White * 0.74f * alpha, 0, 0.2f);
+        tx += _ui.Hud.Measure("MISSION", titlePx, 0.2f);
+        for (var i = 0; i < 3; i++)
+        {
+            tx += gap;
+            var done = l.Delivered[i] >= Logistics.Goal[i];
+            var sq = new RectangleF(tx, cy - sw / 2, sw, sw);
+            _ui.Rect(sq, Color.White * alpha);
+            _ui.Rect(new RectangleF(sq.X + 1.5f * k, sq.Y + 1.5f * k, sq.Width - 3 * k, sq.Height - 3 * k), MissionSwatch[i] * alpha);
+            tx += sw + 5 * k;
+            var cw = MathF.Max(18 * k, _ui.Hud.Measure(counts[i], px, 0.14f));
+            var numColor = done ? new Color(0xff, 0xd3, 0x4a) : Color.White * 0.92f;
+            _ui.Text(_ui.Hud, counts[i], new Vector2(tx + cw - _ui.Hud.Measure(counts[i], px, 0.14f), cy - px * 0.55f), px, numColor * alpha, 0, 0.14f);
+            tx += cw;
+            _ui.Text(_ui.Hud, goals[i], new Vector2(tx, cy - px * 0.55f), px, (done ? new Color(0xff, 0xd3, 0x4a) : Color.White * 0.55f) * alpha, 0, 0.14f);
+            tx += _ui.Hud.Measure(goals[i], px, 0.14f);
+        }
+        if (!narrow)
+        {
+            tx += gap;
+            _ui.Rect(new RectangleF(tx, r.Y + 5 * k, k, r.Height - 10 * k), Color.White * 0.3f * alpha);
+            tx += 5 * k;
+            _ui.Text(_ui.Hud, dock, new Vector2(tx, cy - titlePx * 0.55f), titlePx, Color.White * 0.7f * alpha, 0, 0.2f);
+        }
+        return r;
+    }
+
+    /// <summary>Cargo chopper countdown (2:00 -> 0:00, the last 10 s pulse), or its loading progress.</summary>
+    private RectangleF DrawChopper(Vector2 pos, float h, GameSession s, float k, float alpha, bool narrow)
+    {
+        var l = s.Logistics;
+        var ch = l.Chinook;
+        var loading = ch.Active && ch.PickupMission;
+        var remaining = MathF.Max(0, l.Timer);
+        var urgent = !loading && remaining <= 10;
+        string label, time;
+        float fill;
+        if (loading)
+        {
+            label = "CARGO CHOPPER LOADING";
+            time = $"{ch.Loaded} ⬆";
+            fill = 1;
+        }
+        else
+        {
+            var secs = (int)MathF.Ceiling(remaining);
+            label = "CARGO CHOPPER IN";
+            time = urgent ? remaining.ToString("0.0") : $"{secs / 60}:{secs % 60:00}";
+            fill = MathF.Min(1, remaining / l.Interval);
+        }
+        var labelPx = (narrow ? 8 : 9) * k;
+        var timePx = (urgent ? (narrow ? 13 : 20) : narrow ? 11 : 15) * k;
+        var pad = (narrow ? 7 : 10) * k;
+        var gap = (narrow ? 6 : 9) * k;
+        var labelW = _ui.Hud.Measure(label, labelPx, 0.2f);
+        var timeW = MathF.Max(40 * k, _ui.Hud.Measure(time, timePx));
+        var barW = narrow ? 60 * k : 70 * k;
+        var w = MathF.Max(narrow ? 0 : 260 * k, pad + 14 * k + gap + labelW + gap + timeW + gap + barW + pad);
+        barW = w - (pad + 14 * k + gap + labelW + gap + timeW + gap + pad);
+        var r = new RectangleF(pos.X, pos.Y, w, h);
+        var scale = urgent ? 1 + 0.03f * (1 - MathF.Cos(_time * MathF.PI / 0.5f)) : 1;
+        if (scale != 1)
+        {
+            // Pulse grows from the left edge (transform-origin: left center) + gold glow.
+            r = new RectangleF(r.X, r.Center.Y - h * scale / 2, w * scale, h * scale);
+            _ui.Panel(new RectangleF(r.X - 4 * k, r.Y - 4 * k, r.Width + 8 * k, r.Height + 8 * k), 12 * k, new Color(255, 211, 74) * (0.18f * (scale - 1) / 0.06f * alpha));
+        }
+        var bg = loading ? Color.FromNonPremultiplied(30, 90, 40, 153) : urgent ? Color.FromNonPremultiplied(120, 20, 10, 153) : PanelFill;
+        _ui.Panel(r, 8 * k, bg * alpha);
+        var cy = r.Center.Y;
+        var tx = r.X + pad * scale;
+        // Little helicopter icon: body, tail and rotor.
+        var ic = new Vector2(tx + 7 * k, cy + 1 * k);
+        _ui.Disc(ic, 4 * k, Color.White * alpha);
+        _ui.Line(ic, ic + new Vector2(8 * k, -1 * k), 2 * k, Color.White * alpha);
+        _ui.Line(ic + new Vector2(-6 * k, -6 * k), ic + new Vector2(8 * k, -6 * k), 1.5f * k, Color.White * alpha);
+        tx += (14 * k + gap) * scale;
+        _ui.Text(_ui.Hud, label, new Vector2(tx, cy - labelPx * scale * 0.55f), labelPx * scale, Color.White * 0.85f * alpha, 0, 0.2f);
+        tx += (labelW + gap) * scale;
+        var timeColor = urgent ? new Color(0xff, 0xd3, 0x4a) : Color.White;
+        _ui.Text(_ui.Hud, time, new Vector2(tx, cy - timePx * scale * 0.55f), timePx * scale, timeColor * alpha, 0);
+        tx += (timeW + gap) * scale;
+        var bar = new RectangleF(tx, cy - 4 * k * scale, barW * scale, 8 * k * scale);
+        _ui.Outline(bar, 3 * k, Color.White * 0.9f * alpha);
+        var fillColor = loading ? new Color(0x6e, 0xe0, 0x5a) : urgent ? new Color(0xff, 0xd3, 0x4a) : Color.White;
+        _ui.Rect(new RectangleF(bar.X + 3 * k, bar.Y + 3 * k, (bar.Width - 6 * k) * fill, bar.Height - 6 * k), fillColor * alpha);
+        return r;
     }
 
     private void DrawHeart(Vector2 c, float r, float alpha)
@@ -462,12 +609,13 @@ public sealed class Hud : IHudEvents
             if (t < 0.15f) { a = t / 0.15f; dy = 10 * (1 - a); }
             else if (t < 0.8f) { a = 1; dy = 0; }
             else { a = 1 - (t - 0.8f) / 0.2f; dy = -12 * (1 - a); }
+            a *= _cardsFade;
             _ui.TextCentered(_ui.Hud, text, new Vector2(vp.Center.X, vp.Y + 58 * k + 9 * k + dy * k), 18 * k, color * a, 2 * k);
         }
         if (_toast.HasValue)
         {
             var (text, color, age) = _toast.Value;
-            var a = MathF.Min(1, age / 0.25f);
+            var a = MathF.Min(1, age / 0.25f) * _cardsFade;
             var px = Math.Clamp(vp.Width * 0.03f / k, 16, 28) * k;
             var c = new Vector2(vp.Center.X, vp.Y + vp.Height * 0.18f + px * 0.5f - 10 * k * (1 - a));
             // Orange glow (text-shadow 0 0 18px) approximated by a soft blob behind the text.
@@ -594,6 +742,24 @@ public sealed class Hud : IHudEvents
                 _ui.Hud.Draw(_ui.Batch, "GAME OVER", pos + new Vector2(0, 6 * k), big, new Color(0x17, 0x19, 0x1d) * a);
                 _ui.Hud.DrawOutlined(_ui.Batch, "GAME OVER", pos, big, new Color(0xff, 0x4a, 0x3b) * a, new Color(0x17, 0x19, 0x1d) * a, 3 * k);
                 y += big + 18 * k;
+                _ui.TextCentered(_ui.Hud, $"SCORE {_finalScore:000000}", new Vector2(cx, y + finalPx / 2), finalPx, Color.White * a);
+                y += finalPx + 18 * k;
+                _ui.TextCentered(_ui.Hud, prompt, new Vector2(cx, y + promptPx / 2), promptPx, Color.White * (a * pulse), 3 * k);
+                break;
+            }
+            case Overlay.Won:
+            {
+                var big = Math.Clamp(vp.Width * 0.07f / k, 36, 88) * k;
+                var finalPx = Math.Clamp(vp.Width * 0.03f / k, 18, 32) * k;
+                var y = vp.Center.Y - (big + 18 * k + finalPx * 2 + 30 * k + promptPx) / 2;
+                const string title = "MISSION COMPLETE";
+                var w = _ui.Hud.Measure(title, big);
+                var pos = new Vector2(cx - w / 2, y);
+                _ui.Hud.Draw(_ui.Batch, title, pos + new Vector2(0, 6 * k), big, new Color(0x17, 0x19, 0x1d) * a);
+                _ui.Hud.DrawOutlined(_ui.Batch, title, pos, big, new Color(0xff, 0xd3, 0x4a) * a, new Color(0x17, 0x19, 0x1d) * a, 3 * k);
+                y += big + 18 * k;
+                _ui.TextCentered(_ui.Hud, $"{_delivered[0]} RED · {_delivered[1]} GREEN · {_delivered[2]} BLUE DELIVERED", new Vector2(cx, y + finalPx / 2), finalPx, Color.White * a);
+                y += finalPx + 12 * k;
                 _ui.TextCentered(_ui.Hud, $"SCORE {_finalScore:000000}", new Vector2(cx, y + finalPx / 2), finalPx, Color.White * a);
                 y += finalPx + 18 * k;
                 _ui.TextCentered(_ui.Hud, prompt, new Vector2(cx, y + promptPx / 2), promptPx, Color.White * (a * pulse), 3 * k);

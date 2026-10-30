@@ -203,6 +203,88 @@ class Exporter {
     await this.writeGeometryList('supply_gem', [{ geometry: sup.gemGeometry, material: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.05, metalness: 0.35, flatShading: true }) }]);
     if (g.mines?.geometry) await this.writeGeometryList('spike_ball', [{ geometry: g.mines.geometry, material: g.mines.material }]);
 
+    // ---- Logistics: forklift + engineer, gift packages, dock marking, CH-47F ------------------
+    const L = g.logistics;
+    if (L) {
+      const rel = (root, o) => new THREE.Matrix4().copy(root.matrixWorld).invert().multiply(o.matrixWorld).toArray();
+      // Forklift (root at the origin, forks at rest); the carried crate is drawn with cargo_cube.
+      const e = L.engineer;
+      const savedPos = e.root.position.clone();
+      const savedRot = e.root.rotation.clone();
+      e.root.position.set(0, 0, 0);
+      e.root.rotation.set(0, 0, 0);
+      e.forks.position.y = e.forksBase;
+      e.root.updateMatrixWorld(true);
+      const notCrate = (o) => o !== e.crate && !isUnder(o, e.crate);
+      await this.writeModel('forklift_body', collect(e.root, (o) => !isUnder(o, e.forks)), e.root);
+      await this.writeModel('forklift_forks', collect(e.forks, notCrate), e.forks);
+      prefabs.forklift = {
+        forksMatrix: rel(e.root, e.forks),
+        crateMatrix: rel(e.forks, e.crate),
+        beacon: e.beacon.position.toArray(),
+      };
+      e.root.position.copy(savedPos);
+      e.root.rotation.copy(savedRot);
+      // Gift package: coloured box + gold ribbon / bow.
+      const gift = L.gifts.build('red');
+      gift.updateMatrixWorld(true);
+      const box = gift.children[0];
+      await this.writeModel('gift_box', [box], gift);
+      await this.writeModel('gift_ribbon', gift.children.filter((c) => c !== box), gift);
+      // Dock lane marking (column 0, world space; the second lane is the same mesh shifted).
+      L.dock.markings[0].updateMatrixWorld(true);
+      await this.writeModel('dock_marking', [L.dock.markings[0]], null);
+      // Chinook: body + the two rotors (each in its own space).
+      const ch = L.chinook;
+      const cPos = ch.root.position.clone();
+      const cRot = ch.root.rotation.clone();
+      ch.root.position.set(0, 0, 0);
+      ch.root.rotation.set(0, 0, 0);
+      ch.root.updateMatrixWorld(true);
+      await this.writeModel('chinook_body', collect(ch.root, (o) => !ch.rotors.some((r) => isUnder(o, r))), ch.root);
+      prefabs.chinook = { rotors: [] };
+      for (let i = 0; i < ch.rotors.length; i++) {
+        await this.writeModel(`chinook_rotor${i}`, collect(ch.rotors[i]), ch.rotors[i]);
+        prefabs.chinook.rotors.push(rel(ch.root, ch.rotors[i]));
+      }
+      ch.root.position.copy(cPos);
+      ch.root.rotation.copy(cRot);
+    }
+
+    // ---- Upgrade cards: Blender card model + per-card face / art / banner textures ----------
+    const cards = g.cards;
+    if (cards) {
+      await cards.ready;
+      if (cards.template) {
+        const wrap = new THREE.Group();
+        const model = cards.template.clone(true);
+        model.rotation.x = Math.PI / 2; // glTF front faces +Y -> toward the camera (+Z)
+        wrap.add(model);
+        wrap.updateMatrixWorld(true);
+        // glTF UVs: origin top-left, the card textures are written top row first -> no v flip.
+        this.forceNoFlip = true;
+        await this.writeModel('card', collect(wrap), wrap);
+        this.forceNoFlip = false;
+      }
+      const { CARD_DEFS } = await import('/src/ui/UpgradeCards.js');
+      prefabs.cards = [];
+      for (const def of CARD_DEFS) {
+        const c = cards.buildCard(def);
+        for (const [suffix, tex] of [['front', c.frontTex], ['art', c.artTex], ['banner', c.bannerTex]]) {
+          await this.save(`Textures/card_${def.id}_${suffix}.png`, canvasBase64(tex.image));
+          this.textureSpaces[`card_${def.id}_${suffix}`] = 'srgb';
+        }
+        prefabs.cards.push({ id: def.id, title: def.title, kind: def.kind, requires: def.requires ?? null, jewel: linear(def.jewel), glow: linear(def.glow) });
+        c.frontTex.dispose();
+        c.artTex.dispose();
+        c.bannerTex.dispose();
+      }
+      await this.save('Textures/card_back.png', canvasBase64(cards.backTexture.image));
+      this.textureSpaces.card_back = 'srgb';
+      await this.save('Textures/card_glow.png', canvasBase64(cards.glowTexture.image));
+      this.textureSpaces.card_glow = 'linear';
+    }
+
     // ---- Particles, clouds, misc textures ----------------------------------------------------
     const T = g.textures;
     const extra = {
@@ -460,7 +542,7 @@ class Exporter {
     for (const [mat, list] of byMaterial) {
       const mIndex = materials.length;
       materials.push(this.material(mat));
-      const flip = mat.map ? mat.map.flipY : true;
+      const flip = this.forceNoFlip ? false : mat.map ? mat.map.flipY : true;
       const uvMatrix = mat.map ? (mat.map.updateMatrix(), mat.map.matrix.clone()) : new THREE.Matrix3();
       // One part per material (split when it would exceed 65535 vertices).
       let part = null;
