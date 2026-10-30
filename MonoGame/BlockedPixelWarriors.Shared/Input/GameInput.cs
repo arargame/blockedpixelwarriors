@@ -24,6 +24,9 @@ public struct PilotCommand
 /// <summary>A pointer press this frame (mouse click or new touch), in back-buffer pixels.</summary>
 public readonly record struct Tap(Vector2 Position, bool Touch = false);
 
+/// <summary>A press that ended: where it started and where it was let go (swipes, card clicks).</summary>
+public readonly record struct Release(Vector2 Start, Vector2 End, bool Touch = false);
+
 /// <summary>
 /// Unified input (Input.js + mobile controls): keyboard pilot keys, mouse drag joystick on desktop,
 /// and on touch screens a floating virtual joystick on the left half plus turn buttons on the right.
@@ -40,6 +43,12 @@ public sealed class GameInput
     public TouchControls Touch { get; }
     public PilotCommand Command { get; private set; }
     public IReadOnlyList<Tap> Taps => _taps;
+    private readonly List<Release> _releases = new();
+    private readonly Dictionary<int, Vector2> _touchStarts = new();
+    private Vector2 _mousePress;
+    public IReadOnlyList<Release> Releases => _releases;
+    /// <summary>Mouse wheel notches this frame (+ = away from the user).</summary>
+    public int Wheel { get; private set; }
     /// <summary>Any key / click / tap this frame (title and game-over screens).</summary>
     public bool AnyAction { get; private set; }
     public bool PausePressed { get; private set; }
@@ -63,6 +72,7 @@ public sealed class GameInput
         _keys = Keyboard.GetState();
         _mouse = Mouse.GetState();
         _taps.Clear();
+        _releases.Clear();
         AnyAction = false;
         PausePressed = false;
         _backPressed = GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed && !_backLatched;
@@ -80,7 +90,13 @@ public sealed class GameInput
         Touch.Update(touches, gameplay && TouchMode);
         foreach (var t in touches)
         {
+            if (t.State == TouchLocationState.Released)
+            {
+                if (_touchStarts.Remove(t.Id, out var start)) _releases.Add(new Release(start, t.Position, true));
+                continue;
+            }
             if (t.State != TouchLocationState.Pressed) continue;
+            _touchStarts[t.Id] = t.Position;
             _taps.Add(new Tap(t.Position, true));
             AnyAction = true;
         }
@@ -104,11 +120,14 @@ public sealed class GameInput
         if (touches.Count == 0 && leftDown && !leftWasDown)
         {
             _taps.Add(new Tap(mousePos));
+            _mousePress = mousePos;
             AnyAction = true;
             _dragOrigin = mousePos;
             _mouseDragging = true;
             if (_keys.GetPressedKeyCount() == 0) TouchMode = false;
         }
+        if (touches.Count == 0 && !leftDown && leftWasDown) _releases.Add(new Release(_mousePress, mousePos));
+        Wheel = (_mouse.ScrollWheelValue - _prevMouse.ScrollWheelValue) / 120;
         if (!leftDown) _mouseDragging = false;
         if (_keys.GetPressedKeyCount() > 0) TouchMode = false;
 

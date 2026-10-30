@@ -17,6 +17,8 @@ public sealed class CameraRig
     public Camera3D Camera { get; } = new();
     public Vector3 HeliAnchor { get; }
     public float Shake;
+    /// <summary>OPTIONS · CAMERA SHAKE (0 = off).</summary>
+    public float ShakeScale = 1;
     /// <summary>Past the depot the camera rides along with the heli (same key-art angle).</summary>
     public bool Follow;
     /// <summary>Camera travel from its home position (the "at infinity" scenery moves with it).</summary>
@@ -55,7 +57,7 @@ public sealed class CameraRig
         if (Shake > 0)
         {
             Shake = MathF.Max(0, Shake - dt * 2.2f);
-            var s = Shake * Shake * 0.45f;
+            var s = Shake * Shake * 0.45f * ShakeScale;
             Camera.Position.X += Rng.Shared.Spread(s);
             Camera.Position.Y += Rng.Shared.Spread(s);
         }

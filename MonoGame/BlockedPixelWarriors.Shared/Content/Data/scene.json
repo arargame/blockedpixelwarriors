@@ -3715,17 +3715,17 @@
   },
   "heli": {
    "rotorMatrix": [
-    -0.6643242671319043,
+    0.5232589681117126,
     0,
-    -0.3259958099418735,
+    -0.523259068044373,
     0,
     0,
     0.74,
     0,
     0,
-    0.3259958099418735,
+    0.523259068044373,
     0,
-    -0.6643242671319043,
+    0.5232589681117126,
     0,
     0,
     1.4651999258995057,
@@ -3738,12 +3738,12 @@
     0,
     0,
     0,
-    -0.6839837601880229,
-    0.28242913411872544,
+    0.74,
     0,
     0,
-    -0.28242913411872544,
-    -0.6839837601880229,
+    0,
+    0,
+    0.74,
     0,
     0.10360000044107437,
     0.925,
@@ -4017,7 +4017,297 @@
      0.11697066774917994
     ]
    }
-  ]
+  ],
+  "menu": {
+   "languages": [
+    "en",
+    "tr"
+   ],
+   "languageNames": {
+    "en": "ENGLISH",
+    "tr": "TÜRKÇE"
+   },
+   "text": {
+    "en": {
+     "play": "PLAY",
+     "options": "OPTIONS",
+     "exit": "EXIT GAME",
+     "playSub": "Choose a scenario",
+     "optionsSub": "Sound · graphics · language",
+     "exitSub": "Leave the battlefield",
+     "playHead": "SELECT SCENARIO",
+     "optionsHead": "OPTIONS",
+     "exitHead": "EXIT",
+     "railTitle": "RAILBREAKER",
+     "railKind": "SCENARIO 01 · HELI vs TRAIN",
+     "railText": "Hold the snowy depot against the armored train, then chase the Block Hauler up the bridge to the terrace.",
+     "lockedTitle": "CLASSIFIED",
+     "locked2Kind": "SCENARIO 02 · COMING SOON",
+     "locked3Kind": "SCENARIO 03 · COMING SOON",
+     "lockedText": "A new front is being prepared. Stay tuned, pilot.",
+     "soundTitle": "SOUND",
+     "soundText": "Master, music and effects volume.",
+     "graphicsTitle": "GRAPHICS",
+     "graphicsText": "Quality preset, camera shake and full screen.",
+     "languageTitle": "LANGUAGE",
+     "languageText": "English or Türkçe.",
+     "optionsKind": "OPTIONS",
+     "exitTitle": "EXIT GAME",
+     "exitKind": "SEE YOU, PILOT",
+     "exitText": "Leave the battlefield and close the game.",
+     "stepDepot": "DEPOT",
+     "stepTerrace": "TERRACE",
+     "stepBoss": "BOSS",
+     "stageOf": "STAGE {n} / 3",
+     "locked": "LOCKED",
+     "comingSoon": "COMING SOON",
+     "newGame": "NEW GAME",
+     "continueStage": "CONTINUE · STAGE 2",
+     "back": "BACK",
+     "briefing": "MISSION BRIEFING",
+     "brief1": "Ship 20 red, 20 green and 20 blue packages from the depot.",
+     "brief2": "Fly the bridge, pass the checkpoint, wreck the Block Hauler.",
+     "brief3": "The boss is on its way.",
+     "master": "MASTER VOLUME",
+     "music": "MUSIC",
+     "sfx": "EFFECTS",
+     "soundNote": "Sounds are on the way · levels are saved",
+     "quality": "QUALITY",
+     "high": "HIGH",
+     "medium": "MEDIUM",
+     "low": "LOW",
+     "auto": "AUTO",
+     "shake": "CAMERA SHAKE",
+     "fullscreen": "FULL SCREEN",
+     "on": "ON",
+     "off": "OFF",
+     "qualityNote": "Quality applies after a restart",
+     "language": "LANGUAGE",
+     "quitAsk": "QUIT THE GAME?",
+     "yes": "YES",
+     "no": "NO",
+     "farewell": "Thanks for playing! You can close this tab.",
+     "hintKeys": "↑↓ MENU · ←→ BROWSE · ENTER SELECT · ESC BACK",
+     "hintTouch": "TAP A CARD · SWIPE TO BROWSE",
+     "open": "ENTER / TAP TO OPEN"
+    },
+    "tr": {
+     "play": "OYNA",
+     "options": "AYARLAR",
+     "exit": "OYUNDAN ÇIK",
+     "playSub": "Bir senaryo seç",
+     "optionsSub": "Ses · grafik · dil",
+     "exitSub": "Savaş alanından ayrıl",
+     "playHead": "SENARYO SEÇ",
+     "optionsHead": "AYARLAR",
+     "exitHead": "ÇIKIŞ",
+     "railTitle": "RAILBREAKER",
+     "railKind": "SENARYO 01 · HELİ vs TREN",
+     "railText": "Karlı depoyu zırhlı trene karşı savun, sonra köprüden terasa çık ve Block Hauler'ı durdur.",
+     "lockedTitle": "GİZLİ",
+     "locked2Kind": "SENARYO 02 · YAKINDA",
+     "locked3Kind": "SENARYO 03 · YAKINDA",
+     "lockedText": "Yeni bir cephe hazırlanıyor. Beklemede kal, pilot.",
+     "soundTitle": "SES",
+     "soundText": "Genel, müzik ve efekt ses seviyesi.",
+     "graphicsTitle": "GRAFİK",
+     "graphicsText": "Kalite ayarı, kamera sarsıntısı ve tam ekran.",
+     "languageTitle": "DİL",
+     "languageText": "English veya Türkçe.",
+     "optionsKind": "AYARLAR",
+     "exitTitle": "OYUNDAN ÇIK",
+     "exitKind": "GÖRÜŞÜRÜZ PİLOT",
+     "exitText": "Savaş alanından ayrıl ve oyunu kapat.",
+     "stepDepot": "DEPO",
+     "stepTerrace": "TERAS",
+     "stepBoss": "BOSS",
+     "stageOf": "BÖLÜM {n} / 3",
+     "locked": "KİLİTLİ",
+     "comingSoon": "YAKINDA",
+     "newGame": "YENİ OYUN",
+     "continueStage": "DEVAM ET · BÖLÜM 2",
+     "back": "GERİ",
+     "briefing": "GÖREV BRİFİNGİ",
+     "brief1": "Depodan 20 kırmızı, 20 yeşil ve 20 mavi paket gönder.",
+     "brief2": "Köprüden uç, kontrol noktasını geç, Block Hauler'ı parçala.",
+     "brief3": "Boss yolda.",
+     "master": "GENEL SES",
+     "music": "MÜZİK",
+     "sfx": "EFEKTLER",
+     "soundNote": "Sesler yolda · seviyeler kaydedilir",
+     "quality": "KALİTE",
+     "high": "YÜKSEK",
+     "medium": "ORTA",
+     "low": "DÜŞÜK",
+     "auto": "OTOMATİK",
+     "shake": "KAMERA SARSINTISI",
+     "fullscreen": "TAM EKRAN",
+     "on": "AÇIK",
+     "off": "KAPALI",
+     "qualityNote": "Kalite yeniden başlatınca uygulanır",
+     "language": "DİL",
+     "quitAsk": "OYUNDAN ÇIKILSIN MI?",
+     "yes": "EVET",
+     "no": "HAYIR",
+     "farewell": "Oynadığın için teşekkürler! Bu sekmeyi kapatabilirsin.",
+     "hintKeys": "↑↓ MENÜ · ←→ GEZ · ENTER SEÇ · ESC GERİ",
+     "hintTouch": "KARTA DOKUN · KAYDIRARAK GEZ",
+     "open": "AÇMAK İÇİN ENTER / DOKUN"
+    }
+   },
+   "rows": [
+    {
+     "id": "play",
+     "label": "play",
+     "sub": "playSub",
+     "head": "playHead",
+     "cards": [
+      {
+       "id": "rail",
+       "scenario": true,
+       "locked": false,
+       "panel": null,
+       "jewel": [
+        1,
+        0.06847816983662762,
+        0.04231141061442144
+       ],
+       "glow": [
+        1,
+        0.43415363616478553,
+        0.08021982030622662
+       ],
+       "glowHex": 16756816,
+       "title": "railTitle"
+      },
+      {
+       "id": "locked2",
+       "scenario": false,
+       "locked": true,
+       "panel": null,
+       "jewel": [
+        0.20507873637973145,
+        0.24228112245478564,
+        0.3049873140591091
+       ],
+       "glow": [
+        0.21223075740342198,
+        0.3915724777393922,
+        1
+       ],
+       "glowHex": 8366335,
+       "title": "lockedTitle"
+      },
+      {
+       "id": "locked3",
+       "scenario": false,
+       "locked": true,
+       "panel": null,
+       "jewel": [
+        0.20507873637973145,
+        0.24228112245478564,
+        0.3049873140591091
+       ],
+       "glow": [
+        1,
+        0.3231432091022285,
+        0.19461783043107173
+       ],
+       "glowHex": 16751226,
+       "title": "lockedTitle"
+      }
+     ]
+    },
+    {
+     "id": "options",
+     "label": "options",
+     "sub": "optionsSub",
+     "head": "optionsHead",
+     "cards": [
+      {
+       "id": "sound",
+       "scenario": false,
+       "locked": false,
+       "panel": "sound",
+       "jewel": [
+        0.06301001764564068,
+        0.5775804404214573,
+        1
+       ],
+       "glow": [
+        0.21223075740342198,
+        0.6307571363387763,
+        1
+       ],
+       "glowHex": 8376575,
+       "title": "soundTitle"
+      },
+      {
+       "id": "graphics",
+       "scenario": false,
+       "locked": false,
+       "panel": "graphics",
+       "jewel": [
+        1,
+        0.43415363616478553,
+        0.014443843592229466
+       ],
+       "glow": [
+        1,
+        0.6866853124288864,
+        0.11697066774917994
+       ],
+       "glowHex": 16767072,
+       "title": "graphicsTitle"
+      },
+      {
+       "id": "language",
+       "scenario": false,
+       "locked": false,
+       "panel": "language",
+       "jewel": [
+        0.19806931954941637,
+        0.8069522576650873,
+        0.14412847084818123
+       ],
+       "glow": [
+        0.33245153633549385,
+        1,
+        0.2541520943200296
+       ],
+       "glowHex": 10289034,
+       "title": "languageTitle"
+      }
+     ]
+    },
+    {
+     "id": "exit",
+     "label": "exit",
+     "sub": "exitSub",
+     "head": "exitHead",
+     "cards": [
+      {
+       "id": "exit",
+       "scenario": false,
+       "locked": false,
+       "panel": "exit",
+       "jewel": [
+        1,
+        0.08021982030622662,
+        0.05126945836711539
+       ],
+       "glow": [
+        1,
+        0.2541520943200296,
+        0.14412847084818123
+       ],
+       "glowHex": 16747114,
+       "title": "exitTitle"
+      }
+     ]
+    }
+   ]
+  }
  },
  "instanceSets": {
   "world_static": [
@@ -4068,6 +4358,20 @@
   "card_cargoTime_banner": "srgb",
   "card_back": "srgb",
   "card_glow": "linear",
+  "card_menu_rail_en": "srgb",
+  "card_menu_rail_tr": "srgb",
+  "card_menu_locked2_en": "srgb",
+  "card_menu_locked2_tr": "srgb",
+  "card_menu_locked3_en": "srgb",
+  "card_menu_locked3_tr": "srgb",
+  "card_menu_sound_en": "srgb",
+  "card_menu_sound_tr": "srgb",
+  "card_menu_graphics_en": "srgb",
+  "card_menu_graphics_tr": "srgb",
+  "card_menu_language_en": "srgb",
+  "card_menu_language_tr": "srgb",
+  "card_menu_exit_en": "srgb",
+  "card_menu_exit_tr": "srgb",
   "sunGlare": "linear",
   "wood_map": "srgb",
   "wood_normalMap": "linear",

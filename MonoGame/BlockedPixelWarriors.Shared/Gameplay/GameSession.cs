@@ -71,6 +71,8 @@ public sealed class GameSession : IRenderable
     public CheckpointGate Gate { get; }
     /// <summary>Where the checkpoint is saved (file by default; tests / platforms may swap it).</summary>
     public ICheckpointStore Store { get; set; } = new FileCheckpointStore();
+    /// <summary>Settings + scenario progress (menu stage lights).</summary>
+    public ISettingsStore Settings { get; set; }
     public SpikeMines Mines { get; }
     /// <summary>Upgrade-card UI (set by the game once the UI exists).</summary>
     public ICardPicker Cards { get; set; }
@@ -175,7 +177,15 @@ public sealed class GameSession : IRenderable
         Heli.Respawn();
         Rig.Update(0, Heli.Position, true);
         _hud.HideOverlay();
+        _hud.ClearLog();
         Paused = false;
+    }
+
+    /// <summary>Main menu backdrop: a fresh depot that plays itself (attract mode).</summary>
+    public void ShowAttract()
+    {
+        StartRun();
+        State = GameState.Title;
     }
 
     // ---- Stages -------------------------------------------------------------------------------
@@ -242,6 +252,7 @@ public sealed class GameSession : IRenderable
         _trainTimer = 3;
         if (fromSave) return;
         Store?.Save(new CheckpointSave { Score = ScoreValue, Wave = Wave, Cards = _takenCards.ToList() });
+        Settings?.Reach(2);
         _hud.Notice("CHECKPOINT SAVED", FeedColors.Heli);
         _hud.Toast("STAGE 2 - THE TERRACE: STOP THE BLOCK HAULER!");
     }
@@ -253,6 +264,7 @@ public sealed class GameSession : IRenderable
         State = GameState.Won;
         Cards?.Cancel();
         Store?.Clear();
+        Settings?.Clear();
         _hud.ShowMissionComplete(ScoreValue, Logistics.Delivered);
     }
 

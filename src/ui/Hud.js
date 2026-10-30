@@ -464,6 +464,14 @@ export class Hud {
     this.overlayEl.classList.add('visible');
   }
 
+  /** Empties the log feed and any toast (new run). */
+  clearLog() {
+    this.logEl.innerHTML = '';
+    clearTimeout(this.toastTimer);
+    this.toastPending = null;
+    this.toastEl.classList.remove('show');
+  }
+
   hideOverlay() {
     this.overlayEl.classList.remove('visible');
   }

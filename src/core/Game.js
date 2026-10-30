@@ -18,6 +18,8 @@ import { PowerUpSystem, SupplyCrates, GEMS, POWERUPS } from '../entities/PowerUp
 import { CardPicker, CARD_DEFS } from '../ui/UpgradeCards.js';
 import { HaulerModelFactory } from '../entities/HaulerModels.js';
 import { Checkpoint } from '../entities/Checkpoint.js';
+import { MainMenu } from '../ui/MainMenu.js';
+import { Settings, Progress } from './Settings.js';
 import { fxRandom as rnd } from '../util/Random.js';
 import { Palette, BLOCK_COLOR_KEYS } from '../config/Palette.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
@@ -191,6 +193,21 @@ export class Game {
     this.hud = new Hud(container);
     // Upgrade cards (Blender card model): offered after each destroyed train, game keeps running.
     this.cards = new CardPicker({ pipeline: this.pipeline, container, cardGltf: options.cardGltf ?? null });
+    // Main menu over the attract-mode game (grey world, colour menu).
+    this.settings = options.settings ?? new Settings();
+    this.menu = new MainMenu({
+      pipeline: this.pipeline,
+      container,
+      cardGltf: options.cardGltf ?? null,
+      settings: this.settings,
+      runningQuality: options.quality ?? 'high',
+      canContinue: () => !!this.loadCheckpoint(),
+      onPlay: (mode) => {
+        this.hud.root.classList.remove('menu-mode');
+        if (mode === 'continue') this.continueRun();
+        else this.startRun();
+      },
+    });
     this.takenCards = new Set();
     this.gemDrops = false;
     this.cardTimer = 0;
@@ -207,7 +224,16 @@ export class Game {
     this.input.onAnyAction = (e) => this.handleStartInput(e);
 
     window.addEventListener('resize', () => this.pipeline.resize());
-    this.hud.showTitle(this.loadCheckpoint(), () => this.continueRun());
+    if (!options.poster) this.showMenu();
+  }
+
+  /** Main menu: the depot plays itself behind it (attract mode), drained to grey. */
+  showMenu() {
+    this.startRun();
+    this.state = GameState.TITLE;
+    this.hud.hideOverlay();
+    this.hud.root.classList.add('menu-mode');
+    this.menu.show();
   }
 
   /**
@@ -222,10 +248,11 @@ export class Game {
     return this.camera.position.clone().addScaledVector(d, (y - this.camera.position.y) / d.y);
   }
 
+  /** Game over / mission complete: C continues from the checkpoint, anything else opens the menu. */
   handleStartInput(e) {
-    if (this.state !== GameState.TITLE && this.state !== GameState.OVER && this.state !== GameState.WON) return;
+    if (this.state !== GameState.OVER && this.state !== GameState.WON) return;
     if (e?.code === 'KeyC' && this.loadCheckpoint()) this.continueRun();
-    else this.startRun();
+    else this.showMenu();
   }
 
   /** Saved checkpoint (stage 2 start) or null. */
@@ -242,6 +269,7 @@ export class Game {
     const data = { stage: 2, score: this.score, wave: this.wave, cards: [...this.takenCards], at: Date.now() };
     try {
       localStorage.setItem(GameConfig.stages.saveKey, JSON.stringify(data));
+      Progress.reach(2);
     } catch {
       // Private mode / storage off: the run just can't be continued later.
     }
@@ -329,6 +357,7 @@ export class Game {
     this.state = GameState.WON;
     this.cards.cancel();
     this.clearCheckpoint();
+    Progress.clear();
     this.hud.showMissionComplete(this.score, this.logistics.delivered);
   }
 
@@ -400,6 +429,7 @@ export class Game {
     this.wave = 0;
     this.heli.respawn();
     this.hud.hideOverlay();
+    this.hud.clearLog();
     this.hud.setScore(this.score);
     this.hud.setLives(this.lives);
     this.hud.setHealth(1);
@@ -954,7 +984,7 @@ export class Game {
     this.camera.position.copy(this.cameraSmooth);
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt * 2.2);
-      const s = this.shake * this.shake * 0.45;
+      const s = this.shake * this.shake * 0.45 * (this.settings.shake ? 1 : 0);
       this.camera.position.x += rnd.spread(s);
       this.camera.position.y += rnd.spread(s);
     }
@@ -1045,6 +1075,7 @@ export class Game {
       if (this.cardTimer <= 0) this.offerCards();
     }
     this.cards.update(dt);
+    this.menu.update(dt);
     this.updateSurpriseEggs(dt);
     this.supplies.update(dt, this.heli.position, this.heli.alive && this.state === GameState.PLAYING);
     this.hud.setSkills(this.powerups.active);

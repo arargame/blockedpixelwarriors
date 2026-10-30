@@ -126,25 +126,25 @@ export const CARD_DEFS = Object.freeze([
   },
 ]);
 
-const CARD_W = 0.63;
-const CARD_H = 0.88;
+export const CARD_W = 0.63;
+export const CARD_H = 0.88;
 const FRONT_W = 1280;
 const FRONT_H = Math.round(FRONT_W * CARD_H / CARD_W);
 // Banner band in card space (matches tools/blender/build_card.py): centre y, height, span.
 const BANNER = { y0: -0.175, h: 0.092, span: CARD_W + 0.07 };
 // Card-space y above which the pointer is "on the picture" (inspect mode).
 const ART_EDGE = BANNER.y0 + BANNER.h / 2 + 0.01;
-const SERIF = 'Georgia, "Times New Roman", serif';
+export const SERIF = 'Georgia, "Times New Roman", serif';
 
-const loadImage = (url) => new Promise((resolve) => {
+export const loadImage = (url) => new Promise((resolve) => {
   const img = new Image();
   img.onload = () => resolve(img);
   img.onerror = () => resolve(null);
   img.src = url;
 });
 
-const ease = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
-const easeInOut = (t) => {
+export const ease = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
+export const easeInOut = (t) => {
   const x = Math.min(1, Math.max(0, t));
   return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
 };
@@ -596,7 +596,7 @@ function frontCanvas(def, img) {
 }
 
 /** Draws (or, with `measure`, only checks) centred word-wrapped text. Returns true if it fits. */
-function drawRichText(g, segments, cx, top, maxW, size, maxY, measure = false) {
+export function drawRichText(g, segments, cx, top, maxW, size, maxY, measure = false) {
   g.font = `${size}px ${SERIF}`;
   g.textBaseline = 'alphabetic';
   g.textAlign = 'left';
@@ -777,7 +777,7 @@ function bannerCanvas(title) {
 }
 
 /** Card back: dark leather, gold double frame, diamond emblem and the game's initials. */
-function backTexture() {
+export function backTexture() {
   const W = 512;
   const H = Math.round(W * CARD_H / CARD_W);
   const c = document.createElement('canvas');
@@ -831,7 +831,7 @@ function backTexture() {
   return t;
 }
 
-function glowTexture() {
+export function glowTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d');

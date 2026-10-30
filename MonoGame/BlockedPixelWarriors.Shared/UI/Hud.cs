@@ -51,6 +51,7 @@ public sealed class Hud : IHudEvents
     public RectangleF ResumeButton { get; private set; }
     public RectangleF RestartButton { get; private set; }
     public RectangleF QuitButton { get; private set; }
+    public RectangleF MainMenuButton { get; private set; }
     /// <summary>CONTINUE (stage-2 checkpoint) on the title / game-over screens, when a save exists.</summary>
     public RectangleF ContinueButton { get; private set; }
     public bool ContinueAvailable { get; set; }
@@ -93,6 +94,16 @@ public sealed class Hud : IHudEvents
     }
 
     public void ShowTitle() => Overlay = Overlay.Title;
+
+    /// <summary>True while the main menu is up: the HUD stays hidden (the attract game plays behind).</summary>
+    public bool MenuMode { get; set; }
+
+    /// <summary>Empties the log feed and any toast (new run).</summary>
+    public void ClearLog()
+    {
+        _log.Clear();
+        _toast = null;
+    }
 
     public void ShowGameOver(int score)
     {
@@ -198,6 +209,11 @@ public sealed class Hud : IHudEvents
         var k = _ui.Scale;
         _ui.Begin();
         if (_vignette > 0.001f) _ui.DamageVignette(vp, _vignette);
+        if (MenuMode)
+        {
+            _ui.End();
+            return;
+        }
         var playing = s.State is GameState.Playing or GameState.Dead;
         var hudAlpha = 1 - _overlayAlpha * (Overlay == Overlay.Pause ? 0.4f : 1);
         if (hudAlpha > 0.01f && Overlay != Overlay.Title)
@@ -856,13 +872,15 @@ public sealed class Hud : IHudEvents
                 var big = Math.Clamp(vp.Width * 0.06f / k, 34, 72) * k;
                 var bw = 260 * k;
                 var bh = 56 * k;
-                var count = ShowQuit ? 3 : 2;
+                var count = ShowQuit ? 4 : 3;
                 var y = vp.Center.Y - (big + 30 * k + count * (bh + 14 * k)) / 2;
                 _ui.TextCentered(_ui.Hud, "PAUSED", new Vector2(cx, y + big / 2), big, Color.White * a, 5 * k);
                 y += big + 30 * k;
                 ResumeButton = MenuButton("RESUME", new RectangleF(cx - bw / 2, y, bw, bh), a, k, true);
                 y += bh + 14 * k;
                 RestartButton = MenuButton("RESTART", new RectangleF(cx - bw / 2, y, bw, bh), a, k, false);
+                y += bh + 14 * k;
+                MainMenuButton = MenuButton("MAIN MENU", new RectangleF(cx - bw / 2, y, bw, bh), a, k, false);
                 y += bh + 14 * k;
                 QuitButton = ShowQuit ? MenuButton("QUIT", new RectangleF(cx - bw / 2, y, bw, bh), a, k, false) : default;
                 break;

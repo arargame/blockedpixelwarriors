@@ -336,6 +336,32 @@ class Exporter {
       this.textureSpaces.card_glow = 'linear';
     }
 
+    // ---- Main menu: card faces per language, rows and strings ---------------------------------
+    if (g.menu) {
+      await g.menu.ready;
+      const { MENU_ROWS, menuFrontCanvas } = await import('/src/ui/MenuCards.js');
+      const { MENU_TEXT, LANGUAGE_NAMES } = await import('/src/ui/MenuText.js');
+      const { LANGUAGES } = await import('/src/core/Settings.js');
+      for (const row of MENU_ROWS) {
+        for (const def of row.cards) {
+          for (const lang of LANGUAGES) {
+            const name = `card_menu_${def.id}_${lang}`;
+            await this.save(`Textures/${name}.png`, canvasBase64(menuFrontCanvas(def, g.menu.images.get(def.art), lang)));
+            this.textureSpaces[name] = 'srgb';
+          }
+        }
+      }
+      prefabs.menu = {
+        languages: [...LANGUAGES],
+        languageNames: LANGUAGE_NAMES,
+        text: MENU_TEXT,
+        rows: MENU_ROWS.map((r) => ({
+          id: r.id, label: r.label, sub: r.sub, head: r.head,
+          cards: r.cards.map((c) => ({ id: c.id, scenario: !!c.scenario, locked: !!c.locked, panel: c.panel ?? null, jewel: linear(c.jewel), glow: linear(c.glow), glowHex: c.glow, title: c.title })),
+        })),
+      };
+    }
+
     // ---- Particles, clouds, misc textures ----------------------------------------------------
     const T = g.textures;
     const extra = {
@@ -785,7 +811,7 @@ class Exporter {
   async writeFont(name, font, size) {
     const chars = [];
     for (let c = 32; c < 127; c++) chars.push(String.fromCharCode(c));
-    for (const c of 'ÇĞİÖŞÜçğıöşü·•→←↑↓›‹➜✖☠⬆◆—–…×°') chars.push(c);
+    for (const c of 'ÇĞİÖŞÜçğıöşü·•→←↑↓›‹➜✖☠⬆◆—–…×°◀▶✔') chars.push(c);
     const pad = Math.ceil(size * 0.18);
     const probe = document.createElement('canvas').getContext('2d');
     probe.font = font;

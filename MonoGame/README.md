@@ -37,12 +37,15 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
 ## Kontroller
 
 - **Klavye:** W/S ileri-geri, A/D yana kayma (helikopterin kendi yönüne göre), Q/E veya ←/→ dönüş.
-  ESC / P duraklat (Devam / Yeniden başla), F11 veya Alt+Enter tam ekran.
+  ESC / P duraklat (Devam / Yeniden başla / Ana menü, M), F11 veya Alt+Enter tam ekran.
+- **Ana menü:** ↑/↓ (W/S) satır (OYNA · AYARLAR · OYUNDAN ÇIK), ←/→ (A/D) kartlar, ENTER / Space aç,
+  ESC / Backspace geri, C kayıttan devam. Fare / dokunma: plakaya ya da karta dokun, kaydırarak gez,
+  tekerlek ile kartlar. Android geri tuşu menüde paneli kapatır, yoksa çıkış sorusunu açar.
 - **Fare:** sürükleme = ekran yönlü sanal joystick (web'deki gibi).
 - **Dokunmatik (Android):** sol yarıda başparmağın değdiği yerde beliren sanal joystick
   (helikopter ekranda o yöne gider, burun hareketi takip eder); sağ alttaki iki büyük buton
   sola / sağa döndürür (Q / E). Sağ üstte duraklatma. Çoklu dokunma: joystick ve dönüş birlikte.
-  Android geri tuşu duraklatır, ana ekranda çıkar. Uygulama arka plana geçince oyun durur.
+  Android geri tuşu duraklatır; oyun bitince menüye döner. Uygulama arka plana geçince oyun durur.
 
 ## Mimari
 
@@ -56,6 +59,16 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
   gölge haritası → (önplan bulanıklığı) → opak → saydam/billboard sıralı → `PostProcessor`.
   Adalar, çamlar, bloklar, kargo küpleri, enkaz donanımsal instancing ile çizilir.
 - `ModelLibrary` modelleri bir kez GPU'ya yükleyip paylaştırır (Flyweight).
+- `MainMenu` (MainMenu.js portu): soldaki logo ve eğik plakalar, sağda kart karuseli (yükseltme
+  kartı modeli fiyonksuz, `CardPicker.DrawCard` ile çizilir), senaryo kartının altında bölüm
+  ışıkları (DEPO → TERAS → BOSS, ulaşılanlar yanar), açılan paneller (brifing + YENİ OYUN / DEVAM,
+  ses, grafik, dil, çıkış). Arkada oyun kendi kendine oynar (depo, geçen trenler) ve kül-gri olur.
+  Yerleşim `MainMenu.Layout.Compute` web'deki `menuLayout` ile aynı. Kart yüzleri (dil başına)
+  ve metinler web'den dışa aktarılır (`card_menu_<id>_<lang>`, `scene.json` → `prefabs.menu`).
+- Ayarlar: `Core/Settings.cs` → `%LOCALAPPDATA%/BlockedPixelWarriors/settings.json` (dil, ses
+  seviyeleri, kalite, kamera sarsıntısı, tam ekran) ve `progress.json` (senaryo ilerlemesi). Kalite
+  bir sonraki açılışta uygulanır. Oyunda henüz ses yok; ses seviyeleri sesler için saklanır.
+  Dil şimdilik menüyü çevirir (EN / TR); oyun içi yazılar İngilizce.
 - UI: `Hud` (web HUD'unun SpriteBatch portu), `UiKit` (9-slice paneller, bitmap fontlar),
   `GameInput` + `TouchControls`.
 
@@ -83,6 +96,8 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
 ## Test / ekran görüntüsü
 
 ```bash
-BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|title|play|cards|logistics|transit|terrace [--warmup 25] [--extra 30] [--pick 0] [--touch] [--mobile]
+BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|menu|play|cards|logistics|transit|terrace [--warmup 25] [--extra 30] [--pick 0] [--touch] [--mobile]
+# menü: tuş betiği ve dil (save = 2. bölüm kaydı + ilerleme)
+BlockedPixelWarriors --capture menu.png --frames 3 --scenario menu --lang tr --menu down,right,enter
 node tools/staticshot.mjs web.png   # aynı "static" kareyi web sürümünden alır (karşılaştırma)
 ```

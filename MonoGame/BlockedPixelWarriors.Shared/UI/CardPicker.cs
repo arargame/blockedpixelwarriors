@@ -376,53 +376,88 @@ public sealed class CardPicker : ICardPicker, IDisposable
     {
         if (!Active || _cards.Count == 0) return;
         Layout(vp);
-        _device.Clear(ClearOptions.DepthBuffer, Color.Transparent, 1, 0);
-        _viewProj.SetValue(_view * _proj);
-        _device.SamplerStates[0] = SamplerState.AnisotropicClamp;
-        _device.SamplerStates[1] = SamplerState.AnisotropicClamp;
-        _device.SamplerStates[2] = EnvSampler;
+        BeginCards(_view, _proj);
         foreach (var c in _cards)
         {
             if (c.World == default) continue;
-            // Soft coloured glow behind the card (hover / pick), additive.
-            if (c.GlowOpacity > 0.002f)
+            DrawCard(new CardLook
             {
-                _device.BlendState = RenderStates.AdditiveBlend;
-                _device.DepthStencilState = DepthStencilState.DepthRead;
-                _device.RasterizerState = RasterizerState.CullNone;
-                _world.SetValue(c.World);
-                _baseColor.SetValue(new Vector4(c.Glow, c.GlowOpacity));
-                _albedo.SetValue(_glowTex);
-                _fx.CurrentTechnique = _glowTech;
-                _fx.CurrentTechnique.Passes[0].Apply();
-                _device.SetVertexBuffer(_glowVb);
-                _device.Indices = _glowIb;
-                _device.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, 2);
-            }
-            // Card parts back to front (the banner sits on the face).
-            _device.BlendState = RenderStates.NormalBlend;
-            _device.DepthStencilState = DepthStencilState.Default;
-            foreach (var order in DrawOrder)
-            foreach (var part in _mesh.Parts)
-            {
-                if (part.Material.Name != order) continue;
-                DrawPart(c, part);
-            }
-            foreach (var part in _mesh.Parts)
-                if (Array.IndexOf(DrawOrder, part.Material.Name) < 0) DrawPart(c, part);
+                World = c.World, Front = c.Front, Art = c.Art, Banner = c.Banner, Jewel = c.Jewel, Glow = c.Glow,
+                GlowOpacity = c.GlowOpacity, Fade = c.Fade, Sheen = c.Sheen, Sweep = c.Sweep, Reveal = c.RevealT,
+            });
         }
+        EndCards();
+    }
+
+    /// <summary>How one card is drawn (also used by the main menu: no ribbon, dimmed neighbours).</summary>
+    public struct CardLook
+    {
+        public Matrix World;
+        public Texture2D Front, Art, Banner;
+        public Vector3 Jewel, Glow;
+        public float GlowOpacity, Fade, Sheen, Sweep, Reveal;
+        /// <summary>Colour multiplier (0..1) for cards off focus; 0 counts as 1.</summary>
+        public float Dim;
+        public bool NoRibbon;
+        /// <summary>Frame colour (sRGB hex); 0 = gold.</summary>
+        public uint GoldHex;
+    }
+
+    /// <summary>Card camera + states: call before <see cref="DrawCard"/>.</summary>
+    public void BeginCards(Matrix view, Matrix proj)
+    {
+        _device.Clear(ClearOptions.DepthBuffer, Color.Transparent, 1, 0);
+        _viewProj.SetValue(view * proj);
+        _device.SamplerStates[0] = SamplerState.AnisotropicClamp;
+        _device.SamplerStates[1] = SamplerState.AnisotropicClamp;
+        _device.SamplerStates[2] = EnvSampler;
+    }
+
+    public void EndCards()
+    {
         _device.BlendState = BlendState.Opaque;
         _device.DepthStencilState = DepthStencilState.Default;
         _device.RasterizerState = RasterizerState.CullCounterClockwise;
+    }
+
+    public void DrawCard(in CardLook c)
+    {
+        // Soft coloured glow behind the card (hover / pick), additive.
+        if (c.GlowOpacity > 0.002f)
+        {
+            _device.BlendState = RenderStates.AdditiveBlend;
+            _device.DepthStencilState = DepthStencilState.DepthRead;
+            _device.RasterizerState = RasterizerState.CullNone;
+            _world.SetValue(c.World);
+            _baseColor.SetValue(new Vector4(c.Glow, c.GlowOpacity));
+            _albedo.SetValue(_glowTex);
+            _fx.CurrentTechnique = _glowTech;
+            _fx.CurrentTechnique.Passes[0].Apply();
+            _device.SetVertexBuffer(_glowVb);
+            _device.Indices = _glowIb;
+            _device.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, 2);
+        }
+        // Card parts back to front (the banner sits on the face).
+        _device.BlendState = RenderStates.NormalBlend;
+        _device.DepthStencilState = DepthStencilState.Default;
+        foreach (var order in DrawOrder)
+        foreach (var part in _mesh.Parts)
+        {
+            if (part.Material.Name != order) continue;
+            DrawPart(c, part);
+        }
+        foreach (var part in _mesh.Parts)
+            if (Array.IndexOf(DrawOrder, part.Material.Name) < 0) DrawPart(c, part);
     }
 
     private static readonly SamplerState EnvSampler = new() { AddressU = TextureAddressMode.Wrap, AddressV = TextureAddressMode.Clamp, Filter = TextureFilter.Linear };
 
     private static readonly string[] DrawOrder = { "CardBack", "CardEdge", "CardGold", "CardFront", "CardJewel", "CardBanner", "CardTail" };
 
-    private void DrawPart(Card c, MeshPart part)
+    private void DrawPart(in CardLook c, MeshPart part)
     {
         var name = part.Material.Name;
+        if (c.NoRibbon && name is "CardBanner" or "CardTail") return;
         Texture2D map = null;
         var color = Vector3.One;
         var emissive = Vector3.Zero;
@@ -437,7 +472,7 @@ public sealed class CardPicker : ICardPicker, IDisposable
                 clearcoat = 0.7f;
                 ccRough = 0.18f;
                 sheen = c.Sheen;
-                reveal = c.RevealT;
+                reveal = c.Reveal;
                 break;
             case "CardBack":
                 map = _back;
@@ -448,16 +483,16 @@ public sealed class CardPicker : ICardPicker, IDisposable
                 map = c.Banner;
                 rough = 0.5f;
                 doubleSided = true;
-                opacity *= 1 - c.RevealT;
+                opacity *= 1 - c.Reveal;
                 break;
             case "CardTail":
                 color = Palette.ToLinear(0x5e0b10);
                 rough = 0.6f;
                 doubleSided = true;
-                opacity *= 1 - c.RevealT;
+                opacity *= 1 - c.Reveal;
                 break;
             case "CardGold":
-                color = Palette.ToLinear(0xe6bb58);
+                color = Palette.ToLinear(c.GoldHex != 0 ? c.GoldHex : 0xe6bb58);
                 rough = 0.22f;
                 metal = 1;
                 break;
@@ -473,9 +508,10 @@ public sealed class CardPicker : ICardPicker, IDisposable
                 break;
         }
         if (opacity <= 0.002f) return;
+        var dim = c.Dim > 0 ? c.Dim : 1;
         _world.SetValue(c.World);
-        _baseColor.SetValue(new Vector4(color, opacity));
-        _emissive.SetValue(emissive);
+        _baseColor.SetValue(new Vector4(color * dim, opacity));
+        _emissive.SetValue(emissive * dim);
         _matParams.SetValue(new Vector4(rough, metal, 1, 0));
         _flags.SetValue(new Vector4(map != null ? 1 : 0, doubleSided ? 1 : 0, 0, 0));
         _cardParams.SetValue(new Vector4(reveal, sheen, c.Sweep, clearcoat));

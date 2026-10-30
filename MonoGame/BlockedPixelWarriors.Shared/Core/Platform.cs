@@ -26,6 +26,10 @@ public sealed class LaunchOptions
     public int PickCard { get; private set; } = -1;
     /// <summary>Show the touch controls (desktop testing of the phone layout).</summary>
     public bool Touch { get; private set; }
+    /// <summary>Capture runs: menu key presses separated by commas (up, down, left, right, enter, back, save).</summary>
+    public string MenuScript { get; private set; }
+    /// <summary>Capture runs: menu language.</summary>
+    public string Lang { get; private set; }
 
     public static LaunchOptions Parse(string[] args)
     {
@@ -45,6 +49,8 @@ public sealed class LaunchOptions
                 case "--touch": o.Touch = true; break;
                 case "--extra": o.Extra = float.Parse(Next(), System.Globalization.CultureInfo.InvariantCulture); break;
                 case "--pick": o.PickCard = int.Parse(Next()); break;
+                case "--menu": o.MenuScript = Next(); break;
+                case "--lang": o.Lang = Next(); break;
             }
         }
         return o;

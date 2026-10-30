@@ -29,6 +29,8 @@ public sealed class BpwGame : Game
     private UiKit _ui;
     private Hud _hud;
     private CardPicker _cards;
+    private MainMenu _menu;
+    private readonly ISettingsStore _store;
     private RenderQuality _quality;
     private RenderTarget2D _capture;
     private int _frame;
@@ -59,6 +61,14 @@ public sealed class BpwGame : Game
             _graphics.PreferredBackBufferHeight = _options.Height > 0 ? _options.Height : 900;
             Window.AllowUserResizing = true;
         }
+        // Settings (OPTIONS): captures use defaults in memory.
+        _store = _options.CapturePath != null ? new MemorySettingsStore() : new FileSettingsStore();
+        if (_options.Lang != null) _store.Settings.Lang = _options.Lang;
+        if (!platform.IsMobile && _options.CapturePath == null && _store.Settings.Fullscreen)
+        {
+            _graphics.HardwareModeSwitch = false;
+            _graphics.IsFullScreen = true;
+        }
         IsFixedTimeStep = false;
         IsMouseVisible = !platform.IsMobile;
         Content.RootDirectory = "Content";
@@ -69,6 +79,8 @@ public sealed class BpwGame : Game
     {
         var device = GraphicsDevice;
         _quality = _platform.IsMobile || _options.ForceMobileQuality ? RenderQuality.Mobile : RenderQuality.High;
+        // OPTIONS · QUALITY (applies at start; captures keep the defaults).
+        if (_options.CapturePath == null && _store.Settings.Quality != null) _quality = RenderQuality.ByName(_store.Settings.Quality);
         _assets = new AssetStore(device);
         var scene = _assets.Scene();
         _models = new ModelLibrary(device, _assets, scene);
@@ -90,6 +102,30 @@ public sealed class BpwGame : Game
         _session = new GameSession(device, _models, scene, _lights, _quality, _hud);
         _cards = new CardPicker(device, _assets, _models, _renderer.Post, _ui, _lights);
         _session.Cards = _cards;
+        _session.Settings = _store;
+        _session.Rig.ShakeScale = _store.Settings.Shake ? 1 : 0;
+        _menu = new MainMenu(device, _assets, _ui, _cards, _renderer.Post, scene.Prefabs.Menu, _store, _assets.UiTexture("ui_logo"))
+        {
+            Compact = _platform.IsMobile || _options.Touch,
+            TouchHints = _platform.PrefersTouchControls || _options.Touch,
+            RunningQuality = _quality.Name,
+            CanContinue = () => _session.CanContinue,
+            OnPlay = mode =>
+            {
+                _hud.MenuMode = false;
+                if (mode == "continue") _session.ContinueRun();
+                else _session.StartRun();
+            },
+            OnQuit = Exit,
+            ToggleFullscreen = _platform.IsMobile ? null : () =>
+            {
+                _graphics.HardwareModeSwitch = false;
+                _graphics.ToggleFullScreen();
+                return _graphics.IsFullScreen;
+            },
+            IsFullscreen = () => _graphics.IsFullScreen,
+            OnSettingsChanged = st => _session.Rig.ShakeScale = st.Shake ? 1 : 0,
+        };
         _renderer.BackdropWorld = _session.World.Backdrop;
         _renderer.SetSnowMap(_session.World.FloorSnow.Texture, _session.World.FloorSnow.Rect);
         _poster = _options.Scenario is "poster" or "static";
@@ -158,6 +194,33 @@ public sealed class BpwGame : Game
                 }
             }
         }
+        if (_options.Scenario is "title" or "menu") ShowMenu();
+        if (_options.Scenario == "menu" && _options.CapturePath != null)
+        {
+            // Menu capture: let it come in, then play the scripted presses.
+            var vp = Viewport;
+            _ui.Scale = UiScale(vp);
+            void Sim(float seconds)
+            {
+                for (float t = 0; t < seconds; t += 1 / 30f)
+                {
+                    _session.Step(1 / 30f, default);
+                    _cards.Update(1 / 30f, _input, vp);
+                    _menu.Update(1 / 30f, _input, vp);
+                }
+            }
+            Sim(_options.Warmup > 0 ? _options.Warmup : 3);
+            foreach (var step in (_options.MenuScript ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (step == "save")
+                {
+                    _session.Store = new MemoryCheckpointStore(new CheckpointSave { Score = 100, Wave = 1 });
+                    _store.Reach(2);
+                }
+                else _menu.Press(step);
+                Sim(0.6f);
+            }
+        }
         if (_options.Touch) _input.TouchMode = true;
         if (_options.Scenario == "poster") _session.StagePoster();
         if (_options.Scenario == "static") _session.StageStatic();
@@ -166,6 +229,15 @@ public sealed class BpwGame : Game
             var pp = GraphicsDevice.PresentationParameters;
             _capture = new RenderTarget2D(device, pp.BackBufferWidth, pp.BackBufferHeight, false, SurfaceFormat.Color, DepthFormat.Depth24);
         }
+    }
+
+    /// <summary>Main menu over a fresh attract-mode depot.</summary>
+    private void ShowMenu()
+    {
+        _session.ShowAttract();
+        _hud.HideOverlay();
+        _hud.MenuMode = true;
+        _menu.Show();
     }
 
     private Rectangle Viewport
@@ -202,6 +274,7 @@ public sealed class BpwGame : Game
         {
             _session.Step(dt, command);
             _cards.Update(dt, _input, vp);
+            _menu.Update(dt, _input, vp);
         }
         _hud.CardsOpen = _cards.Open;
         _hud.Update(dt, _session.PowerUps.Active);
@@ -215,11 +288,13 @@ public sealed class BpwGame : Game
         switch (s.State)
         {
             case GameState.Title:
+                // The main menu handles its own input.
+                break;
             case GameState.Over:
             case GameState.Won:
                 if (_input.BackPressed && _platform.IsMobile)
                 {
-                    Exit();
+                    ShowMenu();
                     return;
                 }
                 _hud.ContinueAvailable = s.CanContinue && _hud.Overlay is Overlay.Title or Overlay.GameOver;
@@ -234,7 +309,7 @@ public sealed class BpwGame : Game
                         break;
                     }
                 }
-                if (_input.AnyAction && _hud.Overlay is Overlay.Title or Overlay.GameOver or Overlay.Won) s.StartRun();
+                if (_input.AnyAction && _hud.Overlay is Overlay.GameOver or Overlay.Won) ShowMenu();
                 break;
             default:
                 if (s.Paused)
@@ -248,9 +323,19 @@ public sealed class BpwGame : Game
                     {
                         if (_hud.ResumeButton.Contains(tap.Position)) Resume();
                         else if (_hud.RestartButton.Contains(tap.Position)) Restart();
+                        else if (_hud.MainMenuButton.Contains(tap.Position))
+                        {
+                            _session.Paused = false;
+                            ShowMenu();
+                        }
                         else if (_hud.ShowQuit && _hud.QuitButton.Contains(tap.Position)) Exit();
                     }
                     if (_input.Pressed(Microsoft.Xna.Framework.Input.Keys.R)) Restart();
+                    else if (_input.Pressed(Microsoft.Xna.Framework.Input.Keys.M))
+                    {
+                        _session.Paused = false;
+                        ShowMenu();
+                    }
                 }
                 else if (_input.PausePressed)
                 {
@@ -314,6 +399,16 @@ public sealed class BpwGame : Game
                 _cards.DrawUi(vp);
                 _ui.End();
             }
+            if (_menu.Visible)
+            {
+                _ui.Begin();
+                _menu.DrawBack(vp);
+                _ui.End();
+                _menu.DrawCards();
+                _ui.Begin();
+                _menu.DrawFront(vp);
+                _ui.End();
+            }
         }
         if (target != null) GraphicsDevice.SetRenderTarget(null);
         base.Draw(gameTime);
@@ -354,6 +449,7 @@ public sealed class BpwGame : Game
         _models?.Dispose();
         _ui?.Dispose();
         _cards?.Dispose();
+        _menu?.Dispose();
         _assets?.Dispose();
         _capture?.Dispose();
         base.UnloadContent();

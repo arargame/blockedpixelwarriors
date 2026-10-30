@@ -174,6 +174,39 @@ public sealed class PrefabData
     public List<CardDefData> Cards { get; set; }
     /// <summary>BLOCK HAULER cars by Blender root name (HaulerLoco, HaulerHopper, ...).</summary>
     public Dictionary<string, HaulerCarData> Hauler { get; set; }
+    /// <summary>Main menu rows, cards and strings (MenuCards.js / MenuText.js).</summary>
+    public MenuData Menu { get; set; }
+}
+
+public sealed class MenuData
+{
+    public List<string> Languages { get; set; }
+    public Dictionary<string, string> LanguageNames { get; set; }
+    /// <summary>lang -> key -> string.</summary>
+    public Dictionary<string, Dictionary<string, string>> Text { get; set; }
+    public List<MenuRowData> Rows { get; set; }
+}
+
+public sealed class MenuRowData
+{
+    public string Id { get; set; }
+    public string Label { get; set; }
+    public string Sub { get; set; }
+    public string Head { get; set; }
+    public List<MenuCardData> Cards { get; set; }
+}
+
+/// <summary>A menu card: face texture card_menu_{id}_{lang}; scenario, locked or opens a panel.</summary>
+public sealed class MenuCardData
+{
+    public string Id { get; set; }
+    public bool Scenario { get; set; }
+    public bool Locked { get; set; }
+    public string Panel { get; set; }
+    public float[] Jewel { get; set; }
+    public float[] Glow { get; set; }
+    public int GlowHex { get; set; }
+    public string Title { get; set; }
 }
 
 public sealed class HaulerCarData

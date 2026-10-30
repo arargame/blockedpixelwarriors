@@ -19,6 +19,7 @@ public interface IHudEvents
     /// <summary>All 300 packages delivered: red, green, blue counts.</summary>
     void ShowMissionComplete(int score, IReadOnlyList<int> delivered);
     void HideOverlay();
+    void ClearLog();
 }
 
 /// <summary>Kill-feed colours (Game.js FEED / BOX_CSS).</summary>

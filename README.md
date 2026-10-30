@@ -13,6 +13,23 @@ tren, helikopter, adalar, ışık ve renk tonları o görselle aynı.
 `dist/index.html` dosyasına çift tıkla. Sunucu gerekmez: tüm kod, modeller ve dokular tek dosyanın
 içinde.
 
+### Ana menü
+
+Açılışta ana menü gelir. Arkada depo kendi kendine oynar (tren geçer, helikopter ateş eder) ve dünya
+gri olur; menü renkli kalır. Solda logo ve **OYNA · AYARLAR · OYUNDAN ÇIK** plakaları (↑/↓), sağda
+satırın kartları sağa-sola kayar (←/→, kaydırma, tekerlek). **ENTER** / dokunma kartı açar, **ESC** geri.
+
+- **OYNA:** senaryo kartları (yükseltme kartı modeli, fiyonksuz). **RAILBREAKER** (heli vs tren) oynanır;
+  yanında kilitli "yakında" kartları. Kartın altında bölüm ışıkları: **DEPO → TERAS → BOSS**, ulaşılan
+  bölümler yanar (teras kontrol noktasına ulaşınca 2 ışık). Kart açılınca brifing + **YENİ OYUN** /
+  **DEVAM ET · BÖLÜM 2**.
+- **AYARLAR:** Ses (genel / müzik / efekt; oyunda henüz ses yok, seviyeler saklanır), Grafik (kalite
+  yeniden açılışta uygulanır, kamera sarsıntısı, tam ekran), Dil (English / Türkçe; şimdilik menü).
+- **OYUNDAN ÇIK:** onay sorusu. Oyun bitince (GAME OVER / MISSION COMPLETE) bir tuşla menüye dönülür.
+
+Kod: `src/ui/MainMenu.js` (yerleşim `menuLayout`, karusel, paneller), `MenuCards.js` (kartlar ve
+yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (ayarlar + ilerleme).
+
 ### Görev
 
 Trenin vagonlarındaki **kırmızı, yeşil ve mavi** kutuları vurup aşağı düşür. Mühendis forkliftiyle

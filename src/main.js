@@ -8,6 +8,7 @@ import chinookUrl from '../assets/models/chinook.glb?url';
 import cardUrl from '../assets/models/card.glb?url';
 import haulerUrl from '../assets/models/hauler.glb?url';
 import * as THREE from 'three';
+import { Settings } from './core/Settings.js';
 import marbleUrl from '../assets/textures/marble_tile.jpg?url';
 import terraceTileUrl from '../assets/textures/terrace_tile.jpg?url';
 
@@ -18,7 +19,8 @@ import terraceTileUrl from '../assets/textures/terrace_tile.jpg?url';
  */
 const params = new URLSearchParams(window.location.search);
 const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-const quality = params.get('quality') ?? (isMobile ? 'medium' : 'high');
+const quality = Settings.startupQuality(params.get('quality'), isMobile);
+const settings = new Settings();
 const poster = params.has('poster');
 
 // ?cam=x,y,z,pitchDeg,yawDeg,fov,lensK  (art-direction override used while matching the key art)
@@ -40,7 +42,7 @@ const camOverride = params.get('cam')?.split(',').map(Number);
     // Stage 2 terrace tiles: beige marble with white veins.
     new THREE.TextureLoader().loadAsync(terraceTileUrl).catch(() => null),
   ]);
-  const game = new Game(document.getElementById('app'), { quality, poster, camOverride, heliGltf, floorTexture, terraceFloorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf });
+  const game = new Game(document.getElementById('app'), { quality, settings, poster, camOverride, heliGltf, floorTexture, terraceFloorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf });
   if (poster || params.has('fixedres')) game.pipeline.adaptive = false;
   window.__game = game;
   game.projectiles.setMissileModel(rocketGltf?.scene ?? null);
