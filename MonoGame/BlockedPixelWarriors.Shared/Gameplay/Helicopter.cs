@@ -32,6 +32,8 @@ public sealed class Helicopter : IRenderable
     public float Hp = GameConfig.Heli.MaxHp;
     public float Time, HitFlash, Invulnerable;
     public float FlickerMul = 1;
+    /// <summary>Flight area override (minX, maxX, minZ, maxZ); null = the depot board.</summary>
+    public (float, float, float, float)? Bounds;
     public bool Alive = true;
     public bool Visible = true;
     public float Radius => GameConfig.Heli.Radius;
@@ -70,8 +72,10 @@ public sealed class Helicopter : IRenderable
         Velocity = Vector3.Lerp(Velocity, target, k);
         Position += Velocity * dt;
         var m = GameConfig.Heli.Margin;
-        Position.X = Math.Clamp(Position.X, _board.MinX + m, _board.MaxX - m);
-        Position.Z = Math.Clamp(Position.Z, _board.MinZ + m + 2, _board.MaxZ - m - 0.6f);
+        // Stage bounds (board, bridge corridor or terrace) when the session sets them.
+        var (minX, maxX, minZ, maxZ) = Bounds ?? (_board.MinX, _board.MaxX, _board.MinZ, _board.MaxZ);
+        Position.X = Math.Clamp(Position.X, minX + m, maxX - m);
+        Position.Z = Math.Clamp(Position.Z, minZ + m + 2, maxZ - m - 0.6f);
         Position.Y = GameConfig.Heli.Altitude + MathF.Sin(Time * 2.1f) * 0.12f;
 
         // Heading: the nose eases toward the stick direction; pulling back flies backwards first.

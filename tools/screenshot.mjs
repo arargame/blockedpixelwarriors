@@ -28,7 +28,7 @@ try {
   console.error('Timed out waiting for poster', e.message);
 }
 fs.mkdirSync(path.dirname(out), { recursive: true });
-await page.screenshot({ path: out });
+await page.screenshot({ path: out, timeout: 300000 });
 console.log(`saved ${out} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 for (const l of logs.filter((l) => !l.includes('[vite]')).slice(0, 30)) console.log(l);
 await browser.close();

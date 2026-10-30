@@ -172,6 +172,27 @@ public sealed class PrefabData
     public ForkliftData Forklift { get; set; }
     public ChinookData Chinook { get; set; }
     public List<CardDefData> Cards { get; set; }
+    /// <summary>BLOCK HAULER cars by Blender root name (HaulerLoco, HaulerHopper, ...).</summary>
+    public Dictionary<string, HaulerCarData> Hauler { get; set; }
+}
+
+public sealed class HaulerCarData
+{
+    public string Model { get; set; }
+    public float Length { get; set; }
+    public List<float[]> Chimneys { get; set; }
+    public List<TurretMountData> Turrets { get; set; }
+    public List<TargetData> Targets { get; set; }
+    public float[] Core { get; set; }
+    public float[] Deck { get; set; }
+    public CraneData Crane { get; set; }
+}
+
+public sealed class CraneData
+{
+    /// <summary>Slew pivot in car space, chain anchor (boom tip) in slew space.</summary>
+    public float[] Pivot { get; set; }
+    public float[] Tip { get; set; }
 }
 
 public sealed class ForkliftData

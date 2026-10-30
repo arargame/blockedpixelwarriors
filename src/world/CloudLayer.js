@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { BillboardBatch } from '../fx/BillboardBatch.js';
 
+const tmpV = new THREE.Vector3();
+
 /**
  * Sprite-based cumulus clouds (sea of clouds below the board, puffs between
  * islands and soft wisps drifting over the board). Back-to-front sorted once
@@ -22,7 +24,12 @@ export class CloudLayer {
     this.sorted = false;
   }
 
-  update(dt, camera) {
+  /**
+   * @param {number} [nearFade] 0..1: fade out puffs close to the camera. Used for the backdrop's
+   *   cloud sea once the camera travels up the line: over the open bridge nothing hides the
+   *   tilted sea right under the camera (over the boards the floor covers it).
+   */
+  update(dt, camera, nearFade = 0) {
     for (const { batch, items } of this.variants) {
       if (!this.sorted) {
         items.sort((a, b) => camera.position.distanceToSquared(new THREE.Vector3(b.x, b.y, b.z)) - camera.position.distanceToSquared(new THREE.Vector3(a.x, a.y, a.z)));
@@ -34,7 +41,15 @@ export class CloudLayer {
         let x = c.x + c.offset;
         if (span > 0) x = c.x + (((c.offset + span * 0.5) % span) + span) % span - span * 0.5;
         const tint = c.tint ?? 1;
-        batch.push(x, c.y, c.z, c.size, c.size * (c.aspect ?? 1), tint, tint, tint, c.alpha ?? 1, 0);
+        let alpha = c.alpha ?? 1;
+        if (nearFade > 0) {
+          const p = tmpV.set(x, c.y, c.z);
+          if (this.group.parent) p.applyMatrix4(this.group.parent.matrixWorld);
+          const d = p.distanceTo(camera.position);
+          const k = Math.min(1, Math.max(0, (d - 35) / 25));
+          alpha *= 1 - nearFade + nearFade * k * k * (3 - 2 * k);
+        }
+        batch.push(x, c.y, c.z, c.size, c.size * (c.aspect ?? 1), tint, tint, tint, alpha, 0);
       }
       batch.end();
     }

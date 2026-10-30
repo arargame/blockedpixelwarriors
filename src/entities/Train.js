@@ -5,6 +5,10 @@ import { TrainModelFactory } from './TrainModels.js';
 const local = new THREE.Vector3();
 const world = new THREE.Vector3();
 const aim = new THREE.Vector3();
+const tipW = new THREE.Vector3();
+const ballDir = new THREE.Vector3();
+const DOWN = new THREE.Vector3(0, -1, 0);
+const quat = new THREE.Quaternion();
 
 /**
  * Armored train that rolls along the railway (+Z), fires its twin-barrel turrets at the
@@ -18,10 +22,16 @@ export class Train {
    * @param {import('../fx/EffectsManager.js').EffectsManager} deps.effects
    * @param {TrainModelFactory} deps.factory
    */
-  constructor({ track, effects, factory, wave = 1, seed = 1 }) {
+  constructor({ track, effects, factory, wave = 1, seed = 1, hauler = null, path = null, arena = null }) {
     this.track = track;
     this.effects = effects;
     this.wave = wave;
+    /** 'hauler': the stage-2 BLOCK HAULER (Blender model) instead of the armored train. */
+    this.kind = hauler ? 'hauler' : 'armored';
+    this.title = hauler ? 'BLOCK HAULER' : 'ARMORED TRAIN';
+    /** Line the train runs on (z where it appears / disappears) and the platform it fights over. */
+    this.path = path ?? { startZ: track.startZ, endZ: track.endZ };
+    this.arena = arena ?? GameConfig.board;
     this.group = new THREE.Group();
     this.baseSpeed = GameConfig.train.speed * (1 + (wave - 1) * 0.08);
     this.speed = this.baseSpeed;
@@ -35,13 +45,20 @@ export class Train {
     this.onTargetDestroyed = null;
     this.onFire = null;
 
-    const cars = [factory.buildLocomotive()];
-    // Key-art order: locomotive, armoured car, cargo, armoured car, cargo, cargo...
-    const pattern = ['armored', 'cargo', 'armored', 'cargo', 'cargo', 'armored', 'cargo'];
-    this.wagonCount = Train.wagonsForWave(wave);
-    for (let i = 0; i < this.wagonCount; i++) {
-      cars.push(pattern[i % pattern.length] === 'armored' ? factory.buildArmoredWagon(seed * 31 + i) : factory.buildCargoWagon(seed * 17 + i, 0.6));
+    let cars;
+    if (hauler) {
+      cars = hauler.buildTrain(seed);
+      this.wagonCount = cars.length - 1;
+    } else {
+      cars = [factory.buildLocomotive()];
+      // Key-art order: locomotive, armoured car, cargo, armoured car, cargo, cargo...
+      const pattern = ['armored', 'cargo', 'armored', 'cargo', 'cargo', 'armored', 'cargo'];
+      this.wagonCount = Train.wagonsForWave(wave);
+      for (let i = 0; i < this.wagonCount; i++) {
+        cars.push(pattern[i % pattern.length] === 'armored' ? factory.buildArmoredWagon(seed * 31 + i) : factory.buildCargoWagon(seed * 17 + i, 0.6));
+      }
     }
+    for (const car of cars) car.cranes ??= [];
     let offset = 0;
     for (const car of cars) {
       const z = -offset - car.length / 2;
@@ -54,13 +71,15 @@ export class Train {
     this.scale = 1.6;
     this.group.scale.setScalar(this.scale);
     this.totalLength = offset * this.scale;
-    this.headZ = track.startZ + this.totalLength;
+    this.headZ = this.path.startZ + this.totalLength;
     this.group.position.set(track.x, track.railTop - 0.05, this.headZ);
     this.planTrip();
 
-    // Red glow from the power gem onto the rails and nearby blocks.
-    this.gemLight = new THREE.PointLight(0xff0a1e, 4, 5, 2);
-    this.gemLight.position.set(0, 1.4, 2.9);
+    // Weak point: the armored train's ruby, or the Block Hauler's glowing furnace eye.
+    const core = this.locomotive.core ?? new THREE.Vector3(0, 1.5, 2.55);
+    // Red glow from the power gem onto the rails and nearby blocks (orange furnace on the hauler).
+    this.gemLight = new THREE.PointLight(hauler ? 0xff7a20 : 0xff0a1e, 4, 5, 2);
+    this.gemLight.position.set(0, hauler ? core.y : 1.4, hauler ? core.z + 0.4 : 2.9);
     this.gemLight.layers.enableAll();
     this.locomotive.group.add(this.gemLight);
     // Energy shield over the gem: up while any turret lives.
@@ -69,7 +88,7 @@ export class Train {
       new THREE.MeshBasicMaterial({ color: 0x5cc8ff, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, wireframe: false })
     );
     this.gemShield.scale.setScalar(1);
-    this.gemShield.position.set(0, 1.5, 2.55);
+    this.gemShield.position.set(0, core.y, hauler ? core.z + 0.05 : 2.55);
     this.gemShield.geometry.scale(1.05, 1.05, 0.55);
     this.gemShield.renderOrder = 12;
     this.locomotive.group.add(this.gemShield);
@@ -104,7 +123,7 @@ export class Train {
     // Goods train between A and B: every trip goes back the other way.
     this.dir = -this.dir;
     this.group.rotation.y = this.dir > 0 ? 0 : Math.PI;
-    this.setHeadZ(this.dir > 0 ? this.track.startZ + this.totalLength : this.track.endZ - this.totalLength);
+    this.setHeadZ(this.dir > 0 ? this.path.startZ + this.totalLength : this.path.endZ - this.totalLength);
     this.planTrip();
     for (const car of this.cars) {
       for (const t of car.targets) {
@@ -128,7 +147,7 @@ export class Train {
     this.speed = this.cruise;
     this.stopTimer = 0;
     // Where the locomotive halts (somewhere over the board), or never.
-    const b = GameConfig.board;
+    const b = this.arena;
     this.stopAtZ = this.mode !== 'FAST' && Math.random() < cfg.stopChance ? b.minZ + 3 + Math.random() * (b.maxZ - b.minZ - 6) : null;
   }
 
@@ -160,10 +179,12 @@ export class Train {
   }
 
   updateSpeed(dt) {
-    if (this.destroyed) {
-      // Wrecked: the burning train lurches off and runs out of the scene fast.
+    if (this.destroyed || this.departing) {
+      // Wrecked (or stage cleared): the train lurches off and runs out of the scene fast.
       this.stopTimer = 0;
-      this.speed = Math.min(GameConfig.train.wreckSpeed, Math.max(this.speed, 2) + GameConfig.train.wreckAccel * dt);
+      // A departing train (stage clear) clears the line twice as fast.
+      const top = GameConfig.train.wreckSpeed * (this.departing ? 1.8 : 1);
+      this.speed = Math.min(top, Math.max(this.speed, 2) + GameConfig.train.wreckAccel * (this.departing ? 2 : 1) * dt);
       return;
     }
     if (this.stopTimer > 0) {
@@ -198,10 +219,13 @@ export class Train {
   update(dt, heliPosition, heliAlive) {
     this.updateSpeed(dt);
     this.updateShield(dt);
-    this.headZ += this.dir * this.speed * dt;
+    // A departing train that was heading up the line backs out the way it came instead
+    // (never toward the terrace while the heli flies there).
+    const move = this.dir * (this.reversing ? -1 : 1);
+    this.headZ += move * this.speed * dt;
     this.group.position.z = this.headZ;
     this.group.updateMatrixWorld(true);
-    if (this.dir > 0 ? this.minZ > this.track.endZ : this.maxZ < this.track.startZ) this.finished = true;
+    if (move > 0 ? this.minZ > this.path.endZ : this.maxZ < this.path.startZ) this.finished = true;
 
     // Chimney smoke from every car (thick billowing column like the key art).
     this.smokeTimer -= dt;
@@ -214,7 +238,7 @@ export class Train {
         this.effects.fire.emit({ x: world.x, y: world.y, z: world.z, vy: 2, life: 0.5, size0: 1.2, size1: 0.4, color0: [4, 1.8, 0.4, 1], color1: [1.5, 0.3, 0.05, 0] });
         this.effects.chimneySmoke(world, 0.8);
       }
-      for (const car of this.cars) {
+      for (const car of this.departing ? [] : this.cars) {
         for (const c of car.chimneys) {
           if (Math.random() < (car === this.locomotive ? 0.9 : 0.55)) {
             world.copy(c);
@@ -235,7 +259,7 @@ export class Train {
         for (const car of this.cars) {
           for (const cannon of car.cannons ?? []) {
             car.group.localToWorld(world.copy(cannon.muzzle));
-            if (world.z > GameConfig.board.minZ - 3 && world.z < GameConfig.board.maxZ + 1) options.push({ car, cannon, muzzle: world.clone() });
+            if (!this.departing && world.z > this.arena.minZ - 3 && world.z < this.arena.maxZ + 1) options.push({ car, cannon, muzzle: world.clone() });
           }
         }
         const pick = options[Math.floor(Math.random() * options.length)];
@@ -266,7 +290,7 @@ export class Train {
         turret.yaw.rotation.y = lerpAngle(turret.yaw.rotation.y, desired, 1 - Math.exp(-5 * dt));
         turret.cooldown -= dt;
         this.turretDamageFx(turret, world, dt);
-        const inBoard = world.z > GameConfig.board.minZ - 4 && world.z < GameConfig.board.maxZ;
+        const inBoard = !this.departing && world.z > this.arena.minZ - 4 && world.z < this.arena.maxZ;
         const facing = Math.abs(wrapAngle(desired - turret.yaw.rotation.y)) < 0.4;
         if (turret.cooldown <= 0 && heliAlive && inBoard && facing && aim.length() < 26) {
           // Halted trains are sitting ducks - and they fight back harder.
@@ -292,8 +316,111 @@ export class Train {
       }
     }
     this.updateWreckage(dt);
+    this.updateCranes(dt, heliPosition, heliAlive);
   }
 
+  /** Puts the cranes' chains + wrecking balls into the scene (they swing in world space). */
+  attachCranes() {
+    const scene = this.group.parent;
+    if (!scene || this.cranesAttached) return;
+    this.cranesAttached = true;
+    this.group.updateMatrixWorld(true);
+    for (const car of this.cars) {
+      for (const c of car.cranes) {
+        scene.add(c.chain, c.ball);
+        c.chain.scale.setScalar(this.scale);
+        c.ball.scale.setScalar(this.scale);
+        c.tip.getWorldPosition(tipW);
+        c.pos = tipW.clone().addScaledVector(DOWN, this.chainWorld);
+        c.prev = c.pos.clone();
+      }
+    }
+  }
+
+  get chainWorld() {
+    return GameConfig.stages.chainLength * this.scale;
+  }
+
+  /**
+   * Cranes slew their booms from side to side over the balconies; the wrecking ball hangs on its
+   * chain as a pendulum (position-based: gravity, then the chain length constraint), so it swings
+   * out wide when the boom turns. Touching the heli = damage (onBallHit).
+   */
+  updateCranes(dt, heliPosition, heliAlive) {
+    if (!this.cars.some((c) => c.cranes.length)) return;
+    this.attachCranes();
+    const len = this.chainWorld;
+    const ballR = 0.46 * this.scale;
+    const reach = 0.2 * this.scale + ballR;
+    for (const car of this.cars) {
+      for (const c of car.cranes) {
+        if (!c.pos) continue;
+        c.time += dt;
+        if (c.alive && !this.destroyed) c.slew.rotation.y = Math.sin(c.time * c.speed + c.phase) * c.amp;
+        if (!c.alive && c.burnTimer > 0) {
+          c.burnTimer -= dt;
+          if (Math.random() < dt * 9) {
+            c.slew.getWorldPosition(world);
+            this.effects.smoke.emit({ x: world.x, y: world.y + 1.6, z: world.z, vy: 1.5, drag: 0.7, life: 1.3, size0: 0.5, size1: 1.7, color0: [0.08, 0.08, 0.09, 0.7], color1: [0.3, 0.3, 0.32, 0] });
+            this.effects.fire.emit({ x: world.x, y: world.y + 1.2, z: world.z, vy: 1.6, life: 0.4, size0: 0.8, size1: 0.3, color0: [4, 1.8, 0.4, 1], color1: [1.5, 0.3, 0.05, 0] });
+          }
+        }
+        this.group.updateMatrixWorld(true);
+        c.tip.getWorldPosition(tipW);
+        // Verlet step.
+        const vel = aim.subVectors(c.pos, c.prev).multiplyScalar(0.995);
+        c.prev.copy(c.pos);
+        c.pos.add(vel);
+        c.pos.y -= 18 * dt * dt;
+        if (c.alive) {
+          ballDir.subVectors(c.pos, tipW);
+          const d = ballDir.length() || 1;
+          c.pos.copy(tipW).addScaledVector(ballDir, len / d);
+          ballDir.multiplyScalar(1 / d);
+        } else {
+          ballDir.copy(DOWN);
+          // Dropped ball: falls, bounces on the platform, then sinks away.
+          if (c.pos.y < reach && c.prev.y >= c.pos.y) {
+            const vy = c.pos.y - c.prev.y;
+            c.pos.y = reach;
+            c.prev.y = reach + vy * 0.35;
+            if (Math.abs(vy) > 0.02) this.effects.snowPuff(c.pos, 8);
+          }
+          c.dropTime = (c.dropTime ?? 0) + dt;
+          if (c.dropTime > 4) c.ball.scale.multiplyScalar(Math.exp(-3 * dt));
+        }
+        quat.setFromUnitVectors(DOWN, ballDir);
+        c.ball.position.copy(c.pos);
+        c.ball.quaternion.copy(quat);
+        c.chain.visible = c.alive;
+        if (c.alive) {
+          c.chain.position.copy(tipW);
+          c.chain.quaternion.copy(quat);
+          c.chain.scale.set(this.scale, len, this.scale);
+        }
+        // Ball center (origin is the shackle at the chain end).
+        world.copy(c.pos).addScaledVector(ballDir, reach);
+        c.center = c.center ?? new THREE.Vector3();
+        c.center.copy(world);
+        if (c.alive && heliAlive && !this.departing) {
+          const hit = ballR + 0.9;
+          if (world.distanceToSquared(heliPosition) < hit * hit) this.onBallHit?.(world.clone(), aim.subVectors(c.pos, c.prev).divideScalar(Math.max(dt, 1e-3)).clone());
+        }
+      }
+    }
+  }
+
+  /** Crane cab shot to pieces: the boom stops, smoke pours out and the ball drops off its chain. */
+  breakCrane(crane) {
+    crane.alive = false;
+    crane.slew.getWorldPosition(world);
+    world.y += 1.2;
+    this.effects.explosion(world, 1.3, 0xd8a020, 14);
+    this.effects.shatter(world, 0xf0b21c, 14, 1.3, [0.12, 0.3]);
+    this.effects.flash(world, 0xffa040, 40, 0.3, 9);
+    crane.slew.rotation.z = 0.12;
+    crane.burnTimer = 8;
+  }
   /** Damaged turrets smoke and spark; the more damaged, the thicker. */
   turretDamageFx(turret, at, dt) {
     const t = turret.target;
@@ -385,7 +512,7 @@ export class Train {
 
   /** True while any turret is alive: the gem sits behind an energy shield. */
   get gemShielded() {
-    return !this.destroyed && this.cars.some((c) => c.turrets.some((t) => t.alive));
+    return !this.destroyed && this.cars.some((c) => c.turrets.some((t) => t.alive) || c.cranes.some((k) => k.alive));
   }
 
   /**
@@ -432,7 +559,7 @@ export class Train {
     if (target.kind === 'gem') {
       this.effects.impact(hitPoint, [5, 0.8, 0.5, 1]);
       this.effects.flash(hitPoint, 0xff2010, 25, 0.12, 6);
-    } else if (target.kind === 'turret') {
+    } else if (target.kind === 'turret' || target.kind === 'crane') {
       this.effects.impact(hitPoint, [4, 3, 2, 1]);
       if (Math.random() < 0.35) this.effects.sparkBurst(hitPoint, 4, 4);
     } else {
@@ -453,6 +580,9 @@ export class Train {
       }
     } else if (target.kind === 'turret') {
       this.breakTurret(target.turret);
+      if (!this.gemShielded) this.breakShield();
+    } else if (target.kind === 'crane') {
+      this.breakCrane(target.crane);
       if (!this.gemShielded) this.breakShield();
     } else if (target.kind === 'gem') {
       this.gemLight.intensity = 0;
@@ -478,6 +608,7 @@ export class Train {
         }
       }
       for (const turret of car.turrets) turret.alive = false;
+      for (const c of car.cranes) if (c.alive) this.breakCrane(c);
     }
     this.gemShield.visible = false;
   }
@@ -503,8 +634,25 @@ export class Train {
     s.scale.setScalar(1 + Math.sin(this.shieldTime * 2.2) * 0.03 + this.shieldHit * 0.06);
   }
 
+  /**
+   * Stage clear: the train stops shooting and leaves the line at speed (no ramming, no restart).
+   */
+  depart() {
+    this.departing = true;
+    this.reversing = this.dir < 0;
+    this.stopAtZ = null;
+    this.stopTimer = 0;
+    this.cruise = GameConfig.train.wreckSpeed;
+  }
+
   dispose() {
     this.group.removeFromParent();
+    for (const car of this.cars) {
+      for (const c of car.cranes) {
+        c.chain.removeFromParent();
+        c.ball.removeFromParent();
+      }
+    }
   }
 }
 

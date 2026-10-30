@@ -12,6 +12,7 @@ import { FloatingIslands } from './FloatingIslands.js';
 import { PineTreeFactory } from './PineTreeFactory.js';
 import { BillboardBatch } from '../fx/BillboardBatch.js';
 import { SnowWeather, SnowFall, RailSnow, FloorSnow } from './Snow.js';
+import { Terrace } from './Terrace.js';
 
 /**
  * Static environment composition (Facade): lighting, sky, clouds, islands, forests,
@@ -61,6 +62,9 @@ export class World {
 
     this.board = new Board(materials, floorTexture);
     scene.add(this.board.group);
+    // Stage 2 platform up the line.
+    this.terrace = new Terrace(materials, floorTexture);
+    scene.add(this.terrace.group);
     this.track = new Track(materials);
     scene.add(this.track.group);
 
@@ -90,11 +94,12 @@ export class World {
     this.backdrop.add(this.islands.group);
 
     // Grassy rock shelves beside the board (world space) so board-side pines stand on ground.
-    this.shores = new FloatingIslands(materials, textures, this.shoreSpecs());
+    this.shores = new FloatingIslands(materials, textures, [...this.shoreSpecs(), ...Terrace.shoreSpecs()]);
     scene.add(this.shores.group);
 
     this.trees = new PineTreeFactory(materials);
     this.backdrop.add(this.trees.createForest(this.islands.treePlacements));
+    scene.add(this.trees.createForest(this.terrace.treePlacements));
     scene.add(this.trees.createForest(this.shores.treePlacements));
     this.foreground = this.trees.createForest(this.foregroundTrees(), { castShadow: false, layer: LAYERS.FOREGROUND, tint: 0.85 });
     scene.add(this.foreground);
@@ -103,6 +108,28 @@ export class World {
     this.backdrop.add(this.clouds.group);
     this.boardClouds = new CloudLayer(textures, this.boardCloudSpecs(), { renderOrder: 6 });
     scene.add(this.boardClouds.group);
+
+    // The camera follows the heli up the line in stage 2: sky, horizon, cloud sea, sun shadow
+    // box and the snowfall volume travel with it (things at "infinity" stay put on screen).
+    this.cameraHome = camera.position.clone();
+    this.backdropHome = this.backdrop.position.clone();
+    this.sunHome = this.sun.position.clone();
+    this.sunTargetHome = this.sun.target.position.clone();
+    this.travel = new THREE.Vector3();
+  }
+
+  /** Moves the "at infinity" parts by how far the camera travelled from its home position. */
+  follow() {
+    this.travel.subVectors(this.camera.position, this.cameraHome);
+    this.travel.y = 0;
+    this.backdrop.position.copy(this.backdropHome).add(this.travel);
+    // Shadow box: snap to whole units so shadow texels don't crawl while moving.
+    const sx = Math.round(this.travel.x);
+    const sz = Math.round(this.travel.z);
+    this.sun.position.set(this.sunHome.x + sx, this.sunHome.y, this.sunHome.z + sz);
+    this.sun.target.position.set(this.sunTargetHome.x + sx, this.sunTargetHome.y, this.sunTargetHome.z + sz);
+    this.sun.target.updateMatrixWorld();
+    this.snowFall.offset = this.travel;
   }
 
   setupLights(shadowMapSize) {
@@ -236,12 +263,28 @@ export class World {
     for (let i = 0; i < 10; i++) {
       out.push({ x: rng.range(b.minX + 2, b.maxX + 2), y: rng.range(-2.6, -1.4), z: b.maxZ + rng.range(1.5, 3.5), size: rng.range(3, 4.5), variant: rng.int(0, 2), drift: 0, tint: 1.065 });
     }
+    // Cloud sea under the trestle bridge and the terrace (stage 2): low, wide puffs in world space
+    // so the open sky under the bridge reads as clouds, not as empty haze.
+    const r3 = new Random(929);
+    for (let x = -30; x <= 36; x += 8.5) {
+      for (let z = -100; z <= -16; z += 8.5) {
+        out.push({ x: x + r3.spread(3), y: r3.range(-12, -8.5), z: z + r3.spread(3), size: r3.range(10, 15), variant: r3.int(0, 2), drift: 0, tint: r3.range(1.0, 1.06) });
+      }
+    }
+    // Puffs around the terrace (stage 2), well clear of the bridge and the platform.
+    const t = GameConfig.stages.terrace;
+    const r2 = new Random(919);
+    for (let i = 0; i < 16; i++) {
+      const left = r2.chance(0.5);
+      out.push({ x: left ? t.minX - r2.range(8, 13) : t.maxX + r2.range(8, 13), y: r2.range(-4.5, -3), z: r2.range(t.minZ - 2, t.maxZ + 2), size: r2.range(3, 5), variant: r2.int(0, 2), drift: 0, tint: 1.065 });
+    }
     return out;
   }
 
   update(dt) {
+    this.follow();
     this.sky.update(this.camera);
-    this.clouds.update(dt, this.camera);
+    this.clouds.update(dt, this.camera, Math.min(1, this.travel.length() / 12));
     this.boardClouds.update(dt, this.camera);
     this.weather.update(dt);
     this.snowFall.update(dt);

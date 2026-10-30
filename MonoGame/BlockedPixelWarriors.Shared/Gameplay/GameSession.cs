@@ -11,6 +11,12 @@ namespace BlockedPixelWarriors.Gameplay;
 
 public enum GameState { Title, Playing, Dead, Over, Won }
 
+/// <summary>Stage flow: the depot board, the flight up the line, the terrace, all clear.</summary>
+public enum Stage { Depot, Transit, Terrace, Done }
+
+/// <summary>One line of the objectives checklist (HUD, bottom left).</summary>
+public readonly record struct Objective(string Text, bool Done, string Progress = null, BlockColor? Swatch = null);
+
 /// <summary>
 /// Composition root of one game (Game.js): wires the systems, runs the simulation step and acts
 /// as the collision Mediator between projectiles and entities.
@@ -19,7 +25,7 @@ public sealed class GameSession : IRenderable
 {
     private static class Score
     {
-        public const int Block = 10, Cargo = 25, Turret = 100, Gem = 500, Mine = 50, Supply = 50, Delivery = 100;
+        public const int Block = 10, Cargo = 25, Turret = 100, Crane = 150, Gem = 500, Mine = 50, Supply = 50, Delivery = 100;
     }
 
     private readonly GraphicsDevice _device;
@@ -42,6 +48,9 @@ public sealed class GameSession : IRenderable
     private bool _gemDrops;
     private float _cardTimer, _eggTimer;
     private int _offersMade;
+    private float _finishTimer;
+    private bool _lineClear;
+    private readonly List<Objective> _objectives = new(6);
     private static Rng R => Rng.Shared;
     private static readonly Color[] BoxCss = { new(0xff, 0x6b, 0x6b), new(0x7b, 0xe8, 0x6a), new(0x5a, 0xb8, 0xff), new(0xff, 0xd3, 0x4a) };
     private static readonly Color[] MissionCss = { new(0xff, 0x5a, 0x5a), new(0x6e, 0xe0, 0x5a), new(0x38, 0xc8, 0xff) };
@@ -58,6 +67,10 @@ public sealed class GameSession : IRenderable
     public CameraRig Rig { get; }
     public Train Train { get; private set; }
     public Logistics Logistics { get; }
+    public Stage Stage { get; private set; } = Stage.Depot;
+    public CheckpointGate Gate { get; }
+    /// <summary>Where the checkpoint is saved (file by default; tests / platforms may swap it).</summary>
+    public ICheckpointStore Store { get; set; } = new FileCheckpointStore();
     public SpikeMines Mines { get; }
     /// <summary>Upgrade-card UI (set by the game once the UI exists).</summary>
     public ICardPicker Cards { get; set; }
@@ -78,7 +91,7 @@ public sealed class GameSession : IRenderable
         _lights = lights;
         _hud = hud;
         Rig = new CameraRig(scene.Camera);
-        World = new WorldScene(device, models, scene, quality.ForegroundBlur);
+        World = new WorldScene(device, models, scene, quality.ForegroundBlur, lights);
 
         BillboardBatch Batch(string tex, int cap, bool additive, int order)
         {
@@ -120,6 +133,7 @@ public sealed class GameSession : IRenderable
             },
         };
         Mines = new SpikeMines(models, World.Board, Blocks, Effects);
+        Gate = new CheckpointGate(models, Effects, lights);
         _targeting.Mines = Mines;
         _cardDefs = scene.Prefabs.Cards ?? new List<CardDefData>();
         _trainFactory = new TrainFactory(models, scene.Prefabs);
@@ -146,10 +160,159 @@ public sealed class GameSession : IRenderable
         ScoreValue = 0;
         Lives = 3;
         Wave = 0;
+        _finishTimer = 0;
+        _lineClear = false;
+        // Back to stage 1: the depot board with the fixed key-art camera.
+        Stage = Stage.Depot;
+        Rig.Follow = false;
+        Heli.Bounds = null;
+        Heli.Spawn = Rig.HeliAnchor;
+        Gate.Show(false);
+        Train?.Dispose();
+        Train = null;
+        _trainTimer = 1.5f;
         Heli.FlickerMul = 1;
         Heli.Respawn();
+        Rig.Update(0, Heli.Position, true);
         _hud.HideOverlay();
         Paused = false;
+    }
+
+    // ---- Stages -------------------------------------------------------------------------------
+
+    public bool CanContinue => Store?.Load() != null;
+
+    /// <summary>CONTINUE: a run starting at the terrace checkpoint with the saved score and upgrades.</summary>
+    public void ContinueRun()
+    {
+        var save = Store?.Load();
+        StartRun();
+        if (save == null) return;
+        ScoreValue = save.Score;
+        Wave = save.Wave;
+        foreach (var id in save.Cards ?? new List<string>())
+        {
+            var def = _cardDefs.Find(d => d.Id == id);
+            if (def == null) continue;
+            // Only the upgrades that matter past the depot are re-applied (no deliveries up here).
+            if (id is "gemMine" or "homing" or "flicker" or "surpriseEgg") ApplyCard(def, true);
+            else _takenCards.Add(id);
+        }
+        EnterTerrace(true);
+        Heli.Position = Heli.Spawn;
+        Rig.Update(0, Heli.Position, true);
+        World.Follow(Rig.Travel);
+        _hud.Toast("CONTINUE - STAGE 2: THE TERRACE");
+    }
+
+    private (float, float, float, float) StageBounds(Stage stage) => stage == Stage.Transit
+        ? (MathF.Min(GameConfig.Board.MinX, GameConfig.Stages.TerraceMinX), MathF.Max(GameConfig.Board.MaxX, GameConfig.Stages.TerraceMaxX), GameConfig.Stages.TerraceMinZ, GameConfig.Board.MaxZ)
+        : (GameConfig.Stages.TerraceMinX, GameConfig.Stages.TerraceMaxX, GameConfig.Stages.TerraceMinZ, GameConfig.Stages.CheckpointZ + 3);
+
+    /// <summary>Stage 1 done: the train leaves, the camera lets go and the heli flies up the line.</summary>
+    public void ClearDepot()
+    {
+        Stage = Stage.Transit;
+        Train?.Depart();
+        // The bridge opens once the departing train has left the line (it never runs the heli over).
+        _lineClear = Train == null;
+        if (_lineClear) OpenCorridor();
+        _hud.Notice("DEPOT CLEARED!", FeedColors.Gold);
+        _hud.Toast(_lineClear ? "STAGE 1 CLEAR - FLY UP THE TRACKS TO THE CHECKPOINT" : "STAGE 1 CLEAR - WAIT FOR THE TRAIN TO CLEAR THE LINE");
+        _hud.Kill("HELI", FeedColors.Heli, "DEPOT", FeedColors.Grey, "✔ cleared", FeedColors.Gold);
+    }
+
+    /// <summary>Line clear: the camera lets go and the heli may fly up the bridge to the checkpoint.</summary>
+    private void OpenCorridor()
+    {
+        _lineClear = true;
+        Rig.Follow = true;
+        Heli.Bounds = StageBounds(Stage.Transit);
+        Gate.Show(true);
+    }
+
+    /// <summary>Checkpoint reached (or continued from): stage 2 with the Block Hauler.</summary>
+    public void EnterTerrace(bool fromSave = false)
+    {
+        Stage = Stage.Terrace;
+        Rig.Follow = true;
+        Heli.Bounds = StageBounds(Stage.Terrace);
+        Heli.Spawn = new Vector3(GameConfig.Stages.CheckpointX - 5, GameConfig.Heli.Altitude, GameConfig.Stages.CheckpointZ - 7);
+        if (fromSave) Gate.Show(false);
+        _trainTimer = 3;
+        if (fromSave) return;
+        Store?.Save(new CheckpointSave { Score = ScoreValue, Wave = Wave, Cards = _takenCards.ToList() });
+        _hud.Notice("CHECKPOINT SAVED", FeedColors.Heli);
+        _hud.Toast("STAGE 2 - THE TERRACE: STOP THE BLOCK HAULER!");
+    }
+
+    /// <summary>Block Hauler destroyed: all stages clear.</summary>
+    private void FinishStages()
+    {
+        Stage = Stage.Done;
+        State = GameState.Won;
+        Cards?.Cancel();
+        Store?.Clear();
+        _hud.ShowMissionComplete(ScoreValue, Logistics.Delivered);
+    }
+
+    /// <summary>The objective checklist for the HUD (title + rows), rebuilt on demand.</summary>
+    public (string title, IReadOnlyList<Objective> items) Objectives()
+    {
+        _objectives.Clear();
+        if (Stage == Stage.Depot)
+        {
+            var L = Logistics;
+            _objectives.Add(new Objective("Hire the field engineer (card)", L.Enabled));
+            _objectives.Add(new Objective("Sign the cargo chopper (card)", L.ChopperEnabled));
+            var names = new[] { "red", "green", "blue" };
+            var swatch = new[] { BlockColor.Red, BlockColor.Green, BlockColor.Teal };
+            for (var i = 0; i < 3; i++)
+            {
+                var goal = Logistics.Goal[i];
+                _objectives.Add(new Objective($"Ship {goal} {names[i]} packages", L.Delivered[i] >= goal, $"{Math.Min(L.Delivered[i], goal)}/{goal}", swatch[i]));
+            }
+            return ("STAGE 1 · DEPOT", _objectives);
+        }
+        if (Stage == Stage.Transit)
+        {
+            _objectives.Add(new Objective("Depot cleared", true));
+            _objectives.Add(new Objective("Wait for the train to clear the line", _lineClear));
+            _objectives.Add(new Objective("Fly up the tracks to the checkpoint", false));
+            return ("STAGE 1 → 2", _objectives);
+        }
+        var t = Train is { IsHauler: true } ? Train : null;
+        int cranes = 0, cranesDown = 0, turrets = 0, turretsDown = 0;
+        foreach (var car in t?.Cars ?? new List<TrainCar>())
+        {
+            foreach (var c in car.Cranes) { cranes++; if (!c.Alive) cranesDown++; }
+            foreach (var tu in car.Turrets) { turrets++; if (!tu.Alive) turretsDown++; }
+        }
+        var done = Stage == Stage.Done;
+        _objectives.Add(new Objective("Reach the checkpoint", true));
+        _objectives.Add(new Objective("Wreck the cranes", done || (cranes > 0 && cranesDown >= cranes), t != null ? $"{cranesDown}/{cranes}" : null));
+        _objectives.Add(new Objective("Break the turrets", done || (turrets > 0 && turretsDown >= turrets), t != null ? $"{turretsDown}/{turrets}" : null));
+        _objectives.Add(new Objective("Destroy the Block Hauler", done));
+        return ("STAGE 2 · TERRACE", _objectives);
+    }
+
+    /// <summary>A swinging wrecking ball hits the heli: damage, knock-back away from the ball, flicker.</summary>
+    private void OnBallHit(Vector3 center)
+    {
+        var h = Heli;
+        if (!h.Alive || h.Invulnerable > 0 || State != GameState.Playing) return;
+        if (!h.TakeDamage(GameConfig.Stages.BallDamage)) return;
+        h.Invulnerable = 1.5f * h.FlickerMul;
+        var d = new Vector2(h.Position.X - center.X, h.Position.Z - center.Z);
+        if (d.LengthSquared() < 1e-6f) d = Vector2.UnitX;
+        d.Normalize();
+        h.Velocity.X = d.X * 12;
+        h.Velocity.Z = d.Y * 12;
+        Effects.Explosion(Vector3.Lerp(center, h.Position, 0.5f), 0.7f, 0x2a2c30, 8);
+        Effects.SparkBurst(center, 20, 6, new Vector4(4, 3, 2, 1));
+        Rig.AddShake(0.8f);
+        _hud.DamageFlash(1);
+        if (!h.Alive) OnHeliDestroyed();
     }
 
     private void AddScore(int points)
@@ -162,27 +325,32 @@ public sealed class GameSession : IRenderable
     {
         Wave++;
         Train?.Dispose();
-        Train = new Train(_trainFactory, Effects, _lights, _device, Wave, (uint)Wave)
+        var terrace = Stage == Stage.Terrace;
+        Train = new Train(_trainFactory, Effects, _lights, _device, Wave, (uint)Wave, terrace)
         {
             OnFire = FireEnemyShell,
             OnCannonFire = FireCannonShell,
-            OnCargoKnocked = (p, c) => Blocks.DropFromTrain(p, c),
+            // Up on the terrace there is no block field: knocked cubes shatter.
+            OnCargoKnocked = (p, c) => !terrace && Blocks.DropFromTrain(p, c),
             OnShieldDown = () => _hud.Toast("GEM SHIELD DOWN - HIT THE HEAD!"),
             OnTargetDestroyed = OnTrainPartDestroyed,
+            OnBallHit = OnBallHit,
         };
-        _hud.Toast($"WAVE {Wave} - ARMORED TRAIN INCOMING");
+        _hud.Toast($"WAVE {Wave} - {Train.Title} INCOMING");
     }
 
     private void OnTrainPartDestroyed(TargetKind kind, Vector3 position)
     {
-        AddScore(kind switch { TargetKind.Turret => Score.Turret, TargetKind.Gem => Score.Gem, TargetKind.Cargo => Score.Cargo, _ => 0 });
+        AddScore(kind switch { TargetKind.Turret => Score.Turret, TargetKind.Crane => Score.Crane, TargetKind.Gem => Score.Gem, TargetKind.Cargo => Score.Cargo, _ => 0 });
         Rig.AddShake(kind == TargetKind.Gem ? 0.9f : 0.25f);
         if (kind == TargetKind.Turret) _hud.Kill("HELI", FeedColors.Heli, "TURRET", FeedColors.Grey, $"+{Score.Turret}", FeedColors.Gold);
+        if (kind == TargetKind.Crane) _hud.Kill("HELI", FeedColors.Heli, "CRANE", new Color(0xf0, 0xb2, 0x1c), $"+{Score.Crane}", FeedColors.Gold);
         if (kind == TargetKind.Gem)
         {
-            _hud.Kill("HELI", FeedColors.Heli, $"ARMORED TRAIN #{Wave}", FeedColors.Train, "☠", FeedColors.Train);
-            _hud.Toast("TRAIN DESTROYED! +500");
-            _cardTimer = GameConfig.Cards.OfferDelay;
+            _hud.Kill("HELI", FeedColors.Heli, $"{Train.Title} #{Wave}", FeedColors.Train, "☠", FeedColors.Train);
+            _hud.Toast(Train.IsHauler ? "BLOCK HAULER DESTROYED! +500" : "TRAIN DESTROYED! +500");
+            if (Train.IsHauler) _finishTimer = 2.5f;
+            else _cardTimer = GameConfig.Cards.OfferDelay;
         }
     }
 
@@ -210,12 +378,7 @@ public sealed class GameSession : IRenderable
     {
         AddScore(Score.Delivery);
         if (key.HasValue && State == GameState.Playing) _hud.Notice($"+1 {key.Value.ToString().ToUpperInvariant()}", MissionCss[(int)key.Value]);
-        if (Logistics.MissionComplete && State == GameState.Playing)
-        {
-            State = GameState.Won;
-            Cards?.Cancel();
-            _hud.ShowMissionComplete(ScoreValue, Logistics.Delivered);
-        }
+        if (Logistics.MissionComplete && State == GameState.Playing && Stage == Stage.Depot) ClearDepot();
     }
 
     private void OnPickup(SupplyType type, SupplyCrates.Item item)
@@ -397,7 +560,7 @@ public sealed class GameSession : IRenderable
     {
         var t = Train;
         var h = Heli;
-        if (t == null || t.Finished || !h.Alive || h.Invulnerable > 0 || State != GameState.Playing) return;
+        if (t == null || t.Finished || t.Departing || !h.Alive || h.Invulnerable > 0 || State != GameState.Playing) return;
         var p = h.Position;
         var halfWidth = 1.15f * t.Scale + 0.7f;
         if (MathF.Abs(p.X - t.X) > halfWidth || p.Z < t.MinZ - 0.5f || p.Z > t.MaxZ + 0.5f) return;
@@ -417,7 +580,7 @@ public sealed class GameSession : IRenderable
     private void RestockFarSide()
     {
         var t = Train;
-        if (t == null || t.Destroyed || t.Finished) return;
+        if (t == null || t.Destroyed || t.Finished || t.IsHauler || Stage != Stage.Depot) return;
         if (_restock.train != t || _restock.lap != t.Lap) _restock = (t, t.Lap, new HashSet<int>());
         for (var r = 0; r < Blocks.Rows; r++)
         {
@@ -676,7 +839,18 @@ public sealed class GameSession : IRenderable
         }
 
         // The same train loops until its gem is destroyed; then the next wave brings a new one.
-        if (Train == null || Train.Finished)
+        if (Train is { Finished: true } && (Train.Departing || Stage == Stage.Transit))
+        {
+            Train.Dispose();
+            Train = null;
+        }
+        if (Stage == Stage.Transit && !_lineClear && Train == null)
+        {
+            OpenCorridor();
+            _hud.Toast("LINE CLEAR - FLY UP THE TRACKS TO THE CHECKPOINT");
+        }
+        var trainsRun = Stage is Stage.Depot or Stage.Terrace;
+        if (trainsRun && (Train == null || Train.Finished))
         {
             _trainTimer -= dt;
             if (_trainTimer <= 0)
@@ -698,7 +872,14 @@ public sealed class GameSession : IRenderable
         RestockFarSide();
 
         Blocks.Update(dt);
-        Logistics.Update(dt, playing);
+        Logistics.Update(dt, playing && Stage == Stage.Depot);
+        if (Stage == Stage.Transit && playing && Gate.Update(dt, Heli.Position)) EnterTerrace();
+        else if (Stage != Stage.Transit) Gate.Update(dt, Heli.Position);
+        if (_finishTimer > 0)
+        {
+            _finishTimer -= dt;
+            if (_finishTimer <= 0 && State == GameState.Playing) FinishStages();
+        }
         Mines.Update(dt);
         Projectiles.Update(dt);
         PowerUps.Update(dt);
@@ -719,6 +900,7 @@ public sealed class GameSession : IRenderable
         Logistics.SnowClearers(_clearers);
         World.FloorSnow.Update(dt, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_clearers), Effects);
         Rig.Update(dt, Heli.Position);
+        World.Follow(Rig.Travel);
     }
 
     // ---- Upgrade cards ------------------------------------------------------------------------
@@ -747,13 +929,13 @@ public sealed class GameSession : IRenderable
             _offer.Add(d);
         }
         _offersMade++;
-        Cards.Show(_offer.ToArray(), ApplyCard);
+        Cards.Show(_offer.ToArray(), d => ApplyCard(d));
     }
 
     /// <summary>SURPRISE EGG: an empty board brings 3 rolling balls down from the sky (one wave at a time).</summary>
     private void UpdateSurpriseEggs(float dt)
     {
-        if (!_takenCards.Contains("surpriseEgg") || State != GameState.Playing) return;
+        if (!_takenCards.Contains("surpriseEgg") || State != GameState.Playing || Stage != Stage.Depot) return;
         _eggTimer = MathF.Max(0, _eggTimer - dt);
         if (_eggTimer > 0 || Mines.EggsAlive > 0) return;
         if (Blocks.Blocks.Exists(b => b.Alive && !b.Cargo)) return;
@@ -768,42 +950,47 @@ public sealed class GameSession : IRenderable
         }
     }
 
-    public void ApplyCard(CardDefData def)
+    /// <param name="silent">restoring a saved run: no toasts, no free supply</param>
+    public void ApplyCard(CardDefData def, bool silent = false)
     {
         _takenCards.Add(def.Id);
+        void Toast(string text)
+        {
+            if (!silent) Toast(text);
+        }
         switch (def.Id)
         {
             case "engineer":
                 Logistics.HireEngineer();
-                _hud.Toast("FIELD ENGINEER INBOUND");
+                Toast("FIELD ENGINEER INBOUND");
                 break;
             case "gemMine":
                 _gemDrops = true;
-                _hud.Toast("GEM MINE - BLOCKS NOW DROP GEMS");
+                Toast("GEM MINE - BLOCKS NOW DROP GEMS");
                 break;
             case "cargoChopper":
                 Logistics.EnableChopper();
-                _hud.Toast(Logistics.Enabled ? "CARGO CHOPPER - PICK-UP EVERY 2 MINUTES" : "CARGO CHOPPER SIGNED - NOW YOU NEED AN ENGINEER");
+                Toast(Logistics.Enabled ? "CARGO CHOPPER - PICK-UP EVERY 2 MINUTES" : "CARGO CHOPPER SIGNED - NOW YOU NEED AN ENGINEER");
                 break;
             case "homing":
-                _hud.Toast("HOMING ROCKETS UNLOCKED - LOOK FOR R SUPPLIES");
+                Toast("HOMING ROCKETS UNLOCKED - LOOK FOR R SUPPLIES");
                 // A first taste right away.
-                Supplies.Spawn(SupplyType.R, new Vector3(Heli.Position.X, 2, Heli.Position.Z));
+                if (!silent) Supplies.Spawn(SupplyType.R, new Vector3(Heli.Position.X, 2, Heli.Position.Z));
                 break;
             case "doubleRow":
                 Logistics.WidenDock();
-                _hud.Toast("DOUBLE ROW - THE DOCK HOLDS TWICE AS MANY");
+                Toast("DOUBLE ROW - THE DOCK HOLDS TWICE AS MANY");
                 break;
             case "flicker":
                 Heli.FlickerMul = GameConfig.Cards.FlickerMul;
-                _hud.Toast("FLICKER - LONGER SAFE TIME AFTER HITS");
+                Toast("FLICKER - LONGER SAFE TIME AFTER HITS");
                 break;
             case "cargoTime":
                 Logistics.SpeedUpChopper(GameConfig.Cards.CargoTimeMul);
-                _hud.Toast("RUSH DELIVERY - CHOPPER COMES 30% SOONER");
+                Toast("RUSH DELIVERY - CHOPPER COMES 30% SOONER");
                 break;
             case "surpriseEgg":
-                _hud.Toast("SURPRISE EGG - EMPTY BOARD? BALLS FROM THE SKY");
+                Toast("SURPRISE EGG - EMPTY BOARD? BALLS FROM THE SKY");
                 _eggTimer = 0;
                 break;
         }
@@ -884,6 +1071,7 @@ public sealed class GameSession : IRenderable
         Blocks.Submit(queue);
         Logistics.Submit(queue);
         Mines.Submit(queue);
+        Gate.Submit(queue);
         Train?.Submit(queue);
         Heli.Submit(queue);
         Supplies.Submit(queue);

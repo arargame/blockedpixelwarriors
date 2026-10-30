@@ -17,6 +17,10 @@ public sealed class CameraRig
     public Camera3D Camera { get; } = new();
     public Vector3 HeliAnchor { get; }
     public float Shake;
+    /// <summary>Past the depot the camera rides along with the heli (same key-art angle).</summary>
+    public bool Follow;
+    /// <summary>Camera travel from its home position (the "at infinity" scenery moves with it).</summary>
+    public Vector3 Travel => new(Camera.Position.X - _base.X, 0, Camera.Position.Z - _base.Z);
 
     public CameraRig(CameraData data)
     {
@@ -35,8 +39,16 @@ public sealed class CameraRig
     {
         var follow = GameConfig.Camera.FollowStrength;
         var desired = _base;
-        desired.X += (heli.X - HeliAnchor.X) * follow;
-        desired.Z += (heli.Z - HeliAnchor.Z) * follow * 0.8f;
+        if (Follow)
+        {
+            desired.X += heli.X - HeliAnchor.X;
+            desired.Z += heli.Z - HeliAnchor.Z;
+        }
+        else
+        {
+            desired.X += (heli.X - HeliAnchor.X) * follow;
+            desired.Z += (heli.Z - HeliAnchor.Z) * follow * 0.8f;
+        }
         if (snap || !_smooth.HasValue) _smooth = desired;
         _smooth = Vector3.Lerp(_smooth.Value, desired, MathX.Damp(3.5f, dt));
         Camera.Position = _smooth.Value;

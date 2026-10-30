@@ -69,6 +69,19 @@ public sealed class RenderQueue
 
     public void Add(GpuMesh mesh, in Matrix world, bool castShadow = true) => Add(mesh, world, DrawOverrides.None, castShadow);
 
+    /// <summary>Queues one part of a mesh (per-part tints, e.g. the checkpoint hoop turning green).</summary>
+    public void AddPart(GpuMesh mesh, MeshPart part, in Matrix world, in DrawOverrides overrides, bool castShadow = true, int renderOrder = 0)
+    {
+        var item = new DrawItem
+        {
+            Mesh = mesh, Part = part, World = world, Overrides = overrides, RenderOrder = renderOrder, Layer = RenderLayer.World,
+            CastShadow = castShadow && part.Material.CastShadow,
+        };
+        var transparent = part.Material.Transparent || overrides.ColorMul.W < 0.999f;
+        (transparent ? Transparent : Opaque).Add(item);
+        if (item.CastShadow) ShadowCasters.Add(item);
+    }
+
     public void Add(BillboardBatch batch)
     {
         if (batch != null && batch.Visible && batch.Count > 0) Billboards.Add(batch);

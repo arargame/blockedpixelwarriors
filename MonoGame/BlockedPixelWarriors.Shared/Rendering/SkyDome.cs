@@ -65,7 +65,8 @@ public sealed class SkyDome : IDisposable
     public void Draw(GraphicsDevice device, Camera3D camera, in Matrix backdrop)
     {
         // Sky.update(): dome positioned at the camera (in the backdrop's local space).
-        _wvp.SetValue(Matrix.CreateTranslation(camera.Position) * backdrop * camera.ViewProjection);
+        var local = Vector3.Transform(camera.Position, Matrix.Invert(backdrop));
+        _wvp.SetValue(Matrix.CreateTranslation(local) * backdrop * camera.ViewProjection);
         device.BlendState = BlendState.Opaque;
         device.DepthStencilState = DepthStencilState.DepthRead;
         device.RasterizerState = RasterizerState.CullNone;

@@ -78,7 +78,20 @@ public static class GameConfig
         public const int DockCol = 0;
         public const float ForkliftSpeed = 3.4f;
         public const float ChinookInterval = 120;
-        public const int GoalRed = 100, GoalGreen = 100, GoalBlue = 100;
+        public const int GoalRed = 20, GoalGreen = 20, GoalBlue = 20;
+    }
+
+    /// <summary>
+    /// Stages (GameConfig.stages): 1 the depot board, then up the line over the trestle bridge to
+    /// 2 the terrace (balconies both sides, checkpoint gate, the BLOCK HAULER).
+    /// </summary>
+    public static class Stages
+    {
+        public const float TerraceMinX = -15, TerraceMaxX = 21, TerraceMinZ = -84, TerraceMaxZ = -58;
+        public const float CheckpointX = 3, CheckpointZ = -55.5f;
+        public const float HaulerStartZ = -200, HaulerEndZ = -20;
+        public const float BallDamage = 20, ChainLength = 2.3f, CraneHp = 24;
+        public const string SaveFile = "checkpoint.json";
     }
 
     /// <summary>Upgrade cards (GameConfig.cards).</summary>

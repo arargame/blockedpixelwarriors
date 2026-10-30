@@ -106,7 +106,8 @@ export class Helicopter {
     this.velocity.lerp(tmp, k);
     this.position.addScaledVector(this.velocity, dt);
 
-    const b = this.board.bounds;
+    // Stage bounds: the board, the bridge corridor or the terrace (set by the game).
+    const b = this.bounds ?? this.board.bounds;
     const m = cfg.margin;
     this.position.x = THREE.MathUtils.clamp(this.position.x, b.minX + m, b.maxX - m);
     this.position.z = THREE.MathUtils.clamp(this.position.z, b.minZ + m + 2, b.maxZ - m - 0.6);

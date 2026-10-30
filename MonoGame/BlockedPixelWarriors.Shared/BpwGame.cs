@@ -93,16 +93,18 @@ public sealed class BpwGame : Game
         _renderer.BackdropWorld = _session.World.Backdrop;
         _renderer.SetSnowMap(_session.World.FloorSnow.Texture, _session.World.FloorSnow.Rect);
         _poster = _options.Scenario is "poster" or "static";
-        if (_options.Scenario is "play" or "cards" or "logistics")
+        if (_options.CapturePath != null) _session.Store = new MemoryCheckpointStore();
+        if (_options.Scenario is "play" or "cards" or "logistics" or "transit" or "terrace")
         {
             _session.StartRun();
             var vp = Viewport;
             _ui.Scale = UiScale(vp);
-            void Sim(float seconds)
+            void Sim(float seconds, Action script = null)
             {
                 for (float t = 0; t < seconds; t += 1 / 30f)
                 {
-                    _session.Step(1 / 30f, AutoPilot(_session.Time));
+                    script?.Invoke();
+                    _session.Step(1 / 30f, script != null ? default : AutoPilot(_session.Time));
                     _cards.Update(1 / 30f, _input, vp);
                     _hud.CardsOpen = _cards.Open;
                     _hud.Update(1 / 30f, _session.PowerUps.Active);
@@ -119,6 +121,31 @@ public sealed class BpwGame : Game
                 foreach (var (c, r, color) in new[] { (3, 4, BlockColor.Red), (4, 8, BlockColor.Green), (2, 10, BlockColor.Teal), (5, 2, BlockColor.Red) })
                     if (_session.Blocks.Cell(c, r) is not { Alive: true }) _session.Blocks.PlaceBlock(c, r, color, BlockType.Normal, cargo: true);
                 Sim(_options.Extra > 0 ? _options.Extra : 20);
+            }
+            if (_options.Scenario == "transit")
+            {
+                // Stage 1 cleared: fly up the line toward the checkpoint gate.
+                _session.ClearDepot();
+                var h = _session.Heli;
+                Sim(_options.Extra > 0 ? _options.Extra : 12, () =>
+                {
+                    h.Position.Z = MathF.Max(h.Position.Z - 0.3f, -60);
+                    h.Position.X += (3 - h.Position.X) * 0.05f;
+                });
+            }
+            if (_options.Scenario == "terrace")
+            {
+                // CONTINUE from a checkpoint, then hover beside the first crane car as the hauler passes.
+                _session.Store = new MemoryCheckpointStore(new CheckpointSave { Score = 1234, Wave = 3, Cards = new List<string> { "flicker" } });
+                _session.ContinueRun();
+                var h = _session.Heli;
+                Sim(_options.Extra > 0 ? _options.Extra : 40, () =>
+                {
+                    h.Invulnerable = 5;
+                    var crane = _session.Train?.Cars.FirstOrDefault(c => c.Cranes.Count > 0);
+                    var z = crane != null ? MathHelper.Clamp(crane.World.Translation.Z + 7, -82, -60) : -66;
+                    h.Position = new Vector3(-3, GameConfig.Heli.Altitude, z);
+                });
             }
             if (_options.Scenario == "cards")
             {
@@ -195,6 +222,18 @@ public sealed class BpwGame : Game
                     Exit();
                     return;
                 }
+                _hud.ContinueAvailable = s.CanContinue && _hud.Overlay is Overlay.Title or Overlay.GameOver;
+                if (_hud.ContinueAvailable)
+                {
+                    // CONTINUE: the C key or a tap / click on the green button.
+                    var tapped = false;
+                    foreach (var tap in _input.Taps) tapped |= _hud.ContinueButton.Contains(tap.Position);
+                    if (tapped || _input.Pressed(Microsoft.Xna.Framework.Input.Keys.C))
+                    {
+                        s.ContinueRun();
+                        break;
+                    }
+                }
                 if (_input.AnyAction && _hud.Overlay is Overlay.Title or Overlay.GameOver or Overlay.Won) s.StartRun();
                 break;
             default:
@@ -259,6 +298,7 @@ public sealed class BpwGame : Game
         camera.SetAspect(vp.Width / (float)vp.Height);
         camera.Update();
         _renderer.Time = _session.Time;
+        _renderer.BackdropWorld = _session.World.Backdrop;
         _queue.Clear();
         _session.Submit(_queue);
         _renderer.Render(_queue, camera, target, vp);

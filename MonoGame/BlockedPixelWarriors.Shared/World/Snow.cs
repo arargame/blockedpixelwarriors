@@ -71,6 +71,9 @@ public sealed class SnowFall : IRenderable
         }
     }
 
+    /// <summary>Camera travel: the snowfall volume moves along with the camera (stage 2).</summary>
+    public Vector3 Offset;
+
     public void Update(float dt)
     {
         _time += dt;
@@ -92,7 +95,7 @@ public sealed class SnowFall : IRenderable
             }
             if (f.X > _x1) f.X = _x0;
             if (f.Threshold > visible) continue;
-            _batch.Push(f.X, f.Y, f.Z, f.Size, f.Size, 1.25f, 1.28f, 1.35f, 0.85f);
+            _batch.Push(f.X + Offset.X, f.Y, f.Z + Offset.Z, f.Size, f.Size, 1.25f, 1.28f, 1.35f, 0.85f);
         }
         _batch.End();
     }

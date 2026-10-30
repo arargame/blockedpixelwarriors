@@ -39,6 +39,8 @@ export const GameConfig = Object.freeze({
     x: 3.0,
     startZ: -95,
     endZ: 55,
+    // The rails continue far up the line (stage 2 terrace, the Block Hauler's approach).
+    meshStartZ: -205,
     gauge: 1.9,
   }),
 
@@ -120,7 +122,25 @@ export const GameConfig = Object.freeze({
     forkliftSpeed: 3.4,
     // Cargo chopper visit period (s) and the mission goal per box colour.
     chinookInterval: 120,
-    goal: Object.freeze({ red: 100, green: 100, blue: 100 }),
+    goal: Object.freeze({ red: 20, green: 20, blue: 20 }),
+  }),
+
+  /**
+   * Stages. 1 "Depot": the board above (ship the packages). Then the camera follows the heli up
+   * the tracks over a trestle bridge to stage 2 "Terrace": a wide platform with balconies on
+   * both sides of the railway, a checkpoint at its entrance and the BLOCK HAULER train.
+   */
+  stages: Object.freeze({
+    terrace: Object.freeze({ minX: -15, maxX: 21, minZ: -84, maxZ: -58, frameHeight: 1.35, frameWidth: 0.9 }),
+    // Checkpoint gate over the bridge just before the terrace (heli flies through it).
+    checkpoint: Object.freeze([3, -55.5]),
+    // Block Hauler line: comes from far beyond the terrace, leaves behind the camera.
+    haulerPath: Object.freeze({ startZ: -200, endZ: -20 }),
+    // Swinging wrecking balls: hit damage, chain length (train units), crane cab HP.
+    ballDamage: 20,
+    chainLength: 2.3,
+    craneHp: 24,
+    saveKey: 'bpw.checkpoint',
   }),
 
   /** Upgrade cards (src/ui/UpgradeCards.js). */

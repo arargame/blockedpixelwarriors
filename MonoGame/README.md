@@ -64,6 +64,12 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
 - MonoGame GL yalnızca 8-bit MSAA hedefi oluşturabildiği için HDR sahne MSAA yerine **FXAA** ile
   yumuşatılır (bloom HDR'de kalır). Telefonda (web "low" preset gibi) FXAA, önplan bulanıklığı yok,
   1024 gölge haritası, en fazla 720 satır render + dinamik çözünürlük.
+- **Bölümler:** 1. bölüm depo (20 kırmızı + 20 yeşil + 20 mavi paket, sol altta onay kutulu
+  görev listesi); bitince kamera helikopteri takip eder, raylar boyunca ahşap köprüden yukarı
+  uçulur, kontrol noktası kapısından geçince kayıt alınır (CONTINUE ile oradan devam) ve 2. bölüm
+  "Terrace" başlar: iki yanı balkonlu geniş platform, BLOCK HAULER treni (taretler + gülle sallayan
+  vinçler, gülle çarparsa hasar). Kayıt dosyası: `%LOCALAPPDATA%/BlockedPixelWarriors/checkpoint.json`
+  (Android'de uygulama klasörü).
 - Oyun web sürümüyle aynı: helikopter, tren (taret, top, mücevher kalkanı, turlar), bloklar,
   mermiler, ikmaller (T / D / R / H / G), **yükseltme kartları** (8 kart, kül-gri dünya, tıkla /
   dokun / 1-2, resmin tamamını görme), **saha mühendisi + forklift** (BFS ile kargo toplar,
@@ -77,6 +83,6 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
 ## Test / ekran görüntüsü
 
 ```bash
-BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|title|play|cards|logistics [--warmup 25] [--extra 30] [--pick 0] [--touch] [--mobile]
+BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|title|play|cards|logistics|transit|terrace [--warmup 25] [--extra 30] [--pick 0] [--touch] [--mobile]
 node tools/staticshot.mjs web.png   # aynı "static" kareyi web sürümünden alır (karşılaştırma)
 ```

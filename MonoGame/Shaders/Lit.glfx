@@ -417,7 +417,9 @@ void main()
     texel.rgb = mix(texel.rgb, GroutColor, groutMask);
     // Settled snow (FloorSnow): coverage map + fine flake grain.
     vec2 suv = (v_world.xz - SnowRect.xy) / SnowRect.zw;
-    float snowDepth = texture2D(SnowMap, suv).r;
+    // Settled snow only on the depot board (the terrace floor lies outside the snow map).
+    float inside = step(0.0, suv.x) * step(suv.x, 1.0) * step(0.0, suv.y) * step(suv.y, 1.0);
+    float snowDepth = texture2D(SnowMap, suv).r * inside;
     float grain = tileHash(floor(v_world.xz * 22.0)) * 0.6 + tileHash(floor(v_world.xz * 7.0) + 3.1) * 0.4;
     float st = snowDepth * 1.25 + groutMask * 0.15 - (1.0 - grain) * 0.75;
     float snowCover = smoothstep(0.02, 0.3, st) * smoothstep(0.02, 0.12, snowDepth);

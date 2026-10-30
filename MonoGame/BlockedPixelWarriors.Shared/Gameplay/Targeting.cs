@@ -40,7 +40,7 @@ public readonly struct AimTarget
 
     public AimTarget(Train train, TrainCar car, TrainTarget part)
     {
-        Kind = part.Kind switch { TargetKind.Gem => AimKind.Gem, TargetKind.Turret => AimKind.Turret, _ => AimKind.Cargo };
+        Kind = part.Kind switch { TargetKind.Gem => AimKind.Gem, TargetKind.Turret or TargetKind.Crane => AimKind.Turret, _ => AimKind.Cargo };
         Block = null;
         Train = train;
         Car = car;

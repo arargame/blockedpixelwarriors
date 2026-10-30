@@ -81,6 +81,7 @@ class Exporter {
       g.heli.object3d, g.blocks.group, g.mines.group, g.supplies.group,
       w.sky.mesh, w.sunGlare.mesh, w.clouds.group, w.boardClouds.group, w.snowFall.object3d, w.railSnow.group,
       g.logistics?.dock?.group, g.logistics?.engineer?.root, g.logistics?.chinook?.root, g.logistics?.chinook?.cable,
+      g.checkpoint?.group,
     ].filter(Boolean));
     for (const fx of [g.effects.smoke, g.effects.fire, g.effects.sparks, g.effects.fireballs]) dynamicRoots.add(fx.object3d);
     if (g.effects.debris?.mesh) dynamicRoots.add(g.effects.debris.mesh);
@@ -149,6 +150,56 @@ class Exporter {
     cube.mesh.updateMatrixWorld(true);
     await this.writeModel('cargo_cube', [cube.mesh], cube.mesh);
     await this.writeModel('cargo_snowcap', cube.mesh.children.filter((c) => c.isMesh), cube.mesh);
+
+    // ---- Stage 2: BLOCK HAULER cars (Blender model) + checkpoint gate ------------------------
+    const H = g.haulerFactory;
+    if (H?.ready) {
+      prefabs.hauler = {};
+      const { HAULER_ORDER } = await import('/src/entities/HaulerModels.js');
+      for (const name of [...new Set(HAULER_ORDER)]) {
+        const car = H.build(name, () => 0.5);
+        car.group.updateMatrixWorld(true);
+        const skip = new Set();
+        for (const t of car.turrets) skip.add(t.group);
+        for (const t of car.targets) if (t.mesh) skip.add(t.mesh);
+        const crane = car.cranes[0];
+        if (crane) skip.add(crane.slew);
+        const meshes = [];
+        car.group.traverse((o) => {
+          if (!o.isMesh || !o.visible) return;
+          for (let q = o; q; q = q.parent) if (skip.has(q)) return;
+          meshes.push(o);
+        });
+        const file = `hauler_${name.slice(6).toLowerCase()}`;
+        await this.writeModel(file, meshes, car.group);
+        const deck = H.find(car.group, 'CargoDeck');
+        prefabs.hauler[name] = {
+          model: file,
+          ...carMeta(car),
+          core: car.core ? car.core.toArray() : null,
+          deck: deck ? H.local(car.group, deck).toArray() : null,
+        };
+        if (crane) {
+          crane.slew.updateMatrixWorld(true);
+          await this.writeModel('hauler_crane_slew', collect(crane.slew), crane.slew);
+          crane.chain.updateMatrixWorld(true);
+          await this.writeModel('hauler_chain', [crane.chain], crane.chain);
+          crane.ball.updateMatrixWorld(true);
+          await this.writeModel('hauler_ball', collect(crane.ball), crane.ball);
+          prefabs.hauler[name].crane = { pivot: crane.slew.position.toArray(), tip: crane.tip.position.toArray() };
+        }
+      }
+    }
+    if (g.checkpoint) {
+      const cp = g.checkpoint;
+      const saved = cp.group.position.clone();
+      cp.group.position.set(0, 0, 0);
+      cp.group.updateMatrixWorld(true);
+      await this.writeModel('checkpoint_gate', collect(cp.group, (o) => !isUnder(o, cp.inner)), cp.group);
+      await this.writeModel('checkpoint_chevrons', collect(cp.inner), cp.inner);
+      cp.group.position.copy(saved);
+      cp.group.updateMatrixWorld(true);
+    }
 
     // ---- Board blocks ------------------------------------------------------------------------
     const B = g.blocks;

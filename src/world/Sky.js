@@ -65,6 +65,8 @@ export class Sky {
 
   /** Keeps the dome centered on the camera. */
   update(camera) {
+    // The dome lives in the (tilted, travelling) backdrop group: centre it on the camera.
     this.mesh.position.copy(camera.position);
+    if (this.mesh.parent) this.mesh.parent.worldToLocal(this.mesh.position);
   }
 }

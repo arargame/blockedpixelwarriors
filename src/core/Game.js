@@ -16,11 +16,15 @@ import { Logistics } from '../entities/Logistics.js';
 import { Hud } from '../ui/Hud.js';
 import { PowerUpSystem, SupplyCrates, GEMS, POWERUPS } from '../entities/PowerUps.js';
 import { CardPicker, CARD_DEFS } from '../ui/UpgradeCards.js';
+import { HaulerModelFactory } from '../entities/HaulerModels.js';
+import { Checkpoint } from '../entities/Checkpoint.js';
 import { fxRandom as rnd } from '../util/Random.js';
 import { Palette, BLOCK_COLOR_KEYS } from '../config/Palette.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
 
-const SCORE = Object.freeze({ block: 10, cargo: 25, turret: 100, gem: 500, mine: 50, supply: 50, delivery: 100 });
+const SCORE = Object.freeze({ block: 10, cargo: 25, turret: 100, crane: 150, gem: 500, mine: 50, supply: 50, delivery: 100 });
+/** Stage flow: depot (stage 1 board) -> transit (fly up the line) -> terrace (stage 2) -> done. */
+const Stage = Object.freeze({ DEPOT: 'depot', TRANSIT: 'transit', TERRACE: 'terrace', DONE: 'done' });
 // Kill-feed name colours.
 const FEED = Object.freeze({ heli: '#7be86a', train: '#ff6b6b', engineer: '#ffcf6a', grey: '#c9ced6' });
 const BOX_CSS = Object.freeze({ red: '#ff6b6b', green: '#7be86a', teal: '#5ab8ff', yellow: '#ffd34a' });
@@ -148,10 +152,7 @@ export class Game {
       this.hud.setMission(this.logistics.delivered, GameConfig.logistics.goal);
       this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
       if (key && this.state === GameState.PLAYING) this.hud.notice(`+1 ${key.toUpperCase()}`, { red: '#ff5a5a', green: '#6ee05a', blue: '#38c8ff' }[key]);
-      if (this.logistics.missionComplete && this.state === GameState.PLAYING) {
-        this.state = GameState.WON;
-        this.hud.showMissionComplete(this.score, this.logistics.delivered);
-      }
+      if (this.logistics.missionComplete && this.state === GameState.PLAYING && this.stage === Stage.DEPOT) this.clearDepot();
     };
     this.logistics.onEngineerReady = () => {
       this.hud.setLogisticsVisible(true);
@@ -175,6 +176,12 @@ export class Game {
     this.scene.add(this.heli.object3d);
 
     this.trainFactory = new TrainModelFactory(this.materials, this.textures);
+    // Stage 2 train (Blender model); without the model the armored train runs the terrace too.
+    this.haulerFactory = options.haulerGltf ? new HaulerModelFactory(options.haulerGltf, this.trainFactory) : null;
+    this.checkpoint = new Checkpoint(this.effects);
+    this.scene.add(this.checkpoint.group);
+    this.stage = Stage.DEPOT;
+    this.cameraMode = 'board';
     this.train = null;
     this.trainTimer = 1.5;
     this.wave = 0;
@@ -196,10 +203,10 @@ export class Game {
     this.shake = 0;
     this.weaponTimers = { tracer: 0, plasma: 0, rocket: 0.8, tracerSide: 0, rocketSide: 0 };
     this.clock = new THREE.Clock();
-    this.input.onAnyAction = () => this.handleStartInput();
+    this.input.onAnyAction = (e) => this.handleStartInput(e);
 
     window.addEventListener('resize', () => this.pipeline.resize());
-    this.hud.showTitle();
+    this.hud.showTitle(this.loadCheckpoint(), () => this.continueRun());
   }
 
   /**
@@ -214,8 +221,173 @@ export class Game {
     return this.camera.position.clone().addScaledVector(d, (y - this.camera.position.y) / d.y);
   }
 
-  handleStartInput() {
-    if (this.state === GameState.TITLE || this.state === GameState.OVER || this.state === GameState.WON) this.startRun();
+  handleStartInput(e) {
+    if (this.state !== GameState.TITLE && this.state !== GameState.OVER && this.state !== GameState.WON) return;
+    if (e?.code === 'KeyC' && this.loadCheckpoint()) this.continueRun();
+    else this.startRun();
+  }
+
+  /** Saved checkpoint (stage 2 start) or null. */
+  loadCheckpoint() {
+    try {
+      const raw = localStorage.getItem(GameConfig.stages.saveKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  saveCheckpoint() {
+    const data = { stage: 2, score: this.score, wave: this.wave, cards: [...this.takenCards], at: Date.now() };
+    try {
+      localStorage.setItem(GameConfig.stages.saveKey, JSON.stringify(data));
+    } catch {
+      // Private mode / storage off: the run just can't be continued later.
+    }
+  }
+
+  clearCheckpoint() {
+    try {
+      localStorage.removeItem(GameConfig.stages.saveKey);
+    } catch {
+      // ignore
+    }
+  }
+
+  /** CONTINUE: start a run at the terrace checkpoint with the saved score and upgrades. */
+  continueRun() {
+    const save = this.loadCheckpoint();
+    if (!save) return this.startRun();
+    this.startRun();
+    this.score = save.score ?? 0;
+    this.hud.setScore(this.score);
+    this.wave = save.wave ?? 1;
+    for (const id of save.cards ?? []) {
+      const def = CARD_DEFS.find((d) => d.id === id);
+      // Only the upgrades that matter past the depot (no engineer / chopper deliveries up here).
+      if (def && ['gemMine', 'homing', 'flicker', 'surpriseEgg'].includes(id)) this.applyCard(def, true);
+      else if (def) this.takenCards.add(id);
+    }
+    this.train?.dispose();
+    this.train = null;
+    this.enterTerrace(true);
+    this.heli.position.copy(this.heli.spawn);
+    this.updateCamera(0, true);
+    this.hud.toast('CONTINUE - STAGE 2: THE TERRACE');
+  }
+
+  /** Stage bounds for the heli: board, bridge corridor (union) or the terrace. */
+  stageBounds(stage) {
+    const b = GameConfig.board;
+    const t = GameConfig.stages.terrace;
+    const gateZ = GameConfig.stages.checkpoint[1];
+    if (stage === Stage.TRANSIT) return { minX: Math.min(b.minX, t.minX), maxX: Math.max(b.maxX, t.maxX), minZ: t.minZ, maxZ: b.maxZ };
+    if (stage === Stage.TERRACE || stage === Stage.DONE) return { minX: t.minX, maxX: t.maxX, minZ: t.minZ, maxZ: gateZ + 3 };
+    return null;
+  }
+
+  /** Stage 1 done: the train leaves, the camera lets go and the heli flies up the line. */
+  clearDepot() {
+    this.stage = Stage.TRANSIT;
+    this.train?.depart();
+    // The bridge opens once the departing train has left the line (it never runs the heli over).
+    this.lineClear = !this.train;
+    if (this.lineClear) this.openCorridor();
+    this.hud.notice('DEPOT CLEARED!', '#ffd34a');
+    this.hud.toast(this.lineClear ? 'STAGE 1 CLEAR - FLY UP THE TRACKS TO THE CHECKPOINT' : 'STAGE 1 CLEAR - WAIT FOR THE TRAIN TO CLEAR THE LINE');
+    this.hud.kill('HELI', FEED.heli, 'DEPOT', FEED.grey, ['✔ cleared', '#ffd34a']);
+  }
+
+  /** Line clear: the camera lets go and the heli may fly up the bridge to the checkpoint. */
+  openCorridor() {
+    this.lineClear = true;
+    this.cameraMode = 'follow';
+    this.heli.bounds = this.stageBounds(Stage.TRANSIT);
+    this.checkpoint.show(true);
+  }
+
+  /** Checkpoint reached (or continued from): stage 2 with the Block Hauler. */
+  enterTerrace(fromSave = false) {
+    this.stage = Stage.TERRACE;
+    this.cameraMode = 'follow';
+    this.heli.bounds = this.stageBounds(Stage.TERRACE);
+    const [gx, gz] = GameConfig.stages.checkpoint;
+    this.heli.spawn.set(gx - 5, GameConfig.heli.altitude, gz - 7);
+    if (fromSave) this.checkpoint.show(false);
+    this.trainTimer = 3;
+    if (!fromSave) {
+      this.saveCheckpoint();
+      this.hud.notice('CHECKPOINT SAVED', '#7be86a');
+      this.hud.toast('STAGE 2 - THE TERRACE: STOP THE BLOCK HAULER!');
+    }
+  }
+
+  /** Block Hauler destroyed: all stages clear. */
+  finishStages() {
+    this.stage = Stage.DONE;
+    this.state = GameState.WON;
+    this.cards.cancel();
+    this.clearCheckpoint();
+    this.hud.showMissionComplete(this.score, this.logistics.delivered);
+  }
+
+  /** Objective checklist for the HUD (bottom left). */
+  objectives() {
+    const L = this.logistics;
+    const goal = GameConfig.logistics.goal;
+    if (this.stage === Stage.DEPOT) {
+      return {
+        title: 'STAGE 1 · DEPOT',
+        items: [
+          { text: 'Hire the field engineer (card)', done: L.enabled },
+          { text: 'Sign the cargo chopper (card)', done: L.chopperEnabled },
+          { text: `Ship ${goal.red} red packages`, done: L.delivered.red >= goal.red, progress: `${Math.min(L.delivered.red, goal.red)}/${goal.red}`, swatch: 'red' },
+          { text: `Ship ${goal.green} green packages`, done: L.delivered.green >= goal.green, progress: `${Math.min(L.delivered.green, goal.green)}/${goal.green}`, swatch: 'green' },
+          { text: `Ship ${goal.blue} blue packages`, done: L.delivered.blue >= goal.blue, progress: `${Math.min(L.delivered.blue, goal.blue)}/${goal.blue}`, swatch: 'blue' },
+        ],
+      };
+    }
+    if (this.stage === Stage.TRANSIT) {
+      return { title: 'STAGE 1 → 2', items: [{ text: 'Depot cleared', done: true }, { text: 'Wait for the train to clear the line', done: !!this.lineClear }, { text: 'Fly up the tracks to the checkpoint', done: false }] };
+    }
+    const t = this.train && this.train.kind === 'hauler' ? this.train : null;
+    let cranes = 0;
+    let cranesDown = 0;
+    let turrets = 0;
+    let turretsDown = 0;
+    for (const car of t?.cars ?? []) {
+      for (const c of car.cranes) { cranes++; if (!c.alive) cranesDown++; }
+      for (const tu of car.turrets) { turrets++; if (!tu.alive) turretsDown++; }
+    }
+    const done = this.stage === Stage.DONE;
+    return {
+      title: 'STAGE 2 · TERRACE',
+      items: [
+        { text: 'Reach the checkpoint', done: true },
+        { text: 'Wreck the cranes', done: done || (cranes > 0 && cranesDown >= cranes), progress: t ? `${cranesDown}/${cranes}` : '' },
+        { text: 'Break the turrets', done: done || (turrets > 0 && turretsDown >= turrets), progress: t ? `${turretsDown}/${turrets}` : '' },
+        { text: 'Destroy the Block Hauler', done },
+      ],
+    };
+  }
+
+  /** Swinging wrecking ball hits the heli: damage, knock-back away from the ball, flicker. */
+  onBallHit(center) {
+    const h = this.heli;
+    if (!h.alive || h.invulnerable > 0 || this.state !== GameState.PLAYING) return;
+    if (!h.takeDamage(GameConfig.stages.ballDamage)) return;
+    h.invulnerable = 1.5 * h.flickerMul;
+    const dx = h.position.x - center.x;
+    const dz = h.position.z - center.z;
+    const d = Math.hypot(dx, dz) || 1;
+    h.velocity.x = (dx / d) * 12;
+    h.velocity.z = (dz / d) * 12;
+    this.effects.explosion(v1.copy(center).lerp(h.position, 0.5), 0.7, 0x2a2c30, 8);
+    this.effects.sparkBurst(center, 20, 6, [4, 3, 2, 1]);
+    this.shake = Math.max(this.shake, 0.8);
+    this.hud.setHealth(h.hp / GameConfig.heli.maxHp);
+    this.hud.damageFlash(1);
+    if (!h.alive) this.onHeliDestroyed();
   }
 
   startRun() {
@@ -237,12 +409,26 @@ export class Game {
     this.gemDrops = false;
     this.cardTimer = 0;
     this.eggTimer = 0;
+    this.finishTimer = 0;
     this.cards.cancel();
     this.mines.clearEggs();
     this.hud.setLogisticsVisible(false);
     this.hud.setChopperVisible(false);
     this.hud.setMission(this.logistics.delivered, GameConfig.logistics.goal);
     this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
+    // Back to stage 1 (the depot board, fixed camera).
+    this.stage = Stage.DEPOT;
+    this.lineClear = false;
+    this.cameraMode = 'board';
+    this.heli.bounds = null;
+    this.heli.spawn.copy(this.heliAnchor);
+    this.heli.position.copy(this.heliAnchor);
+    this.checkpoint.show(false);
+    this.train?.dispose();
+    this.train = null;
+    this.trainTimer = 1.5;
+    this.wave = 0;
+    this.updateCamera(0, true);
   }
 
   addScore(points) {
@@ -254,25 +440,34 @@ export class Game {
   spawnTrain() {
     this.wave += 1;
     this.train?.dispose();
-    this.train = new Train({ track: this.world.track, effects: this.effects, factory: this.trainFactory, wave: this.wave, seed: this.wave });
+    const terrace = this.stage === Stage.TERRACE;
+    this.train = new Train({
+      track: this.world.track, effects: this.effects, factory: this.trainFactory, wave: this.wave, seed: this.wave,
+      hauler: terrace ? this.haulerFactory : null,
+      path: terrace ? GameConfig.stages.haulerPath : null,
+      arena: terrace ? GameConfig.stages.terrace : null,
+    });
+    this.train.onBallHit = (center) => this.onBallHit(center);
     this.train.onFire = (muzzle, target) => this.fireEnemyShell(muzzle, target);
     this.train.onCannonFire = (muzzle, target) => this.fireCannonShell(muzzle, target);
     // Cubes shot off the train fall onto the board as new blocks.
-    this.train.onCargoKnocked = (position, colorKey) => this.blocks.dropFromTrain(position, colorKey);
+    this.train.onCargoKnocked = (position, colorKey) => !terrace && this.blocks.dropFromTrain(position, colorKey);
     this.train.onShieldDown = () => this.hud.toast('GEM SHIELD DOWN - HIT THE HEAD!');
     this.train.onTargetDestroyed = (kind, position) => {
       this.addScore(SCORE[kind] ?? 0);
       this.shake = Math.max(this.shake, kind === 'gem' ? 0.9 : 0.25);
       if (kind === 'turret') this.hud.kill('HELI', FEED.heli, 'TURRET', FEED.grey, [`+${SCORE.turret}`, '#ffd34a']);
+      if (kind === 'crane') this.hud.kill('HELI', FEED.heli, 'CRANE', '#f0b21c', [`+${SCORE.crane}`, '#ffd34a']);
       if (kind === 'gem') {
-        this.hud.kill('HELI', FEED.heli, `ARMORED TRAIN #${this.wave}`, FEED.train, ['☠', '#ff6b6b']);
-        this.hud.toast('TRAIN DESTROYED! +500');
-        if (!this.options.poster) this.cardTimer = GameConfig.cards.offerDelay;
+        this.hud.kill('HELI', FEED.heli, `${this.train.title} #${this.wave}`, FEED.train, ['☠', '#ff6b6b']);
+        this.hud.toast(`${this.train.title === 'BLOCK HAULER' ? 'BLOCK HAULER' : 'TRAIN'} DESTROYED! +500`);
+        if (this.train.kind === 'hauler') this.finishTimer = 2.5;
+        else if (!this.options.poster) this.cardTimer = GameConfig.cards.offerDelay;
       }
     };
     this.scene.add(this.train.group);
     this.hud.setWave(this.wave);
-    if (!this.options.poster) this.hud.toast(`WAVE ${this.wave} - ARMORED TRAIN INCOMING`);
+    if (!this.options.poster) this.hud.toast(`WAVE ${this.wave} - ${this.train.title} INCOMING`);
   }
 
   /** Brass under-cannon: a round iron cannonball straight out along the barrel (not aimed), slight lob. */
@@ -456,7 +651,7 @@ export class Game {
   checkTrainCollision() {
     const t = this.train;
     const h = this.heli;
-    if (!t || t.finished || !h.alive || h.invulnerable > 0 || this.state !== GameState.PLAYING) return;
+    if (!t || t.finished || t.departing || !h.alive || h.invulnerable > 0 || this.state !== GameState.PLAYING) return;
     const p = h.position;
     const halfWidth = 1.15 * t.scale + 0.7;
     if (Math.abs(p.x - t.group.position.x) > halfWidth || p.z < t.minZ - 0.5 || p.z > t.maxZ + 0.5) return;
@@ -479,7 +674,7 @@ export class Game {
    */
   restockFarSide() {
     const t = this.train;
-    if (!t || t.destroyed || t.finished) return;
+    if (!t || t.destroyed || t.finished || t.kind !== 'armored' || this.stage !== Stage.DEPOT) return;
     if (!this.restock || this.restock.train !== t || this.restock.lap !== t.lap) this.restock = { train: t, lap: t.lap, rows: new Set() };
     const B = this.blocks;
     const trackX = GameConfig.track.x;
@@ -744,8 +939,14 @@ export class Game {
   updateCamera(dt, snap = false) {
     const follow = GameConfig.camera.followStrength;
     const desired = v1.copy(this.cameraBase);
-    desired.x += (this.heli.position.x - this.heliAnchor.x) * follow;
-    desired.z += (this.heli.position.z - this.heliAnchor.z) * follow * 0.8;
+    if (this.cameraMode === 'follow') {
+      // Past the depot the camera rides along: same key-art angle, heli at the same screen spot.
+      desired.x += this.heli.position.x - this.heliAnchor.x;
+      desired.z += this.heli.position.z - this.heliAnchor.z;
+    } else {
+      desired.x += (this.heli.position.x - this.heliAnchor.x) * follow;
+      desired.z += (this.heli.position.z - this.heliAnchor.z) * follow * 0.8;
+    }
     if (snap) this.cameraSmooth = desired.clone();
     this.cameraSmooth ??= desired.clone();
     this.cameraSmooth.lerp(desired, 1 - Math.exp(-3.5 * dt));
@@ -794,13 +995,22 @@ export class Game {
         } else {
           this.state = GameState.OVER;
           this.cards.cancel();
-          this.hud.showGameOver(this.score);
+          this.hud.showGameOver(this.score, this.loadCheckpoint(), () => this.continueRun());
         }
       }
     }
 
     // The same train loops until its gem is destroyed (0%); then the next wave brings a new one.
-    if (!this.train || this.train.finished) {
+    if (this.train?.finished && (this.train.departing || this.stage === Stage.TRANSIT)) {
+      this.train.dispose();
+      this.train = null;
+    }
+    if (this.stage === Stage.TRANSIT && !this.lineClear && !this.train) {
+      this.openCorridor();
+      this.hud.toast('LINE CLEAR - FLY UP THE TRACKS TO THE CHECKPOINT');
+    }
+    const trainsRun = this.stage === Stage.DEPOT || this.stage === Stage.TERRACE;
+    if (trainsRun && (!this.train || this.train.finished)) {
       this.trainTimer -= dt;
       if (this.trainTimer <= 0) {
         if (this.train && !this.train.destroyed) {
@@ -817,7 +1027,14 @@ export class Game {
     this.restockFarSide();
 
     this.blocks.update(dt);
-    this.logistics.update(dt, playing);
+    this.logistics.update(dt, playing && this.stage === Stage.DEPOT);
+    if (this.stage === Stage.TRANSIT && playing && this.checkpoint.update(dt, this.heli.position)) this.enterTerrace();
+    else if (this.stage !== Stage.TRANSIT) this.checkpoint.update(dt, this.heli.position);
+    if (this.finishTimer > 0) {
+      this.finishTimer -= dt;
+      if (this.finishTimer <= 0 && this.state === GameState.PLAYING) this.finishStages();
+    }
+    this.hud.setObjectives(this.objectives());
     this.hud.setChopper(this.logistics.chinook.active && this.logistics.chinook.mission === 'pickup' ? { active: true, loaded: this.logistics.chinook.loaded, left: this.logistics.dock.count } : { active: false, remaining: this.logistics.timer, total: this.logistics.interval });
     this.mines.update(dt);
     this.projectiles.update(dt);
@@ -871,7 +1088,7 @@ export class Game {
 
   /** SURPRISE EGG: an empty board brings 3 rolling balls down from the sky (one wave at a time). */
   updateSurpriseEggs(dt) {
-    if (!this.takenCards.has('surpriseEgg') || this.state !== GameState.PLAYING) return;
+    if (!this.takenCards.has('surpriseEgg') || this.state !== GameState.PLAYING || this.stage !== Stage.DEPOT) return;
     this.eggTimer = Math.max(0, (this.eggTimer ?? 0) - dt);
     if (this.eggTimer > 0 || this.mines.eggsAlive > 0) return;
     if (this.blocks.blocks.some((b) => b.alive && !b.cargo)) return;
@@ -883,34 +1100,36 @@ export class Game {
     }
   }
 
-  applyCard(def) {
+  /** @param {boolean} [silent] restoring a saved run: no toasts, no free supply */
+  applyCard(def, silent = false) {
     this.takenCards.add(def.id);
+    const hud = silent ? { toast() {}, setChopperVisible() {}, setDock() {} } : this.hud;
     if (def.id === 'engineer') {
       this.logistics.hireEngineer();
-      this.hud.toast('FIELD ENGINEER INBOUND');
+      hud.toast('FIELD ENGINEER INBOUND');
     } else if (def.id === 'gemMine') {
       this.gemDrops = true;
-      this.hud.toast('GEM MINE - BLOCKS NOW DROP GEMS');
+      hud.toast('GEM MINE - BLOCKS NOW DROP GEMS');
     } else if (def.id === 'cargoChopper') {
       this.logistics.enableChopper();
-      this.hud.setChopperVisible(this.logistics.countdownActive);
-      this.hud.toast(this.logistics.enabled ? 'CARGO CHOPPER - PICK-UP EVERY 2 MINUTES' : 'CARGO CHOPPER SIGNED - NOW YOU NEED AN ENGINEER');
+      hud.setChopperVisible(this.logistics.countdownActive);
+      hud.toast(this.logistics.enabled ? 'CARGO CHOPPER - PICK-UP EVERY 2 MINUTES' : 'CARGO CHOPPER SIGNED - NOW YOU NEED AN ENGINEER');
     } else if (def.id === 'homing') {
-      this.hud.toast('HOMING ROCKETS UNLOCKED - LOOK FOR R SUPPLIES');
+      hud.toast('HOMING ROCKETS UNLOCKED - LOOK FOR R SUPPLIES');
       // A first taste right away.
-      this.supplies.spawn('R', v1.copy(this.heli.position).setY(2));
+      if (!silent) this.supplies.spawn('R', v1.copy(this.heli.position).setY(2));
     } else if (def.id === 'doubleRow') {
       this.logistics.widenDock();
-      this.hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
-      this.hud.toast('DOUBLE ROW - THE DOCK HOLDS TWICE AS MANY');
+      hud.setDock(this.logistics.dock.count, this.logistics.dock.capacity);
+      hud.toast('DOUBLE ROW - THE DOCK HOLDS TWICE AS MANY');
     } else if (def.id === 'flicker') {
       this.heli.flickerMul = GameConfig.cards.flickerMul;
-      this.hud.toast('FLICKER - LONGER SAFE TIME AFTER HITS');
+      hud.toast('FLICKER - LONGER SAFE TIME AFTER HITS');
     } else if (def.id === 'cargoTime') {
       this.logistics.speedUpChopper(GameConfig.cards.cargoTimeMul);
-      this.hud.toast('RUSH DELIVERY - CHOPPER COMES 30% SOONER');
+      hud.toast('RUSH DELIVERY - CHOPPER COMES 30% SOONER');
     } else if (def.id === 'surpriseEgg') {
-      this.hud.toast('SURPRISE EGG - EMPTY BOARD? BALLS FROM THE SKY');
+      hud.toast('SURPRISE EGG - EMPTY BOARD? BALLS FROM THE SKY');
       this.eggTimer = 0;
     }
   }

@@ -83,7 +83,8 @@ export class SnowFall {
       if (f.x > b.x1) f.x = b.x0;
       // Only a fraction of the flakes show at low intensity (keeps it "very light").
       if (f.threshold > visible) continue;
-      this.batch.push(f.x, f.y, f.z, f.size, f.size, 1.25, 1.28, 1.35, 0.85);
+      const o = this.offset;
+      this.batch.push(f.x + (o ? o.x : 0), f.y, f.z + (o ? o.z : 0), f.size, f.size, 1.25, 1.28, 1.35, 0.85);
     }
     this.batch.end();
   }

@@ -6,7 +6,7 @@ using Microsoft.Xna.Framework;
 
 namespace BlockedPixelWarriors.Gameplay;
 
-public enum TargetKind { Gem, Turret, Hull, Cargo }
+public enum TargetKind { Gem, Turret, Hull, Cargo, Crane }
 
 /// <summary>A destructible part of a train car (car-local box).</summary>
 public sealed class TrainTarget
@@ -16,6 +16,7 @@ public sealed class TrainTarget
     public float Hp, MaxHp;
     public bool Alive = true;
     public Turret Turret;
+    public Crane Crane;
     // Cargo cubes
     public BlockColor Color;
     public bool Snow;
@@ -43,7 +44,23 @@ public sealed class Cannon
     public Vector3 Muzzle, Dir;
 }
 
-public enum CarKind { Locomotive, Armored, Cargo }
+/// <summary>
+/// BLOCK HAULER crane: the slewing part (cab + lattice boom) swings from side to side, the
+/// wrecking ball hangs from the boom tip on a chain and swings as a pendulum in world space.
+/// </summary>
+public sealed class Crane
+{
+    public Vector3 Pivot, Tip;
+    public float Yaw, Tilt, Phase, Amp, Speed, Time;
+    public bool Alive = true;
+    public TrainTarget Target;
+    public bool Placed;
+    public Vector3 Pos, Prev, Dir = -Vector3.UnitY, Center, TipWorld;
+    public float DropTime, BurnTimer, BallScale = 1;
+    public Matrix SlewWorld;
+}
+
+public enum CarKind { Locomotive, Armored, Cargo, Hauler }
 
 public sealed class TrainCar
 {
@@ -54,6 +71,9 @@ public sealed class TrainCar
     public Cannon[] Cannons;
     public List<Turret> Turrets = new();
     public List<TrainTarget> Targets = new();
+    public List<Crane> Cranes = new();
+    /// <summary>Hauler locomotive: the furnace-eye weak point (car space).</summary>
+    public Vector3? Core;
     public Matrix World, InverseWorld;
 
     public Vector3 ToWorld(Vector3 local) => Vector3.Transform(local, World);
@@ -73,11 +93,24 @@ public sealed class TrainFactory
     public GpuMesh CargoSnow { get; }
     public RenderMaterial CubeMaterial { get; }
     public GpuMesh Shield { get; }
+    public GpuMesh CraneSlew { get; }
+    public GpuMesh Chain { get; }
+    public GpuMesh Ball { get; }
+    public bool HasHauler => _prefabs.Hauler is { Count: > 0 };
+
+    /// <summary>Stage-2 train order (HaulerModels.js HAULER_ORDER).</summary>
+    public static readonly string[] HaulerOrder = { "HaulerLoco", "HaulerHopper", "HaulerCrane", "HaulerCage", "HaulerHopper", "HaulerCrane", "HaulerOre" };
 
     public TrainFactory(ModelLibrary models, PrefabData prefabs)
     {
         _models = models;
         _prefabs = prefabs;
+        if (HasHauler)
+        {
+            CraneSlew = models.Mesh("hauler_crane_slew");
+            Chain = models.Mesh("hauler_chain");
+            Ball = models.Mesh("hauler_ball");
+        }
         TurretBase = models.Mesh("turret_base");
         TurretHead = models.Mesh("turret_head");
         CargoCube = models.Mesh("cargo_cube");
@@ -140,6 +173,79 @@ public sealed class TrainFactory
         return car;
     }
 
+    /// <summary>
+    /// The BLOCK HAULER's cars (HaulerModelFactory.buildTrain): one mulberry32 stream drives the
+    /// hopper cube stacks and the crane swing phases, in the same order as the web build.
+    /// </summary>
+    public List<TrainCar> BuildHauler(uint seed)
+    {
+        var rand = new Rng(seed * 977 + 13);
+        var cars = new List<TrainCar>();
+        foreach (var name in HaulerOrder)
+        {
+            var data = _prefabs.Hauler[name];
+            var car = new TrainCar
+            {
+                Kind = CarKind.Hauler,
+                Body = _models.Mesh(data.Model),
+                Length = data.Length,
+                Chimneys = (data.Chimneys ?? new()).Select(MathX.V3).ToArray(),
+                Cannons = Array.Empty<Cannon>(),
+                Core = data.Core != null ? MathX.V3(data.Core) : null,
+            };
+            foreach (var t in data.Turrets ?? new())
+                car.Turrets.Add(new Turret { Mount = MathX.V3(t.Position), Muzzles = t.Muzzles.Select(MathX.V3).ToArray() });
+            if (name == "HaulerHopper" && data.Deck != null)
+            {
+                const float s = 0.88f;
+                var deckY = data.Deck[1];
+                var color = Palette.BlockColors[(int)MathF.Floor(rand.Next() * 4)];
+                foreach (var x in new[] { -0.47f, 0.47f })
+                foreach (var z in new[] { -1.5f, -0.5f, 0.5f, 1.5f })
+                {
+                    var layers = 1 + (rand.Next() < 0.55f ? 1 : 0);
+                    var k = rand.Next() < 0.6f ? color : Palette.BlockColors[(int)MathF.Floor(rand.Next() * 4)];
+                    for (var l = 0; l < layers; l++)
+                        AddCube(car, new Vector3(x, deckY + s * 0.5f + l * s, z), s, k, l == layers - 1 && rand.Next() < 0.4f);
+                }
+            }
+            Crane crane = null;
+            if (data.Crane != null)
+            {
+                crane = new Crane
+                {
+                    Pivot = MathX.V3(data.Crane.Pivot), Tip = MathX.V3(data.Crane.Tip),
+                    Phase = rand.Next() * MathF.PI * 2, Amp = 1.25f + rand.Next() * 0.2f, Speed = 0.5f + rand.Next() * 0.15f,
+                };
+                car.Cranes.Add(crane);
+            }
+            var turretIndex = 0;
+            foreach (var t in data.Targets)
+            {
+                var target = new TrainTarget
+                {
+                    Kind = t.Kind switch { "gem" => TargetKind.Gem, "turret" => TargetKind.Turret, "crane" => TargetKind.Crane, _ => TargetKind.Hull },
+                    Box = new BoundingBox(MathX.V3(t.Min), MathX.V3(t.Max)),
+                    Hp = t.Hp < 0 ? float.PositiveInfinity : t.Hp,
+                    MaxHp = t.Hp < 0 ? float.PositiveInfinity : t.Hp,
+                };
+                if (target.Kind == TargetKind.Turret && turretIndex < car.Turrets.Count)
+                {
+                    target.Turret = car.Turrets[turretIndex++];
+                    target.Turret.Target = target;
+                }
+                if (target.Kind == TargetKind.Crane && crane != null)
+                {
+                    target.Crane = crane;
+                    crane.Target = target;
+                }
+                car.Targets.Add(target);
+            }
+            cars.Add(car);
+        }
+        return cars;
+    }
+
     /// <summary>Flatcar stacks: 2 wide x 3 long, 1-3 high, mostly one colour (buildCargoWagon).</summary>
     private static void BuildCargoStacks(TrainCar car, uint seed, float stackChance)
     {
@@ -190,8 +296,18 @@ public sealed class Train : IRenderable
     private float _cruise, _rotationY;
     private bool _shieldVisible = true;
     private Matrix _groupWorld;
+    private readonly float _pathStart, _pathEnd, _arenaMinZ, _arenaMaxZ;
+    private readonly Vector3 _core;
+    private bool _hauler, _reversing;
 
     public int Wave { get; }
+    /// <summary>"ARMORED TRAIN" or "BLOCK HAULER" (HUD panel / kill feed).</summary>
+    public string Title => _hauler ? "BLOCK HAULER" : "ARMORED TRAIN";
+    public bool IsHauler => _hauler;
+    /// <summary>Stage cleared: no more fire / ramming, it leaves the line at speed.</summary>
+    public bool Departing { get; private set; }
+    /// <summary>A swinging wrecking ball touched the helicopter (ball centre).</summary>
+    public Action<Vector3> OnBallHit;
     public List<TrainCar> Cars { get; } = new();
     public float BaseSpeed { get; }
     public float Speed;
@@ -214,22 +330,36 @@ public sealed class Train : IRenderable
     public Action<TargetKind, Vector3> OnTargetDestroyed;
     public Action OnShieldDown;
 
-    public Train(TrainFactory factory, Effects effects, LightRig lights, Microsoft.Xna.Framework.Graphics.GraphicsDevice device, int wave, uint seed)
+    public Train(TrainFactory factory, Effects effects, LightRig lights, Microsoft.Xna.Framework.Graphics.GraphicsDevice device, int wave, uint seed, bool hauler = false)
     {
         _factory = factory;
         _effects = effects;
         _lights = lights;
         Wave = wave;
+        _hauler = hauler && factory.HasHauler;
+        // Line + platform: stage 1 board, or the stage-2 terrace with the hauler's long approach.
+        _pathStart = _hauler ? GameConfig.Stages.HaulerStartZ : GameConfig.Track.StartZ;
+        _pathEnd = _hauler ? GameConfig.Stages.HaulerEndZ : GameConfig.Track.EndZ;
+        _arenaMinZ = _hauler ? GameConfig.Stages.TerraceMinZ : GameConfig.Board.MinZ;
+        _arenaMaxZ = _hauler ? GameConfig.Stages.TerraceMaxZ : GameConfig.Board.MaxZ;
         BaseSpeed = GameConfig.Train.Speed * (1 + (wave - 1) * 0.08f);
         Speed = BaseSpeed;
-        var pattern = new[] { CarKind.Armored, CarKind.Cargo, CarKind.Armored, CarKind.Cargo, CarKind.Cargo, CarKind.Armored, CarKind.Cargo };
-        Cars.Add(factory.Build(CarKind.Locomotive, 0));
-        var wagons = WagonsForWave(wave);
-        for (var i = 0; i < wagons; i++)
+        if (_hauler)
         {
-            var kind = pattern[i % pattern.Length];
-            Cars.Add(factory.Build(kind, kind == CarKind.Armored ? seed * 31 + (uint)i : seed * 17 + (uint)i));
+            Cars.AddRange(factory.BuildHauler(seed));
         }
+        else
+        {
+            var pattern = new[] { CarKind.Armored, CarKind.Cargo, CarKind.Armored, CarKind.Cargo, CarKind.Cargo, CarKind.Armored, CarKind.Cargo };
+            Cars.Add(factory.Build(CarKind.Locomotive, 0));
+            var wagons = WagonsForWave(wave);
+            for (var i = 0; i < wagons; i++)
+            {
+                var kind = pattern[i % pattern.Length];
+                Cars.Add(factory.Build(kind, kind == CarKind.Armored ? seed * 31 + (uint)i : seed * 17 + (uint)i));
+            }
+        }
+        _core = Locomotive.Core ?? new Vector3(0, 1.5f, 2.55f);
         float offset = 0;
         foreach (var car in Cars)
         {
@@ -237,11 +367,11 @@ public sealed class Train : IRenderable
             offset += car.Length + 0.35f;
         }
         TotalLength = offset * Scale;
-        HeadZ = GameConfig.Track.StartZ + TotalLength;
+        HeadZ = _pathStart + TotalLength;
         var cubes = Cars.Sum(c => c.Targets.Count(t => t.Kind == TargetKind.Cargo));
         _cubes = new InstanceBuffer(device, Math.Max(1, cubes), true);
         _snowCaps = new InstanceBuffer(device, Math.Max(1, cubes), true);
-        _gemLight = new PointLight { Color = Palette.ToLinear(0xff0a1e), Intensity = 4, Distance = 5, Decay = 2 };
+        _gemLight = new PointLight { Color = Palette.ToLinear(_hauler ? 0xff7a20u : 0xff0a1eu), Intensity = 4, Distance = 5, Decay = 2 };
         lights.Points.Add(_gemLight);
         PlanTrip();
         UpdateTransforms();
@@ -278,8 +408,12 @@ public sealed class Train : IRenderable
         {
             if (Destroyed) return false;
             foreach (var c in Cars)
-            foreach (var t in c.Turrets)
-                if (t.Alive) return true;
+            {
+                foreach (var t in c.Turrets)
+                    if (t.Alive) return true;
+                foreach (var k in c.Cranes)
+                    if (k.Alive) return true;
+            }
             return false;
         }
     }
@@ -291,7 +425,7 @@ public sealed class Train : IRenderable
         Finished = false;
         Dir = -Dir;
         _rotationY = Dir > 0 ? 0 : MathF.PI;
-        SetHeadZ(Dir > 0 ? GameConfig.Track.StartZ + TotalLength : GameConfig.Track.EndZ - TotalLength);
+        SetHeadZ(Dir > 0 ? _pathStart + TotalLength : _pathEnd - TotalLength);
         PlanTrip();
         foreach (var car in Cars)
         foreach (var t in car.Targets)
@@ -311,7 +445,7 @@ public sealed class Train : IRenderable
         Speed = _cruise;
         _stopTimer = 0;
         _stopAtZ = Mode != "FAST" && Rng.Shared.Next() < GameConfig.Train.StopChance
-            ? GameConfig.Board.MinZ + 3 + Rng.Shared.Next() * (GameConfig.Board.MaxZ - GameConfig.Board.MinZ - 6)
+            ? _arenaMinZ + 3 + Rng.Shared.Next() * (_arenaMaxZ - _arenaMinZ - 6)
             : null;
     }
 
@@ -322,6 +456,15 @@ public sealed class Train : IRenderable
         _stopAtZ = null;
     }
 
+    /// <summary>Stage clear: stop shooting and leave the line at speed (no restart).</summary>
+    public void Depart()
+    {
+        Departing = true;
+        _reversing = Dir < 0;
+        _stopAtZ = null;
+        _stopTimer = 0;
+    }
+
     public void SetHeadZ(float z)
     {
         HeadZ = z;
@@ -330,10 +473,12 @@ public sealed class Train : IRenderable
 
     private void UpdateSpeed(float dt)
     {
-        if (Destroyed)
+        if (Destroyed || Departing)
         {
             _stopTimer = 0;
-            Speed = MathF.Min(GameConfig.Train.WreckSpeed, MathF.Max(Speed, 2) + GameConfig.Train.WreckAccel * dt);
+            // A departing train (stage clear) clears the line twice as fast.
+            var top = GameConfig.Train.WreckSpeed * (Departing ? 1.8f : 1);
+            Speed = MathF.Min(top, MathF.Max(Speed, 2) + GameConfig.Train.WreckAccel * (Departing ? 2 : 1) * dt);
             return;
         }
         if (_stopTimer > 0)
@@ -371,7 +516,13 @@ public sealed class Train : IRenderable
                 t.HeadWorld = Matrix.CreateRotationY(t.Yaw) * Matrix.CreateTranslation(t.HeadOffset) * t.BaseWorld;
             }
         }
-        _gemLight.Position = Locomotive.ToWorld(new Vector3(0, 1.4f, 2.9f));
+        _gemLight.Position = Locomotive.ToWorld(_hauler ? new Vector3(0, _core.Y, _core.Z + 0.4f) : new Vector3(0, 1.4f, 2.9f));
+        foreach (var car in Cars)
+        foreach (var c in car.Cranes)
+        {
+            c.SlewWorld = MathX.RotationXYZ(0, c.Yaw, c.Tilt) * Matrix.CreateTranslation(c.Pivot) * car.World;
+            c.TipWorld = Vector3.Transform(c.Tip, c.SlewWorld);
+        }
     }
 
     public void Update(float dt, Vector3 heliPosition, bool heliAlive)
@@ -379,9 +530,11 @@ public sealed class Train : IRenderable
         var rng = Rng.Shared;
         UpdateSpeed(dt);
         UpdateShield(dt);
-        HeadZ += Dir * Speed * dt;
+        // A departing train that was heading up the line backs out the way it came instead.
+        var move = Dir * (_reversing ? -1 : 1);
+        HeadZ += move * Speed * dt;
         UpdateTransforms();
-        if (Dir > 0 ? MinZ > GameConfig.Track.EndZ : MaxZ < GameConfig.Track.StartZ) Finished = true;
+        if (move > 0 ? MinZ > _pathEnd : MaxZ < _pathStart) Finished = true;
 
         _smokeTimer -= dt;
         if (_smokeTimer <= 0)
@@ -395,13 +548,107 @@ public sealed class Train : IRenderable
                 _effects.ChimneySmoke(w, 0.8f);
             }
             foreach (var car in Cars)
-            foreach (var c in car.Chimneys)
+            foreach (var c in Departing ? Array.Empty<Vector3>() : car.Chimneys)
                 if (rng.Next() < (car == Locomotive ? 0.9f : 0.55f)) _effects.ChimneySmoke(car.ToWorld(c), Destroyed ? 0.6f : 1);
         }
 
         if (!Destroyed) UpdateCannons(dt);
         UpdateTurrets(dt, heliPosition, heliAlive);
         UpdateWreckage(dt);
+        UpdateCranes(dt, heliPosition, heliAlive);
+    }
+
+    private float ChainWorld => GameConfig.Stages.ChainLength * Scale;
+
+    /// <summary>
+    /// Cranes slew from side to side over the balconies; the wrecking ball hangs on its chain as a
+    /// position-based pendulum (Verlet step, then the chain-length constraint). Touching the heli
+    /// raises OnBallHit. A wrecked crane drops its ball, which bounces and sinks away.
+    /// </summary>
+    private void UpdateCranes(float dt, Vector3 heliPosition, bool heliAlive)
+    {
+        var len = ChainWorld;
+        var ballR = 0.46f * Scale;
+        var reach = 0.2f * Scale + ballR;
+        var rng = Rng.Shared;
+        foreach (var car in Cars)
+        foreach (var c in car.Cranes)
+        {
+            c.Time += dt;
+            if (c.Alive && !Destroyed) c.Yaw = MathF.Sin(c.Time * c.Speed + c.Phase) * c.Amp;
+            if (!c.Alive && c.BurnTimer > 0)
+            {
+                c.BurnTimer -= dt;
+                if (rng.Next() < dt * 9)
+                {
+                    var p = c.SlewWorld.Translation;
+                    _effects.Smoke.Emit(new ParticleSpec { Position = p + new Vector3(0, 1.6f, 0), Velocity = new Vector3(0, 1.5f, 0), Drag = 0.7f, Life = 1.3f, Size0 = 0.5f, Size1 = 1.7f, Aspect = 1, Color0 = new Vector4(0.08f, 0.08f, 0.09f, 0.7f), Color1 = new Vector4(0.3f, 0.3f, 0.32f, 0), HasColor1 = true });
+                    _effects.Fire.Emit(new ParticleSpec { Position = p + new Vector3(0, 1.2f, 0), Velocity = new Vector3(0, 1.6f, 0), Life = 0.4f, Size0 = 0.8f, Size1 = 0.3f, Aspect = 1, Color0 = new Vector4(4, 1.8f, 0.4f, 1), Color1 = new Vector4(1.5f, 0.3f, 0.05f, 0), HasColor1 = true });
+                }
+            }
+            c.SlewWorld = MathX.RotationXYZ(0, c.Yaw, c.Tilt) * Matrix.CreateTranslation(c.Pivot) * car.World;
+            c.TipWorld = Vector3.Transform(c.Tip, c.SlewWorld);
+            if (!c.Placed)
+            {
+                c.Placed = true;
+                c.Pos = c.TipWorld - Vector3.UnitY * len;
+                c.Prev = c.Pos;
+            }
+            var vel = (c.Pos - c.Prev) * 0.995f;
+            c.Prev = c.Pos;
+            c.Pos += vel;
+            c.Pos.Y -= 18 * dt * dt;
+            if (c.Alive)
+            {
+                var d = c.Pos - c.TipWorld;
+                var l = d.Length();
+                if (l < 1e-5f) l = 1;
+                c.Dir = d / l;
+                c.Pos = c.TipWorld + c.Dir * len;
+            }
+            else
+            {
+                c.Dir = -Vector3.UnitY;
+                if (c.Pos.Y < reach && c.Prev.Y >= c.Pos.Y)
+                {
+                    var vy = c.Pos.Y - c.Prev.Y;
+                    c.Pos.Y = reach;
+                    c.Prev.Y = reach + vy * 0.35f;
+                    if (MathF.Abs(vy) > 0.02f) _effects.SnowPuff(c.Pos, 8);
+                }
+                c.DropTime += dt;
+                if (c.DropTime > 4) c.BallScale *= MathF.Exp(-3 * dt);
+            }
+            c.Center = c.Pos + c.Dir * reach;
+            if (c.Alive && heliAlive && !Departing)
+            {
+                var hit = ballR + 0.9f;
+                if (Vector3.DistanceSquared(c.Center, heliPosition) < hit * hit) OnBallHit?.Invoke(c.Center);
+            }
+        }
+    }
+
+    /// <summary>Crane cab shot to pieces: the boom stops, smoke pours out, the ball drops.</summary>
+    private void BreakCrane(Crane crane)
+    {
+        crane.Alive = false;
+        var w = crane.SlewWorld.Translation + new Vector3(0, 1.2f, 0);
+        _effects.Explosion(w, 1.3f, 0xd8a020, 14);
+        _effects.Shatter(w, 0xf0b21c, 14, 1.3f, 0.12f, 0.3f);
+        _effects.FlashLight(w, 0xffa040, 40, 0.3f, 9);
+        crane.Tilt = 0.12f;
+        crane.BurnTimer = 8;
+    }
+
+    /// <summary>Rotation that turns the chain's -Y axis onto <paramref name="dir"/>.</summary>
+    private static Matrix HangRotation(Vector3 dir)
+    {
+        var from = -Vector3.UnitY;
+        var dot = MathHelper.Clamp(Vector3.Dot(from, dir), -1, 1);
+        if (dot > 0.99999f) return Matrix.Identity;
+        if (dot < -0.99999f) return Matrix.CreateRotationX(MathF.PI);
+        var axis = Vector3.Normalize(Vector3.Cross(from, dir));
+        return Matrix.CreateFromAxisAngle(axis, MathF.Acos(dot));
     }
 
     /// <summary>Brass under-cannons: a random cannon over the board fires straight along its barrel.</summary>
@@ -419,7 +666,7 @@ public sealed class Train : IRenderable
             for (var k = 0; k < car.Cannons.Length && n < options.Length; k++)
             {
                 var w = car.ToWorld(car.Cannons[k].Muzzle);
-                if (w.Z > GameConfig.Board.MinZ - 3 && w.Z < GameConfig.Board.MaxZ + 1) options[n++] = (ci, k);
+                if (!Departing && w.Z > _arenaMinZ - 3 && w.Z < _arenaMaxZ + 1) options[n++] = (ci, k);
             }
         }
         if (n == 0) return;
@@ -455,7 +702,7 @@ public sealed class Train : IRenderable
             turret.Yaw = MathX.LerpAngle(turret.Yaw, desired, MathX.Damp(5, dt));
             turret.Cooldown -= dt;
             TurretDamageFx(turret, world, dt);
-            var inBoard = world.Z > GameConfig.Board.MinZ - 4 && world.Z < GameConfig.Board.MaxZ;
+            var inBoard = !Departing && world.Z > _arenaMinZ - 4 && world.Z < _arenaMaxZ;
             var facing = MathF.Abs(MathX.WrapAngle(desired - turret.Yaw)) < 0.4f;
             turret.HeadWorld = Matrix.CreateRotationY(turret.Yaw) * Matrix.CreateTranslation(turret.HeadOffset) * turret.BaseWorld;
             if (turret.Cooldown <= 0 && heliAlive && inBoard && facing && aim.Length() < 26)
@@ -609,7 +856,7 @@ public sealed class Train : IRenderable
             _effects.Impact(hitPoint, new Vector4(5, 0.8f, 0.5f, 1));
             _effects.FlashLight(hitPoint, 0xff2010, 25, 0.12f, 6);
         }
-        else if (target.Kind == TargetKind.Turret)
+        else if (target.Kind is TargetKind.Turret or TargetKind.Crane)
         {
             _effects.Impact(hitPoint, new Vector4(4, 3, 2, 1));
             if (Rng.Shared.Next() < 0.35f) _effects.SparkBurst(hitPoint, 4, 4);
@@ -634,6 +881,11 @@ public sealed class Train : IRenderable
         else if (target.Kind == TargetKind.Turret)
         {
             BreakTurret(target.Turret);
+            if (!GemShielded) BreakShield();
+        }
+        else if (target.Kind == TargetKind.Crane)
+        {
+            BreakCrane(target.Crane);
             if (!GemShielded) BreakShield();
         }
         else if (target.Kind == TargetKind.Gem)
@@ -666,6 +918,8 @@ public sealed class Train : IRenderable
                 _effects.Shatter(car.ToWorld(t.Center), PackedColor(t.Color), 8, 1.4f);
             }
             foreach (var turret in car.Turrets) turret.Alive = false;
+            foreach (var c in car.Cranes)
+                if (c.Alive) BreakCrane(c);
         }
         _shieldVisible = false;
     }
@@ -674,12 +928,14 @@ public sealed class Train : IRenderable
     {
         if (!_shieldVisible) return;
         _shieldVisible = false;
-        var w = Locomotive.ToWorld(new Vector3(0, 1.5f, 2.55f));
+        var w = Locomotive.ToWorld(ShieldCenter);
         _effects.Shatter(w, 0x7fd8ff, 22, 1.3f, 0.1f, 0.26f);
         _effects.FlashLight(w, 0x60c8ff, 50, 0.4f, 10);
         _effects.SparkBurst(w, 30, 7, new Vector4(1, 2.6f, 5, 1));
         OnShieldDown?.Invoke();
     }
+
+    private Vector3 ShieldCenter => _hauler ? new Vector3(0, _core.Y, _core.Z + 0.05f) : new Vector3(0, 1.5f, 2.55f);
 
     private void UpdateShield(float dt)
     {
@@ -712,6 +968,15 @@ public sealed class Train : IRenderable
         _snowCaps.Upload();
         queue.Add(_factory.CargoCube, Matrix.Identity, DrawOverrides.None, true, 0, RenderLayer.World, _cubes, _factory.CubeMaterial);
         queue.Add(_factory.CargoSnow, Matrix.Identity, DrawOverrides.None, true, 0, RenderLayer.World, _snowCaps);
+        foreach (var car in Cars)
+        foreach (var c in car.Cranes)
+        {
+            queue.Add(_factory.CraneSlew, c.SlewWorld);
+            if (c.BallScale < 0.02f) continue;
+            var hang = HangRotation(c.Dir);
+            if (c.Alive) queue.Add(_factory.Chain, Matrix.CreateScale(Scale, ChainWorld, Scale) * hang * Matrix.CreateTranslation(c.TipWorld));
+            queue.Add(_factory.Ball, Matrix.CreateScale(Scale * c.BallScale) * hang * Matrix.CreateTranslation(c.Pos));
+        }
         foreach (var w in _wreckage)
         {
             var m = Matrix.CreateScale(w.scale) * MathX.RotationXYZ(w.rot.X, w.rot.Y, w.rot.Z) * WithTranslation(w.world, w.pos);
@@ -721,7 +986,7 @@ public sealed class Train : IRenderable
         {
             var pulse = 1 + MathF.Sin(_shieldTime * 2.2f) * 0.03f + _shieldHit * 0.06f;
             var opacity = 0.16f + MathF.Sin(_shieldTime * 3) * 0.04f + _shieldHit * 0.45f;
-            var world = Matrix.CreateScale(pulse) * Matrix.CreateTranslation(0, 1.5f, 2.55f) * Locomotive.World;
+            var world = Matrix.CreateScale(pulse) * Matrix.CreateTranslation(ShieldCenter) * Locomotive.World;
             queue.Add(_factory.Shield, world, new DrawOverrides { ColorMul = new Vector4(1, 1, 1, opacity / 0.2f) }, false, 12);
         }
     }

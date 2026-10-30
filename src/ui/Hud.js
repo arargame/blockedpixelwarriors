@@ -14,7 +14,7 @@ export class Hud {
         <div class="hud-panel hud-score"><span class="label">SCORE</span><span class="value" data-score>0</span></div>
         <div class="hud-center">
           <div class="train-panel" data-train>
-            <div class="train-head"><span>ARMORED TRAIN</span><span class="train-pct" data-train-pct></span></div>
+            <div class="train-head"><span data-train-title>ARMORED TRAIN</span><span class="train-pct" data-train-pct></span></div>
             <div class="train-cars" data-cars></div>
           </div>
         </div>
@@ -22,6 +22,7 @@ export class Hud {
       </div>
       <div class="hud-bottom">
         <div class="log-feed" data-log></div>
+        <div class="objectives" data-objectives></div>
         <div class="mission" data-mission>
           <span class="mission-title">MISSION</span>
           <span class="mc red"><i></i><b data-m="red">0</b>/<em data-g="red">100</em></span>
@@ -158,9 +159,45 @@ export class Hud {
 
   showMissionComplete(score, delivered) {
     this.overlayEl.innerHTML = `<div class="gameover win">MISSION COMPLETE</div>
+      <div class="final">DEPOT SHIPPED · BLOCK HAULER DESTROYED</div>
       <div class="final">${delivered.red} RED · ${delivered.green} GREEN · ${delivered.blue} BLUE DELIVERED</div>
       <div class="final">SCORE ${String(score).padStart(6, '0')}</div><div class="prompt">TAP / PRESS ANY KEY</div>`;
     this.overlayEl.classList.add('visible');
+  }
+
+  /**
+   * Objective checklist (bottom left): a title and rows with a checkbox, text and progress.
+   * @param {{title:string, items:{text:string, done:boolean, progress?:string, swatch?:string}[]}} o
+   */
+  setObjectives(o) {
+    this.objectivesEl ??= this.root.querySelector('[data-objectives]');
+    const key = JSON.stringify(o);
+    if (key === this.objectivesKey) return;
+    const prev = this.objectivesDone ?? new Set();
+    const done = new Set(o.items.filter((i) => i.done).map((i) => i.text));
+    this.objectivesKey = key;
+    this.objectivesEl.innerHTML = `<div class="obj-title">${o.title}</div>` + o.items.map((i) => {
+      const fresh = i.done && !prev.has(i.text) && this.objectivesDone ? ' fresh' : '';
+      const sw = i.swatch ? `<i class="obj-sw ${i.swatch}"></i>` : '';
+      return `<div class="obj${i.done ? ' done' : ''}${fresh}"><span class="obj-box">${i.done ? '✔' : ''}</span>${sw}<span class="obj-text">${i.text}</span>${i.progress ? `<span class="obj-prog">${i.progress}</span>` : ''}</div>`;
+    }).join('');
+    this.objectivesDone = done;
+  }
+
+  /** Overlay CONTINUE button (title / game over) when a checkpoint is saved. */
+  continueMarkup(save) {
+    if (!save) return '';
+    return `<button class="continue-btn" data-continue>CONTINUE · STAGE 2 <small>C</small></button>`;
+  }
+
+  bindContinue(onContinue) {
+    const btn = this.overlayEl.querySelector('[data-continue]');
+    if (!btn || !onContinue) return;
+    btn.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      onContinue();
+    });
   }
 
   setScore(score) {
@@ -250,6 +287,8 @@ export class Hud {
       return;
     }
     if (this.trainRef !== train) this.buildTrain(train);
+    this.trainTitleEl ??= this.root.querySelector('[data-train-title]');
+    if (this.trainTitleEl.textContent !== train.title) this.trainTitleEl.textContent = train.title ?? 'ARMORED TRAIN';
     let hp = 0;
     let max = 0;
     for (const car of this.trainCars) {
@@ -400,10 +439,11 @@ export class Hud {
     slot.replaceWith(this.logoCanvas);
   }
 
-  showTitle() {
-    this.overlayEl.innerHTML = `${this.logoMarkup()}<div class="prompt">TAP / PRESS ANY KEY</div>
-      <div class="help">WASD fly &middot; &larr; &rarr; turn &middot; or DRAG &middot; weapons fire automatically<br/>Break the turrets, then the gem! Shoot cargo off the train - the engineer ships it.<br/>Mission: deliver 100 red, 100 green and 100 blue packages.</div>`;
+  showTitle(save = null, onContinue = null) {
+    this.overlayEl.innerHTML = `${this.logoMarkup()}<div class="prompt">TAP / PRESS ANY KEY</div>${this.continueMarkup(save)}
+      <div class="help">WASD fly &middot; &larr; &rarr; turn &middot; or DRAG &middot; weapons fire automatically<br/>Break the turrets, then the gem! Shoot cargo off the train - the engineer ships it.<br/>Stage 1: ship 20 red, 20 green and 20 blue packages &middot; Stage 2: stop the Block Hauler.</div>`;
     this.mountLogo();
+    this.bindContinue(onContinue);
     this.overlayEl.classList.add('visible');
   }
 
@@ -418,8 +458,9 @@ export class Hud {
     this.overlayEl.classList.add('visible', 'poster');
   }
 
-  showGameOver(score) {
-    this.overlayEl.innerHTML = `<div class="gameover">GAME OVER</div><div class="final">SCORE ${String(score).padStart(6, '0')}</div><div class="prompt">TAP / PRESS ANY KEY</div>`;
+  showGameOver(score, save = null, onContinue = null) {
+    this.overlayEl.innerHTML = `<div class="gameover">GAME OVER</div><div class="final">SCORE ${String(score).padStart(6, '0')}</div><div class="prompt">TAP / PRESS ANY KEY</div>${this.continueMarkup(save)}`;
+    this.bindContinue(onContinue);
     this.overlayEl.classList.add('visible');
   }
 

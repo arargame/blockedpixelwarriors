@@ -19,7 +19,18 @@ public sealed class CloudLayer : IRenderable
 
     private readonly (BillboardBatch batch, List<Cloud> items)[] _variants;
     private bool _sorted;
-    private readonly Matrix _world;
+    private Matrix _world;
+
+    /// <summary>Layer transform (the backdrop's moves with the camera's travel).</summary>
+    public Matrix World
+    {
+        get => _world;
+        set
+        {
+            _world = value;
+            foreach (var (batch, _) in _variants) batch.World = value;
+        }
+    }
 
     public CloudLayer(GraphicsDevice device, ModelLibrary models, CloudLayerData data, Matrix world, int renderOrder)
     {
@@ -34,7 +45,9 @@ public sealed class CloudLayer : IRenderable
         }
     }
 
-    public void Update(float dt, Camera3D camera)
+    /// <param name="nearFade">0..1: fade puffs near the camera (the backdrop cloud sea once the
+    /// camera travels up the line: over the open bridge nothing hides it, CloudLayer.js).</param>
+    public void Update(float dt, Camera3D camera, float nearFade = 0)
     {
         foreach (var (batch, items) in _variants)
         {
@@ -56,7 +69,14 @@ public sealed class CloudLayer : IRenderable
                     x = d.X + (((c.Offset + span * 0.5f) % span) + span) % span - span * 0.5f;
                 }
                 var tint = d.Tint == 0 ? 1 : d.Tint;
-                batch.Push(x, d.Y, d.Z, d.Size, d.Size * (d.Aspect == 0 ? 1 : d.Aspect), tint, tint, tint, d.Alpha == 0 ? 1 : d.Alpha);
+                var alpha = d.Alpha == 0 ? 1 : d.Alpha;
+                if (nearFade > 0)
+                {
+                    var dist = Vector3.Distance(Vector3.Transform(new Vector3(x, d.Y, d.Z), _world), camera.Position);
+                    var k = MathX.Clamp01((dist - 35) / 25);
+                    alpha *= 1 - nearFade + nearFade * k * k * (3 - 2 * k);
+                }
+                batch.Push(x, d.Y, d.Z, d.Size, d.Size * (d.Aspect == 0 ? 1 : d.Aspect), tint, tint, tint, alpha);
             }
             batch.End();
         }
@@ -75,31 +95,39 @@ public sealed class CloudLayer : IRenderable
 /// </summary>
 public sealed class WorldScene : IRenderable
 {
-    private readonly List<(GpuMesh mesh, InstanceBuffer instances, Matrix world, bool shadow, RenderLayer layer)> _static = new();
+    private readonly List<(GpuMesh mesh, InstanceBuffer instances, Matrix world, bool shadow, RenderLayer layer, bool backdrop)> _static = new();
+    private readonly Matrix _backdropHome;
+    private readonly Vector3 _sunHome, _sunTargetHome;
+    private readonly LightRig _lights;
     private readonly CloudLayer _clouds, _boardClouds;
     private readonly BillboardBatch _sunGlare;
 
     public Board Board { get; } = new();
-    public Matrix Backdrop { get; }
+    /// <summary>Backdrop transform: home tilt + the camera's travel (sky, islands, cloud sea).</summary>
+    public Matrix Backdrop { get; private set; }
     public SnowWeather Weather { get; } = new();
     public SnowFall SnowFall { get; }
     public RailSnow RailSnow { get; }
     public FloorSnow FloorSnow { get; }
 
-    public WorldScene(GraphicsDevice device, ModelLibrary models, SceneData scene, bool foreground)
+    public WorldScene(GraphicsDevice device, ModelLibrary models, SceneData scene, bool foreground, LightRig lights)
     {
         var q = scene.Backdrop.Quaternion;
-        Backdrop = Matrix.CreateFromQuaternion(new Quaternion(q[0], q[1], q[2], q[3])) * Matrix.CreateTranslation(MathX.V3(scene.Backdrop.Position));
+        Backdrop = _backdropHome = Matrix.CreateFromQuaternion(new Quaternion(q[0], q[1], q[2], q[3])) * Matrix.CreateTranslation(MathX.V3(scene.Backdrop.Position));
+        _lights = lights;
+        _sunHome = lights.SunPosition;
+        _sunTargetHome = lights.SunTarget;
 
         void AddSet(string bucket, bool shadow, RenderLayer layer)
         {
+            var backdrop = bucket == "world_backdrop";
             var plain = models.Mesh(bucket);
-            if (plain != null) _static.Add((plain, null, Matrix.Identity, shadow, layer));
+            if (plain != null) _static.Add((plain, null, Matrix.Identity, shadow, layer, backdrop));
             if (scene.InstanceSets == null || !scene.InstanceSets.TryGetValue(bucket, out var sets)) return;
             foreach (var name in sets)
             {
                 var inst = models.Instanced(name);
-                if (inst != null) _static.Add((inst.Mesh, inst.Instances, inst.World, shadow, layer));
+                if (inst != null) _static.Add((inst.Mesh, inst.Instances, inst.World, shadow, layer, backdrop));
             }
         }
         AddSet("world_static", true, RenderLayer.World);
@@ -123,9 +151,25 @@ public sealed class WorldScene : IRenderable
         FloorSnow = new FloorSnow(device, Weather, Board);
     }
 
+    /// <summary>
+    /// Moves the "at infinity" parts by the camera's travel (World.follow): backdrop, sun shadow
+    /// box (snapped to whole units) and the snowfall volume.
+    /// </summary>
+    public void Follow(Vector3 travel)
+    {
+        travel.Y = 0;
+        Backdrop = _backdropHome * Matrix.CreateTranslation(travel);
+        _clouds.World = Backdrop;
+        _sunGlare.World = Backdrop;
+        var snap = new Vector3(MathF.Round(travel.X), 0, MathF.Round(travel.Z));
+        _lights.SunPosition = _sunHome + snap;
+        _lights.SunTarget = _sunTargetHome + snap;
+        SnowFall.Offset = travel;
+    }
+
     public void Update(float dt, Camera3D camera)
     {
-        _clouds.Update(dt, camera);
+        _clouds.Update(dt, camera, MathX.Clamp01(new Vector2(Backdrop.Translation.X - _backdropHome.Translation.X, Backdrop.Translation.Z - _backdropHome.Translation.Z).Length() / 12));
         _boardClouds.Update(dt, camera);
         Weather.Update(dt);
         SnowFall.Update(dt);
@@ -133,8 +177,8 @@ public sealed class WorldScene : IRenderable
 
     public void Submit(RenderQueue queue)
     {
-        foreach (var (mesh, instances, world, shadow, layer) in _static)
-            queue.Add(mesh, world, DrawOverrides.None, shadow, 0, layer, instances);
+        foreach (var (mesh, instances, world, shadow, layer, backdrop) in _static)
+            queue.Add(mesh, backdrop ? world * Matrix.CreateTranslation(Backdrop.Translation - _backdropHome.Translation) : world, DrawOverrides.None, shadow, 0, layer, instances);
         _clouds.Submit(queue);
         _boardClouds.Submit(queue);
         queue.Add(_sunGlare);

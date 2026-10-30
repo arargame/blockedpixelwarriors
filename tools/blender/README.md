@@ -55,3 +55,19 @@ Malzeme adları oyunda kullanılır: `CardFront` (yüz: resim + açıklama), `Ca
 python tools/blender/build_card.py                                                        # card.glb + card.blend
 python tools/blender/build_card.py --render captures --art assets/textures/cards/engineer.jpg   # sadece önizleme
 ```
+
+# BLOCK HAULER treni (2. bölüm)
+
+`build_hauler.py` key art'taki "BLOCK HAULER" trenini kurar: kar küreği (kar savar), ızgaranın
+iki yanında dört yuvarlak far, ortada parlayan ocak gözü (zayıf nokta, kalkanla korunur), sarı-siyah
+tehlike şeritleri, yanlarda paslı dişliler, iki baca ve öndeki sarı kancalı kollar; küplerle dolu
+kırmızı vagon, zincirinde gülle sallayan sarı vinç vagonu, buz bloklu gümüş kafes vagon ve cevher vagonu.
+
+Kök objeler (her biri bir vagon, oyun yeniden yerleştirir): `HaulerLoco`, `HaulerHopper`, `HaulerCrane`,
+`HaulerCage`, `HaulerOre`. Oyunun kullandığı alt objeler: `Core`, `TurretMount`, `Chimney0/1`,
+`Headlight0..3`, `CargoDeck`, `CraneSlew` > `CraneTip`, `CraneChain` (birim uzunluk, -Y), `WreckingBall`.
+
+```bash
+python tools/blender/build_hauler.py                       # hauler.glb + hauler.blend
+python tools/blender/build_hauler.py --render captures     # + Cycles önizleme (ön ve yan)
+```

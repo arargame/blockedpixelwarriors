@@ -651,3 +651,60 @@ body {
 @media (max-width: 700px) {
   .log-line { font-size: 10px; padding: 2px 6px; }
 }
+
+/* Objective checklist (bottom left, above the mission bar). */
+.objectives {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 11px 8px 9px;
+  border-radius: 8px;
+  background: rgba(14, 20, 30, 0.46);
+  backdrop-filter: blur(4px);
+  border-left: 3px solid #ffcf6a;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.92);
+  max-width: min(330px, 80vw);
+  pointer-events: none;
+}
+.objectives:empty { display: none; }
+.obj-title { font-size: 9px; letter-spacing: 2.4px; color: #ffcf6a; margin-bottom: 2px; }
+.obj { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+.obj-box {
+  width: 12px; height: 12px; flex: none;
+  border: 1.5px solid rgba(255, 255, 255, 0.9); border-radius: 3px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; line-height: 1; color: #1b1d21;
+}
+.obj.done .obj-box { background: #7be86a; border-color: #7be86a; }
+.obj.done .obj-text { opacity: 0.6; text-decoration: line-through; text-decoration-color: rgba(255, 255, 255, 0.5); }
+.obj-sw { width: 9px; height: 9px; border-radius: 2px; border: 1.5px solid #fff; flex: none; }
+.obj-sw.red { background: #e01d22; }
+.obj-sw.green { background: #36c225; }
+.obj-sw.blue { background: #0ea2a8; }
+.obj-prog { margin-left: auto; padding-left: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.obj.done .obj-prog { color: #ffd34a; }
+.obj.fresh { animation: obj-pop 0.6s ease-out; }
+@keyframes obj-pop { 0% { transform: scale(1.12); color: #ffd34a; } 100% { transform: scale(1); } }
+@media (max-width: 700px) {
+  .objectives { font-size: 9px; padding: 5px 8px; }
+  .obj-box { width: 10px; height: 10px; }
+}
+
+/* CONTINUE from the stage-2 checkpoint (title / game over). */
+.continue-btn {
+  pointer-events: auto;
+  cursor: pointer;
+  font: inherit;
+  font-size: clamp(14px, 1.8vw, 20px);
+  letter-spacing: 2px;
+  color: #1b1d21;
+  background: linear-gradient(#7be86a, #4cc23c);
+  border: 2px solid #fff;
+  border-radius: 10px;
+  padding: 10px 22px;
+  box-shadow: 0 4px 0 #1f5a18, 0 0 18px rgba(123, 232, 106, 0.5);
+}
+.continue-btn small { font-size: 0.7em; opacity: 0.7; margin-left: 8px; border: 1px solid rgba(0,0,0,0.4); border-radius: 3px; padding: 0 5px; }
+.tick.crane { --tick: #f0b21c; }

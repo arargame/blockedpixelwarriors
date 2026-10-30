@@ -15,8 +15,8 @@ export class Board {
    * @param {import('../textures/MaterialLibrary.js').MaterialLibrary} materials
    * @param {THREE.Texture|null} [floorTexture] marble photo for the tiled floor (cloud floor if null)
    */
-  constructor(materials, floorTexture = null) {
-    const b = GameConfig.board;
+  constructor(materials, floorTexture = null, spec = GameConfig.board) {
+    const b = spec;
     this.bounds = { minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ };
     this.group = new THREE.Group();
 

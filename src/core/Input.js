@@ -20,13 +20,13 @@ export class Input {
 
     this.listen(window, 'keydown', (e) => {
       this.keys.add(e.code);
-      this.onAnyAction?.();
+      this.onAnyAction?.(e);
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'].includes(e.code)) e.preventDefault();
     });
     this.listen(window, 'keyup', (e) => this.keys.delete(e.code));
     this.listen(window, 'blur', () => this.keys.clear());
     this.listen(element, 'pointerdown', (e) => {
-      this.onAnyAction?.();
+      this.onAnyAction?.(e);
       if (this.pointerId !== null) return;
       this.pointerId = e.pointerId;
       this.dragStart = { x: e.clientX, y: e.clientY };
