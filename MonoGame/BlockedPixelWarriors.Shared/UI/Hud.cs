@@ -199,9 +199,9 @@ public sealed class Hud : IHudEvents
         var hudAlpha = 1 - _overlayAlpha * (Overlay == Overlay.Pause ? 0.4f : 1);
         if (hudAlpha > 0.01f && Overlay != Overlay.Title)
         {
-            var score = DrawTop(vp, s, k, hudAlpha);
-            // Phones: HP + kill feed move under the score panel, the bottom corners belong to the thumbs.
-            DrawBottomLeft(vp, s, k, hudAlpha, showTouch ? score.Bottom + 10 * k : null);
+            DrawTop(vp, s, k, hudAlpha);
+            // HP, mission, chopper countdown and the log sit bottom left on every device.
+            DrawBottomLeft(vp, s, k, hudAlpha, null);
             DrawSkills(vp, s, k, hudAlpha, showTouch);
         }
         DrawNoticeAndToast(vp, k);
@@ -654,13 +654,17 @@ public sealed class Hud : IHudEvents
     private void DrawTouch(TouchControls t, float k)
     {
         if (!t.Enabled) return;
-        // Joystick: base ring + soft knob (shown at rest too, fainter).
+        // Joystick: base ring + knob under the thumb, only while it is held (the HUD owns the
+        // bottom-left corner when idle).
         var active = t.JoystickActive;
-        var baseA = active ? 0.5f : 0.28f;
-        _ui.SoftDisc(t.Origin, t.StickRadius * 1.25f, new Color(10, 16, 26) * (0.35f * baseA * 2));
-        _ui.Ring(t.Origin, t.StickRadius, 2.5f * k, Color.White * baseA);
-        _ui.Disc(t.Knob, t.StickRadius * 0.42f, Color.White * (active ? 0.75f : 0.35f));
-        _ui.Ring(t.Knob, t.StickRadius * 0.42f, 2 * k, new Color(0x1b, 0x1d, 0x21) * 0.4f);
+        var baseA = 0.5f;
+        if (active)
+        {
+            _ui.SoftDisc(t.Origin, t.StickRadius * 1.25f, new Color(10, 16, 26) * (0.35f * baseA * 2));
+            _ui.Ring(t.Origin, t.StickRadius, 2.5f * k, Color.White * baseA);
+            _ui.Disc(t.Knob, t.StickRadius * 0.42f, Color.White * 0.75f);
+            _ui.Ring(t.Knob, t.StickRadius * 0.42f, 2 * k, new Color(0x1b, 0x1d, 0x21) * 0.4f);
+        }
         Button(t.LeftButton, t.TurnLeft, true);
         Button(t.RightButton, t.TurnRight, false);
         // Pause button (two bars).
@@ -715,7 +719,7 @@ public sealed class Hud : IHudEvents
                 var lw = MathF.Min(vp.Width * 0.62f, 620 * k);
                 var lh = lw * _logo.Height / _logo.Width;
                 var help = TouchHelp
-                    ? new[] { "LEFT THUMB: fly · ROTATE BUTTONS: turn · weapons fire automatically", "Break the turrets, then the gem! Shoot cargo off the train." }
+                    ? new[] { "LEFT THUMB: fly (nose-relative) · ROTATE BUTTONS: turn · weapons fire automatically", "Break the turrets, then the gem! Shoot cargo off the train." }
                     : new[] { "WASD fly · ← → / Q E turn · or DRAG · weapons fire automatically", "Break the turrets, then the gem! Shoot cargo off the train." };
                 var helpPx = Math.Clamp(vp.Width * 0.016f / k, 12, 16) * k;
                 var total = lh + 18 * k + promptPx + 18 * k + helpPx * 2.6f;

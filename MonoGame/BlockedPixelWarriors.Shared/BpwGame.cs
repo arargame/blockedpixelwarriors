@@ -287,10 +287,12 @@ public sealed class BpwGame : Game
     }
 
     /// <summary>Scripted stick for automated capture runs (sweeps the board, turns now and then).</summary>
-    private static PilotCommand AutoPilot(float t) => new()
+    private PilotCommand AutoPilot(float t) => new()
     {
         Stick = new Vector2(MathF.Sin(t * 0.45f) * 0.8f, MathF.Sin(t * 0.31f + 1) * 0.6f),
         StickActive = true,
+        // --touch captures drive the phone controls (nose-relative stick).
+        StickNoseRelative = _options.Touch,
         Turn = MathF.Sin(t * 0.2f) > 0.85f ? 1 : 0,
     };
 

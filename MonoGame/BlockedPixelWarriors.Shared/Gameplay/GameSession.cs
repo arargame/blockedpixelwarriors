@@ -622,7 +622,16 @@ public sealed class GameSession : IRenderable
         Time += dt;
         var playing = State == GameState.Playing;
         Vector2 move;
-        if (playing && cmd.StickActive)
+        if (playing && cmd.StickActive && cmd.StickNoseRelative)
+        {
+            // Touch joystick = analog WASD in the heli's frame; only the turn buttons rotate it.
+            float sy = MathF.Sin(Heli.Yaw), cy = MathF.Cos(Heli.Yaw);
+            float forward = -cmd.Stick.Y, strafe = cmd.Stick.X;
+            move = new Vector2(-sy * forward + cy * strafe, -cy * forward - sy * strafe);
+            Heli.FaceMovement = false;
+            Heli.TurnInput = cmd.Turn;
+        }
+        else if (playing && cmd.StickActive)
         {
             // Joystick / drag: screen-relative, the nose follows the direction unless a turn
             // button is held (then the heading is under manual control).

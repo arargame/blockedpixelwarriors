@@ -10,6 +10,11 @@ public struct PilotCommand
     /// <summary>Screen-relative stick (x right, y down), length 0..1 — joystick / mouse drag.</summary>
     public Vector2 Stick;
     public bool StickActive;
+    /// <summary>
+    /// Touch joystick: the stick moves the heli in its own frame (up = nose forward, sideways =
+    /// strafe) like WASD and never turns it; turning is the Q / E buttons only.
+    /// </summary>
+    public bool StickNoseRelative;
     /// <summary>Keyboard pilot input in the heli's own frame.</summary>
     public float Forward, Strafe;
     /// <summary>Yaw: +1 left (Q / ←), -1 right (E / →).</summary>
@@ -124,6 +129,7 @@ public sealed class GameInput
         {
             cmd.Stick = Touch.Stick;
             cmd.StickActive = cmd.Stick.Length() > 0.05f;
+            cmd.StickNoseRelative = true;
         }
         else if (_mouseDragging && gameplay && touches.Count == 0)
         {
