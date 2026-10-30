@@ -79,6 +79,7 @@ export class Game {
     this.world = new World(this.scene, this.camera, renderer, this.textures, this.materials, {
       shadowMapSize: this.pipeline.quality.shadowMap,
       floorTexture: options.floorTexture ?? null,
+      terraceFloorTexture: options.terraceFloorTexture ?? null,
     });
 
     const debrisMaterial = new THREE.MeshStandardMaterial({

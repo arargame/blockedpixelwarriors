@@ -9,6 +9,7 @@ import cardUrl from '../assets/models/card.glb?url';
 import haulerUrl from '../assets/models/hauler.glb?url';
 import * as THREE from 'three';
 import marbleUrl from '../assets/textures/marble_tile.jpg?url';
+import terraceTileUrl from '../assets/textures/terrace_tile.jpg?url';
 
 /**
  * Entry point. URL options:
@@ -27,7 +28,7 @@ const camOverride = params.get('cam')?.split(',').map(Number);
   // Blender helicopter (falls back to the procedural one with ?procedural or on load failure).
   // Blender props: rocket, turret bullet, engineer's forklift, CH-47F cargo chopper.
   const load = (url) => new GLTFLoader().loadAsync(url).catch(() => null);
-  const [heliGltf, floorTexture, rocketGltf, bulletGltf, forkliftGltf, chinookGltf, cardGltf, haulerGltf] = await Promise.all([
+  const [heliGltf, floorTexture, rocketGltf, bulletGltf, forkliftGltf, chinookGltf, cardGltf, haulerGltf, terraceFloorTexture] = await Promise.all([
     params.has('procedural') ? null : loadHelicopterGltf(),
     new THREE.TextureLoader().loadAsync(marbleUrl).catch(() => null),
     load(rocketUrl),
@@ -36,8 +37,10 @@ const camOverride = params.get('cam')?.split(',').map(Number);
     load(chinookUrl),
     load(cardUrl),
     load(haulerUrl),
+    // Stage 2 terrace tiles: beige marble with white veins.
+    new THREE.TextureLoader().loadAsync(terraceTileUrl).catch(() => null),
   ]);
-  const game = new Game(document.getElementById('app'), { quality, poster, camOverride, heliGltf, floorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf });
+  const game = new Game(document.getElementById('app'), { quality, poster, camOverride, heliGltf, floorTexture, terraceFloorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf });
   if (poster || params.has('fixedres')) game.pipeline.adaptive = false;
   window.__game = game;
   game.projectiles.setMissileModel(rocketGltf?.scene ?? null);

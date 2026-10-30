@@ -26,7 +26,7 @@ export class World {
    * @param {import('../textures/TextureFactory.js').TextureFactory} textures
    * @param {import('../textures/MaterialLibrary.js').MaterialLibrary} materials
    */
-  constructor(scene, camera, renderer, textures, materials, { shadowMapSize = 4096, floorTexture = null } = {}) {
+  constructor(scene, camera, renderer, textures, materials, { shadowMapSize = 4096, floorTexture = null, terraceFloorTexture = null } = {}) {
     this.scene = scene;
     this.camera = camera;
     scene.fog = new THREE.Fog(Palette.fog, 140, 520);
@@ -63,7 +63,7 @@ export class World {
     this.board = new Board(materials, floorTexture);
     scene.add(this.board.group);
     // Stage 2 platform up the line.
-    this.terrace = new Terrace(materials, floorTexture);
+    this.terrace = new Terrace(materials, terraceFloorTexture ?? floorTexture);
     scene.add(this.terrace.group);
     this.track = new Track(materials);
     scene.add(this.track.group);
