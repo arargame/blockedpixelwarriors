@@ -84,6 +84,19 @@ export const GameConfig = Object.freeze({
     growEvery: 1,
     maxWagons: 14,
     respawnDelay: 4,
+    // A train comes in from just off screen and its trip ends as soon as it has left the screen.
+    // Visible part of the line relative to the camera z (measured with the key-art camera), plus
+    // a margin so the train starts / ends out of sight.
+    viewBottom: -1.2,
+    viewTop: -53.1,
+    viewMargin: 3,
+    // Wait between leaving the screen and coming back: this share of what it used to be (the old
+    // trips ran on out of sight to the end of the line, then waited respawnDelay).
+    returnFactor: 0.8,
+    // "Train incoming" warning (toast + edge marker) this many seconds before it comes in.
+    warnLead: 2.5,
+    // Cargo cubes drop onto what is below when a cube under them is shot away (car units / s^2).
+    cargoGravity: 30,
     turretFireInterval: 1.4,
     // Per-trip speed plan: FAST trips never stop; NORMAL / SLOW may halt once on the board.
     fastChance: 0.3,

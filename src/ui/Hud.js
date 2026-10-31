@@ -18,7 +18,10 @@ export class Hud {
             <div class="train-cars" data-cars></div>
           </div>
         </div>
-        <div class="hud-panel hud-wave"><span class="label">WAVE</span><span class="value" data-wave>1</span></div>
+        <div class="hud-right">
+          <div class="hud-panel hud-wave"><span class="label">WAVE</span><span class="value" data-wave>1</span></div>
+          <button class="hud-pause" data-pause aria-label="Pause"><i></i><i></i></button>
+        </div>
       </div>
       <div class="hud-bottom">
         <div class="log-feed" data-log></div>
@@ -45,6 +48,7 @@ export class Hud {
       <div class="damage-vignette" data-vignette></div>
       <div class="skill-feed" data-skills></div>
       <div class="hud-toast" data-toast></div>
+      <div class="train-warn" data-train-warn><span class="tw-arrow"></span><span class="tw-text">TRAIN</span><span class="tw-arrow"></span></div>
       <div class="hud-overlay" data-overlay></div>
     `;
     container.appendChild(root);
@@ -81,6 +85,11 @@ export class Hud {
     this.dockEl = root.querySelector('[data-dock]');
     this.logEl = root.querySelector('[data-log]');
     this.setLives(3);
+    root.querySelector('[data-pause]').addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      this.onPause?.();
+    });
   }
 
   /** Mission panel + chopper countdown only exist once the engineer is on duty. */
@@ -462,6 +471,29 @@ export class Hud {
     this.overlayEl.innerHTML = `<div class="gameover">GAME OVER</div><div class="final">SCORE ${String(score).padStart(6, '0')}</div><div class="prompt">TAP / PRESS ANY KEY</div>${this.continueMarkup(save)}`;
     this.bindContinue(onContinue);
     this.overlayEl.classList.add('visible');
+  }
+
+  /**
+   * Hazard marker at the screen edge a train is about to come in from (null hides it).
+   * @param {{side:'top'|'bottom', x:number, y:number}|null} w
+   */
+  setTrainWarning(w) {
+    this.trainWarnEl ??= this.root.querySelector('[data-train-warn]');
+    const el = this.trainWarnEl;
+    if (!w) {
+      if (this.trainWarnSide) el.classList.remove('show');
+      this.trainWarnSide = null;
+      return;
+    }
+    if (w.side !== this.trainWarnSide) {
+      this.trainWarnSide = w.side;
+      const arrow = w.side === 'top' ? '▼' : '▲';
+      el.querySelectorAll('.tw-arrow').forEach((a) => (a.textContent = arrow));
+      el.classList.toggle('top', w.side === 'top');
+      el.classList.add('show');
+    }
+    el.style.left = `${Math.round(w.x)}px`;
+    el.style.top = `${Math.round(w.y)}px`;
   }
 
   /** Empties the log feed and any toast (new run). */

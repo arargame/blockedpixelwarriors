@@ -375,7 +375,7 @@ export class CardPicker {
   }
 
   onPointerDown(e) {
-    if (!this.active || this.picked) return;
+    if (!this.active || this.picked || this.blocked) return;
     this.onPointer(e);
     const i = this.hitCard();
     if (i < 0 || this.time < this.cards[i].delay + 0.6) return;
@@ -390,7 +390,7 @@ export class CardPicker {
   }
 
   onKey(e) {
-    if (!this.active || this.picked) return;
+    if (!this.active || this.picked || this.blocked) return;
     const i = { Digit1: 0, Numpad1: 0, Digit2: 1, Numpad2: 1 }[e.code];
     if (i === undefined || i >= this.cards.length) return;
     if (this.time < this.cards[i].delay + 0.6) return;

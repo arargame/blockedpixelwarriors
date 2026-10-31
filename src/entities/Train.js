@@ -73,7 +73,19 @@ export class Train {
     this.totalLength = offset * this.scale;
     this.headZ = this.path.startZ + this.totalLength;
     this.group.position.set(track.x, track.railTop - 0.05, this.headZ);
+    /** Visible stretch of the line { top, bottom } (set by the game from the camera each frame). */
+    this.view = null;
     this.planTrip();
+    // Cargo stacks: remember where every cube rests so they can fall and be reloaded.
+    for (const car of cars) {
+      for (const t of car.targets) {
+        if (t.kind !== 'cargo') continue;
+        t.home = t.mesh.position.clone();
+        t.homeBox = t.box.clone();
+        t.size = t.box.max.y - t.box.min.y;
+        t.fallVel = 0;
+      }
+    }
 
     // Weak point: the armored train's ruby, or the Block Hauler's glowing furnace eye.
     const core = this.locomotive.core ?? new THREE.Vector3(0, 1.5, 2.55);
@@ -123,7 +135,7 @@ export class Train {
     // Goods train between A and B: every trip goes back the other way.
     this.dir = -this.dir;
     this.group.rotation.y = this.dir > 0 ? 0 : Math.PI;
-    this.setHeadZ(this.dir > 0 ? this.path.startZ + this.totalLength : this.path.endZ - this.totalLength);
+    this.placeAtEntry();
     this.planTrip();
     for (const car of this.cars) {
       for (const t of car.targets) {
@@ -131,6 +143,71 @@ export class Train {
         t.alive = true;
         t.hp = t.maxHp;
         t.mesh.visible = true;
+        t.mesh.position.copy(t.home);
+        t.box.copy(t.homeBox);
+        t.fallVel = 0;
+      }
+    }
+  }
+
+  /**
+   * Puts the train just off screen on the side it comes in from: running down the line (+z) it
+   * starts above the top edge, on the way back below the bottom edge (never popping up mid-board).
+   */
+  placeAtEntry() {
+    this.finished = false;
+    this.finishRest = 0;
+    this.gapSet = false;
+    const v = this.view;
+    if (!v) {
+      this.setHeadZ(this.dir > 0 ? this.path.startZ + this.totalLength : this.path.endZ - this.totalLength);
+      return;
+    }
+    this.setHeadZ(this.dir > 0 ? v.top : v.bottom);
+  }
+
+  /** True while the locomotive is still out of sight on its way in. */
+  get entering() {
+    const v = this.view;
+    if (!v || this.finished) return false;
+    const m = GameConfig.train.viewMargin;
+    return this.dir > 0 ? this.headZ < v.top + m : this.headZ > v.bottom - m;
+  }
+
+  /**
+   * A cube was shot away: the cubes stacked on it in the same column drop down onto whatever is
+   * left below (the deck or the next cube).
+   */
+  settleColumn(car, target) {
+    const col = car.targets.filter((t) => t.kind === 'cargo' && Math.abs(t.home.x - target.home.x) < 0.05 && Math.abs(t.home.z - target.home.z) < 0.05);
+    col.sort((a, b) => a.home.y - b.home.y);
+    const floor = col[0].home.y;
+    let level = 0;
+    for (const t of col) {
+      if (!t.alive) continue;
+      t.restY = floor + level * t.size;
+      level += 1;
+    }
+  }
+
+  /** Falling cargo cubes (car space): gravity down to their new rest height, a small thud. */
+  updateCargoFall(dt) {
+    const g = GameConfig.train.cargoGravity;
+    for (const car of this.cars) {
+      for (const t of car.targets) {
+        if (t.kind !== 'cargo' || !t.alive || t.restY === undefined) continue;
+        const y = t.mesh.position.y;
+        if (y <= t.restY + 1e-4) continue;
+        t.fallVel += g * dt;
+        const ny = Math.max(t.restY, y - t.fallVel * dt);
+        t.mesh.position.y = ny;
+        t.box.translate(local.set(0, ny - y, 0));
+        if (ny <= t.restY) {
+          t.fallVel = 0;
+          car.group.localToWorld(world.copy(t.mesh.position));
+          world.y -= t.size * this.scale * 0.5;
+          this.effects.impact(world, [0.9, 0.85, 0.8, 1]);
+        }
       }
     }
   }
@@ -225,7 +302,16 @@ export class Train {
     this.headZ += move * this.speed * dt;
     this.group.position.z = this.headZ;
     this.group.updateMatrixWorld(true);
-    if (move > 0 ? this.minZ > this.path.endZ : this.maxZ < this.path.startZ) this.finished = true;
+    // The trip ends once the whole train is off screen (or at the end of the line).
+    const v = this.view;
+    const gone = v ? (move > 0 ? this.minZ > v.bottom : this.maxZ < v.top) : false;
+    if (!this.finished && (gone || (move > 0 ? this.minZ > this.path.endZ : this.maxZ < this.path.startZ))) {
+      this.finished = true;
+      // Time the old trips still ran on out of sight (the return wait is scaled from it).
+      const rest = move > 0 ? this.path.endZ - this.minZ : this.maxZ - this.path.startZ;
+      this.finishRest = Math.max(0, rest) / Math.max(1, this.speed);
+    }
+    this.updateCargoFall(dt);
 
     // Chimney smoke from every car (thick billowing column like the key art).
     this.smokeTimer -= dt;
@@ -573,6 +659,7 @@ export class Train {
       // The cube is knocked off the train and falls onto the board as a new block
       // (or shatters if there is no free cell nearby).
       target.mesh.visible = false;
+      this.settleColumn(car, target);
       this.effects.impact(world);
       if (!this.onCargoKnocked?.(world.clone(), target.colorKey)) {
         this.effects.explosion(world, 0.7, null, 0);

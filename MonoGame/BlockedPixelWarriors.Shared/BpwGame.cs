@@ -130,7 +130,7 @@ public sealed class BpwGame : Game
         _renderer.SetSnowMap(_session.World.FloorSnow.Texture, _session.World.FloorSnow.Rect);
         _poster = _options.Scenario is "poster" or "static";
         if (_options.CapturePath != null) _session.Store = new MemoryCheckpointStore();
-        if (_options.Scenario is "play" or "cards" or "logistics" or "transit" or "terrace")
+        if (_options.Scenario is "play" or "cards" or "logistics" or "transit" or "terrace" or "pause" or "warn")
         {
             _session.StartRun();
             var vp = Viewport;
@@ -182,6 +182,27 @@ public sealed class BpwGame : Game
                     var z = crane != null ? MathHelper.Clamp(crane.World.Translation.Z + 7, -82, -60) : -66;
                     h.Position = new Vector3(-3, GameConfig.Heli.Altitude, z);
                 });
+            }
+            if (_options.Scenario == "warn")
+            {
+                // Run until a train is announced (edge marker up, train still out of sight).
+                for (float t = 0; t < 150 && !(_session.TrainWarnSide != null && (_session.Train == null || _session.Train.Finished)); t += 1 / 30f)
+                {
+                    _session.Heli.Invulnerable = 5;
+                    _session.Step(1 / 30f, default);
+                    _hud.Update(1 / 30f, _session.PowerUps.Active);
+                }
+                Sim(0.5f, () => _session.Heli.Invulnerable = 5);
+            }
+            if (_options.Scenario == "pause")
+            {
+                Pause();
+                for (float t = 0; t < 0.6f; t += 1 / 30f) _menu.Update(1 / 30f, _input, vp);
+                foreach (var step in (_options.MenuScript ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    _menu.Press(step);
+                    for (float t = 0; t < 0.5f; t += 1 / 30f) _menu.Update(1 / 30f, _input, vp);
+                }
             }
             if (_options.Scenario == "cards")
             {
@@ -276,6 +297,7 @@ public sealed class BpwGame : Game
             _cards.Update(dt, _input, vp);
             _menu.Update(dt, _input, vp);
         }
+        else if (_session.Paused) _menu.Update(dt, _input, vp);
         _hud.CardsOpen = _cards.Open;
         _hud.Update(dt, _session.PowerUps.Active);
         base.Update(gameTime);
@@ -312,61 +334,40 @@ public sealed class BpwGame : Game
                 if (_input.AnyAction && _hud.Overlay is Overlay.GameOver or Overlay.Won) ShowMenu();
                 break;
             default:
-                if (s.Paused)
-                {
-                    if (_input.PausePressed)
-                    {
-                        Resume();
-                        break;
-                    }
-                    foreach (var tap in _input.Taps)
-                    {
-                        if (_hud.ResumeButton.Contains(tap.Position)) Resume();
-                        else if (_hud.RestartButton.Contains(tap.Position)) Restart();
-                        else if (_hud.MainMenuButton.Contains(tap.Position))
-                        {
-                            _session.Paused = false;
-                            ShowMenu();
-                        }
-                        else if (_hud.ShowQuit && _hud.QuitButton.Contains(tap.Position)) Exit();
-                    }
-                    if (_input.Pressed(Microsoft.Xna.Framework.Input.Keys.R)) Restart();
-                    else if (_input.Pressed(Microsoft.Xna.Framework.Input.Keys.M))
-                    {
-                        _session.Paused = false;
-                        ShowMenu();
-                    }
-                }
-                else if (_input.PausePressed)
-                {
-                    s.Paused = true;
-                    _hud.ShowPause();
-                }
+                // Paused: the pause menu handles its own input (MainMenu.Update).
+                if (!s.Paused && _input.PausePressed) Pause();
                 break;
         }
+    }
+
+    /// <summary>ESC / P / the touch pause button: the game freezes under the pause menu.</summary>
+    private void Pause()
+    {
+        if (_session.Paused || _menu.Visible || _session.State is not (GameState.Playing or GameState.Dead)) return;
+        _session.Paused = true;
+        _menu.ShowPause(Resume, () =>
+        {
+            Resume();
+            _session.StartRun();
+        }, () =>
+        {
+            Resume();
+            ShowMenu();
+        });
     }
 
     private void Resume()
     {
         _session.Paused = false;
         _hud.HideOverlay();
-    }
-
-    private void Restart()
-    {
-        _session.Paused = false;
-        _session.StartRun();
+        _menu.Hide();
     }
 
     /// <summary>Android: pause when the app goes to the background.</summary>
     protected override void OnDeactivated(object sender, EventArgs args)
     {
         base.OnDeactivated(sender, args);
-        if (_session is { State: GameState.Playing or GameState.Dead, Paused: false })
-        {
-            _session.Paused = true;
-            _hud.ShowPause();
-        }
+        Pause();
     }
 
     protected override void Draw(GameTime gameTime)

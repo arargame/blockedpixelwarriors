@@ -811,7 +811,7 @@ class Exporter {
   async writeFont(name, font, size) {
     const chars = [];
     for (let c = 32; c < 127; c++) chars.push(String.fromCharCode(c));
-    for (const c of 'ÇĞİÖŞÜçğıöşü·•→←↑↓›‹➜✖☠⬆◆—–…×°◀▶✔') chars.push(c);
+    for (const c of 'ÇĞİÖŞÜçğıöşü·•→←↑↓›‹➜✖☠⬆◆—–…×°◀▶✔▲▼') chars.push(c);
     const pad = Math.ceil(size * 0.18);
     const probe = document.createElement('canvas').getContext('2d');
     probe.font = font;

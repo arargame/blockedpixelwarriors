@@ -223,9 +223,10 @@ public sealed class Hud : IHudEvents
             DrawBottomLeft(vp, s, k, hudAlpha, null);
             DrawSkills(vp, s, k, hudAlpha, showTouch);
         }
-        DrawNoticeAndToast(vp, k);
+        if (!s.Paused) DrawNoticeAndToast(vp, k);
+        if (!s.Paused && s.TrainWarnPoint is { } warn) DrawTrainWarning(vp, camera, warn, s.TrainWarnSide == "top", k);
         DrawFloats(vp, camera, k);
-        if (showTouch && playing && Overlay == Overlay.None) DrawTouch(touch, k);
+        if (showTouch && playing && Overlay == Overlay.None && !s.Paused) DrawTouch(touch, k);
         if (_overlayAlpha > 0.01f) DrawOverlay(vp, k);
         _ui.End();
     }
@@ -686,6 +687,34 @@ public sealed class Hud : IHudEvents
             _ui.Rect(new RectangleF(bar.X + 3.5f * k, bar.Y + 3.5f * k, (bar.Width - 7 * k) * ratio, bar.Height - 7 * k), Color.White * a);
             y += h + 8 * k;
         }
+    }
+
+    /// <summary>Pulsing hazard chip at the screen edge a train is about to come in from (hud.css .train-warn).</summary>
+    private void DrawTrainWarning(Rectangle vp, Camera3D camera, Vector3 point, bool top, float k)
+    {
+        var (p, _) = camera.WorldToScreen(point, new Vector2(vp.Width, vp.Height));
+        var x = MathHelper.Clamp(p.X, 80 * k, vp.Width - 80 * k);
+        var y = top ? 118 * k : vp.Height - 64 * k;
+        var phase = 0.5f - 0.5f * MathF.Cos(_time * MathF.PI * 2 / 0.7f);
+        var s = 1 + 0.06f * phase;
+        const string text = "TRAIN";
+        var px = 15 * k * s;
+        var arrow = top ? "▼" : "▲";
+        var apx = 13 * k * s;
+        var tw = _ui.Hud.Measure(text, px, 3 * k / px);
+        var aw = _ui.Ui.Measure(arrow, apx);
+        var w = (tw + 2 * aw + 16 * k + 28 * k);
+        var h = (px * 1.2f + 12 * k);
+        var r = new RectangleF(x - w / 2, y - h / 2, w, h);
+        var gold = new Color(0xff, 0xd3, 0x4a);
+        _ui.SoftDisc(new Vector2(x, y), w * 0.75f, new Color(255, 200, 60) * (0.25f + 0.25f * phase));
+        _ui.Panel(r, 8 * k, new Color(40, 30, 6) * 0.88f);
+        _ui.Outline(r, 8 * k, gold);
+        var bob = (top ? 4 : -4) * k * phase;
+        var ax = r.X + 14 * k;
+        _ui.Ui.DrawShadowed(_ui.Batch, arrow, new Vector2(ax, y - apx * 0.55f + bob), apx, gold, Color.Black * 0.7f, new Vector2(0, 2 * k));
+        _ui.Hud.DrawShadowed(_ui.Batch, text, new Vector2(ax + aw + 8 * k, y - px * 0.55f), px, gold, Color.Black * 0.7f, new Vector2(0, 2 * k), 3 * k / px);
+        _ui.Ui.DrawShadowed(_ui.Batch, arrow, new Vector2(ax + aw + 8 * k + tw + 8 * k, y - apx * 0.55f + bob), apx, gold, Color.Black * 0.7f, new Vector2(0, 2 * k));
     }
 
     private void DrawNoticeAndToast(Rectangle vp, float k)

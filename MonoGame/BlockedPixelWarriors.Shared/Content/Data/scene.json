@@ -3715,17 +3715,17 @@
   },
   "heli": {
    "rotorMatrix": [
-    0.5232589681117126,
+    -0.6643242671319043,
     0,
-    -0.523259068044373,
+    -0.3259958099418735,
     0,
     0,
     0.74,
     0,
     0,
-    0.523259068044373,
+    0.3259958099418735,
     0,
-    0.5232589681117126,
+    -0.6643242671319043,
     0,
     0,
     1.4651999258995057,
@@ -3738,12 +3738,12 @@
     0,
     0,
     0,
-    0.74,
+    -0.6839837601880229,
+    0.28242913411872544,
     0,
     0,
-    0,
-    0,
-    0.74,
+    -0.28242913411872544,
+    -0.6839837601880229,
     0,
     0.10360000044107437,
     0.925,
@@ -4089,7 +4089,13 @@
      "farewell": "Thanks for playing! You can close this tab.",
      "hintKeys": "↑↓ MENU · ←→ BROWSE · ENTER SELECT · ESC BACK",
      "hintTouch": "TAP A CARD · SWIPE TO BROWSE",
-     "open": "ENTER / TAP TO OPEN"
+     "open": "ENTER / TAP TO OPEN",
+     "paused": "PAUSED",
+     "resume": "RESUME",
+     "restart": "RESTART",
+     "mainMenu": "MAIN MENU",
+     "hintPause": "↑↓ SELECT · ENTER CONFIRM · ESC RESUME",
+     "hintPauseTouch": "TAP TO CHOOSE"
     },
     "tr": {
      "play": "OYNA",
@@ -4152,7 +4158,13 @@
      "farewell": "Oynadığın için teşekkürler! Bu sekmeyi kapatabilirsin.",
      "hintKeys": "↑↓ MENÜ · ←→ GEZ · ENTER SEÇ · ESC GERİ",
      "hintTouch": "KARTA DOKUN · KAYDIRARAK GEZ",
-     "open": "AÇMAK İÇİN ENTER / DOKUN"
+     "open": "AÇMAK İÇİN ENTER / DOKUN",
+     "paused": "DURAKLATILDI",
+     "resume": "DEVAM",
+     "restart": "YENİDEN BAŞLA",
+     "mainMenu": "ANA MENÜ",
+     "hintPause": "↑↓ SEÇ · ENTER ONAYLA · ESC DEVAM",
+     "hintPauseTouch": "SEÇMEK İÇİN DOKUN"
     }
    },
    "rows": [

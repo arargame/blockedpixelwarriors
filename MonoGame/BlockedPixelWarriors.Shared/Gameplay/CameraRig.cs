@@ -15,6 +15,8 @@ public sealed class CameraRig
     private Vector3? _smooth;
 
     public Camera3D Camera { get; } = new();
+    /// <summary>Camera position without shake (train entry / exit edges).</summary>
+    public Vector3 Smooth => _smooth ?? Camera.Position;
     public Vector3 HeliAnchor { get; }
     public float Shake;
     /// <summary>OPTIONS · CAMERA SHAKE (0 = off).</summary>

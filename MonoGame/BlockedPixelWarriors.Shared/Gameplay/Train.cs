@@ -22,6 +22,9 @@ public sealed class TrainTarget
     public bool Snow;
     public float Size;
     public float CubeYaw;
+    /// <summary>Cargo: resting box when loaded, height to settle at after a fall, fall speed.</summary>
+    public BoundingBox Home;
+    public float RestY = float.NaN, FallVel;
     public Vector3 Center => (Box.Min + Box.Max) * 0.5f;
 }
 
@@ -368,6 +371,9 @@ public sealed class Train : IRenderable
         }
         TotalLength = offset * Scale;
         HeadZ = _pathStart + TotalLength;
+        foreach (var car in Cars)
+        foreach (var t in car.Targets)
+            if (t.Kind == TargetKind.Cargo) t.Home = t.Box;
         var cubes = Cars.Sum(c => c.Targets.Count(t => t.Kind == TargetKind.Cargo));
         _cubes = new InstanceBuffer(device, Math.Max(1, cubes), true);
         _snowCaps = new InstanceBuffer(device, Math.Max(1, cubes), true);
@@ -425,7 +431,7 @@ public sealed class Train : IRenderable
         Finished = false;
         Dir = -Dir;
         _rotationY = Dir > 0 ? 0 : MathF.PI;
-        SetHeadZ(Dir > 0 ? _pathStart + TotalLength : _pathEnd - TotalLength);
+        PlaceAtEntry();
         PlanTrip();
         foreach (var car in Cars)
         foreach (var t in car.Targets)
@@ -433,6 +439,79 @@ public sealed class Train : IRenderable
             if (t.Kind != TargetKind.Cargo) continue;
             t.Alive = true;
             t.Hp = t.MaxHp;
+            t.Box = t.Home;
+            t.RestY = float.NaN;
+            t.FallVel = 0;
+        }
+    }
+
+    /// <summary>Visible stretch of the line (z), set by the session from the camera each frame.</summary>
+    public (float top, float bottom)? View;
+    /// <summary>Seconds the old trips still ran on out of sight (the return wait is scaled from it).</summary>
+    public float FinishRest { get; private set; }
+    /// <summary>The session has scheduled this train's return.</summary>
+    public bool GapSet;
+
+    /// <summary>Just off screen on the side it comes in from: above the top running down the line, below the bottom on the way back.</summary>
+    public void PlaceAtEntry()
+    {
+        Finished = false;
+        FinishRest = 0;
+        GapSet = false;
+        if (View is not { } v)
+        {
+            SetHeadZ(Dir > 0 ? _pathStart + TotalLength : _pathEnd - TotalLength);
+            return;
+        }
+        SetHeadZ(Dir > 0 ? v.top : v.bottom);
+    }
+
+    /// <summary>True while the locomotive is still out of sight on its way in.</summary>
+    public bool Entering
+    {
+        get
+        {
+            if (View is not { } v || Finished) return false;
+            var m = GameConfig.Train.ViewMargin;
+            return Dir > 0 ? HeadZ < v.top + m : HeadZ > v.bottom - m;
+        }
+    }
+
+    /// <summary>A cube was shot away: the cubes stacked on it drop onto what is left below.</summary>
+    private static void SettleColumn(TrainCar car, TrainTarget target)
+    {
+        var hc = target.Home.Min + target.Home.Max;
+        var col = car.Targets.Where(t => t.Kind == TargetKind.Cargo && MathF.Abs(t.Home.Min.X + t.Home.Max.X - hc.X) < 0.1f && MathF.Abs(t.Home.Min.Z + t.Home.Max.Z - hc.Z) < 0.1f)
+            .OrderBy(t => t.Home.Min.Y).ToList();
+        var floor = col[0].Home.Min.Y;
+        var level = 0;
+        foreach (var t in col)
+        {
+            if (!t.Alive) continue;
+            t.RestY = floor + level * (t.Home.Max.Y - t.Home.Min.Y);
+            level++;
+        }
+    }
+
+    /// <summary>Falling cargo cubes (car space): gravity down to their rest height, a small thud.</summary>
+    private void UpdateCargoFall(float dt)
+    {
+        foreach (var car in Cars)
+        foreach (var t in car.Targets)
+        {
+            if (t.Kind != TargetKind.Cargo || !t.Alive || float.IsNaN(t.RestY)) continue;
+            var y = t.Box.Min.Y;
+            if (y <= t.RestY + 1e-4f) continue;
+            t.FallVel += GameConfig.Train.CargoGravity * dt;
+            var ny = MathF.Max(t.RestY, y - t.FallVel * dt);
+            var d = new Vector3(0, ny - y, 0);
+            t.Box = new BoundingBox(t.Box.Min + d, t.Box.Max + d);
+            if (ny <= t.RestY)
+            {
+                t.FallVel = 0;
+                var c = t.Center;
+                _effects.Impact(car.ToWorld(new Vector3(c.X, t.Box.Min.Y, c.Z)), new Vector4(0.9f, 0.85f, 0.8f, 1));
+            }
         }
     }
 
@@ -534,7 +613,15 @@ public sealed class Train : IRenderable
         var move = Dir * (_reversing ? -1 : 1);
         HeadZ += move * Speed * dt;
         UpdateTransforms();
-        if (move > 0 ? MinZ > _pathEnd : MaxZ < _pathStart) Finished = true;
+        // The trip ends once the whole train is off screen (or at the end of the line).
+        var gone = View is { } v && (move > 0 ? MinZ > v.bottom : MaxZ < v.top);
+        if (!Finished && (gone || (move > 0 ? MinZ > _pathEnd : MaxZ < _pathStart)))
+        {
+            Finished = true;
+            var rest = move > 0 ? _pathEnd - MinZ : MaxZ - _pathStart;
+            FinishRest = MathF.Max(0, rest) / MathF.Max(1, Speed);
+        }
+        UpdateCargoFall(dt);
 
         _smokeTimer -= dt;
         if (_smokeTimer <= 0)
@@ -871,6 +958,7 @@ public sealed class Train : IRenderable
         var world = car.ToWorld(target.Center);
         if (target.Kind == TargetKind.Cargo)
         {
+            SettleColumn(car, target);
             _effects.Impact(world);
             if (OnCargoKnocked == null || !OnCargoKnocked(world, target.Color))
             {

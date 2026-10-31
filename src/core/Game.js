@@ -187,6 +187,8 @@ export class Game {
     this.cameraMode = 'board';
     this.train = null;
     this.trainTimer = 1.5;
+    this.trainWarned = false;
+    this.trainWarnSide = null;
     this.wave = 0;
 
     this.input = new Input(this.pipeline.renderer.domElement);
@@ -224,7 +226,45 @@ export class Game {
     this.input.onAnyAction = (e) => this.handleStartInput(e);
 
     window.addEventListener('resize', () => this.pipeline.resize());
+    // ESC / P (or the HUD pause button) freezes the game under the pause menu; the menu's own key
+    // handler runs first and marks the keys it used, so ESC there resumes without re-pausing.
+    window.addEventListener('keydown', (e) => {
+      if (e.defaultPrevented || (e.code !== 'Escape' && e.code !== 'KeyP')) return;
+      this.pause();
+    });
+    this.hud.onPause = () => this.pause();
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.pause();
+    });
     if (!options.poster) this.showMenu();
+  }
+
+  /** Pause: the game stops (nothing simulates) and the pause menu opens over it. */
+  pause() {
+    if (this.pausedGame || this.menu.visible || this.options.poster) return;
+    if (this.state !== GameState.PLAYING && this.state !== GameState.DEAD) return;
+    this.pausedGame = true;
+    this.cards.blocked = true;
+    this.hud.root.classList.add('paused');
+    this.menu.showPause({
+      resume: () => this.resume(),
+      restart: () => {
+        this.resume();
+        this.startRun();
+      },
+      mainMenu: () => {
+        this.resume();
+        this.showMenu();
+      },
+    });
+  }
+
+  resume() {
+    if (!this.pausedGame) return;
+    this.pausedGame = false;
+    this.cards.blocked = false;
+    this.hud.root.classList.remove('paused');
+    this.menu.hide();
   }
 
   /** Main menu: the depot plays itself behind it (attract mode), drained to grey. */
@@ -344,6 +384,7 @@ export class Game {
     this.heli.spawn.set(gx - 5, GameConfig.heli.altitude, gz - 7);
     if (fromSave) this.checkpoint.show(false);
     this.trainTimer = 3;
+    this.trainWarned = false;
     if (!fromSave) {
       this.saveCheckpoint();
       this.hud.notice('CHECKPOINT SAVED', '#7be86a');
@@ -458,6 +499,8 @@ export class Game {
     this.train?.dispose();
     this.train = null;
     this.trainTimer = 1.5;
+    this.trainWarned = false;
+    this.trainWarnSide = null;
     this.wave = 0;
     this.updateCamera(0, true);
   }
@@ -478,6 +521,8 @@ export class Game {
       path: terrace ? GameConfig.stages.haulerPath : null,
       arena: terrace ? GameConfig.stages.terrace : null,
     });
+    this.train.view = this.trainViewRange();
+    this.train.placeAtEntry();
     this.train.onBallHit = (center) => this.onBallHit(center);
     this.train.onFire = (muzzle, target) => this.fireEnemyShell(muzzle, target);
     this.train.onCannonFire = (muzzle, target) => this.fireCannonShell(muzzle, target);
@@ -498,7 +543,46 @@ export class Game {
     };
     this.scene.add(this.train.group);
     this.hud.setWave(this.wave);
-    if (!this.options.poster) this.hud.toast(`WAVE ${this.wave} - ${this.train.title} INCOMING`);
+    if (!this.options.poster && !this.trainWarned) this.hud.toast(`WAVE ${this.wave} - ${this.train.title} INCOMING`);
+  }
+
+  /** Stretch of the line on screen (z), from the camera, with the off-screen margin. */
+  trainViewRange() {
+    const cfg = GameConfig.train;
+    const cz = this.cameraSmooth?.z ?? this.camera.position.z;
+    return { top: cz + cfg.viewTop - cfg.viewMargin, bottom: cz + cfg.viewBottom + cfg.viewMargin };
+  }
+
+  /**
+   * A couple of seconds before a train comes in: the toast and a marker at the screen edge it
+   * will come from (top when it runs down the line, bottom on the way back).
+   */
+  warnTrain() {
+    this.trainWarned = true;
+    const back = this.train && !this.train.destroyed;
+    const dirIn = back ? -this.train.dir : 1;
+    this.trainWarnSide = dirIn > 0 ? 'top' : 'bottom';
+    if (this.options.poster) return;
+    if (back) this.hud.toast(`THE TRAIN IS BACK - ${Math.round(this.train.integrity * 100)}%`);
+    else this.hud.toast(`WAVE ${this.wave + 1} - ${this.stage === Stage.TERRACE ? 'BLOCK HAULER' : 'ARMORED TRAIN'} INCOMING`);
+  }
+
+  /** Edge marker while a train is announced / still on its way in. */
+  updateTrainWarning() {
+    const side = this.trainWarnSide;
+    const t = this.train;
+    const coming = side && this.state === GameState.PLAYING && (!t || t.finished || t.entering);
+    if (!coming) {
+      this.trainWarnSide = null;
+      this.hud.setTrainWarning(null);
+      return;
+    }
+    const v = this.trainViewRange();
+    const m = GameConfig.train.viewMargin;
+    v1.set(this.world.track.x, this.world.track.railTop + 1, side === 'top' ? v.top + m + 6 : v.bottom - m - 2).project(this.camera);
+    const w = this.hud.root.clientWidth;
+    const h = this.hud.root.clientHeight;
+    this.hud.setTrainWarning({ side, x: THREE.MathUtils.clamp((v1.x * 0.5 + 0.5) * w, 80, w - 80), y: side === 'top' ? 118 : h - 64 });
   }
 
   /** Brass under-cannon: a round iron cannonball straight out along the barrel (not aimed), slight lob. */
@@ -1041,18 +1125,30 @@ export class Game {
       this.hud.toast('LINE CLEAR - FLY UP THE TRACKS TO THE CHECKPOINT');
     }
     const trainsRun = this.stage === Stage.DEPOT || this.stage === Stage.TERRACE;
+    if (this.train) this.train.view = this.trainViewRange();
     if (trainsRun && (!this.train || this.train.finished)) {
+      const cfg = GameConfig.train;
+      if (this.train?.finished && !this.train.gapSet) {
+        // Off screen: back after the old wait (run-on out of sight + respawn delay) x returnFactor,
+        // minus the moment it takes to roll in from just off screen.
+        this.train.gapSet = true;
+        this.trainTimer = Math.max(0.6, cfg.returnFactor * ((this.train.finishRest ?? 0) + cfg.respawnDelay) - cfg.viewMargin / Math.max(1, this.train.baseSpeed));
+        this.trainWarned = false;
+      }
       this.trainTimer -= dt;
+      if (!this.trainWarned && this.trainTimer <= cfg.warnLead) this.warnTrain();
       if (this.trainTimer <= 0) {
         if (this.train && !this.train.destroyed) {
+          this.train.view = this.trainViewRange();
           this.train.restartLap();
-          if (!this.options.poster) this.hud.toast(`THE TRAIN IS BACK - ${Math.round(this.train.integrity * 100)}%`);
         } else {
           this.spawnTrain();
         }
-        this.trainTimer = GameConfig.train.respawnDelay;
+        this.trainWarned = false;
+        this.trainTimer = cfg.respawnDelay;
       }
     }
+    this.updateTrainWarning();
     this.train?.update(dt, this.heli.position, this.heli.alive);
     this.checkTrainCollision();
     this.restockFarSide();
@@ -1227,7 +1323,10 @@ export class Game {
     const loop = () => {
       const dt = Math.min(this.clock.getDelta(), 1 / 20);
       if (!this.paused) {
-        this.step(dt);
+        if (this.pausedGame) {
+          // Frozen frame under the pause menu (grey fades in; nothing moves).
+          this.menu.update(dt);
+        } else this.step(dt);
         this.pipeline.render(dt);
       }
       requestAnimationFrame(loop);

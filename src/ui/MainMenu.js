@@ -42,6 +42,18 @@ export function menuLayout(W, H) {
   return { W, H, u, compact, logo, nav, stage, card, headY, footY, panel, openCx, hintY: H - (compact ? 16 : 30) * u };
 }
 
+/** Pause menu layout: logo centred at the top, the panel centred under it (MainMenu.cs PauseLayout). */
+export function pauseLayout(W, H) {
+  const L = menuLayout(W, H);
+  const u = L.u;
+  const lw = Math.min(W * 0.3, (L.compact ? 200 : 380) * u);
+  const logo = { x: (W - lw) / 2, y: (L.compact ? 8 : 34) * u, w: lw, h: lw * LOGO_ASPECT };
+  const pw = Math.min(W - 40 * u, (L.compact ? 420 : 500) * u);
+  const top = logo.y + logo.h + (L.compact ? 6 : 20) * u;
+  const panel = { x: (W - pw) / 2, y: top, w: pw, h: Math.max(0, H - top - (L.compact ? 30 : 70) * u) };
+  return { logo, panel };
+}
+
 /**
  * Main menu. The game keeps running behind it (the attract-mode heli over the depot, trains
  * passing) drained to ash grey like while upgrade cards are up; the menu itself stays in colour.
@@ -175,6 +187,9 @@ export class MainMenu {
   // ---- Show / hide ------------------------------------------------------------------------
 
   async show() {
+    this.mode = 'main';
+    this.root.classList.remove('pause-mode');
+    this.layoutKey = null;
     this.visible = true;
     this.active = false;
     this.leaving = null;
@@ -201,7 +216,44 @@ export class MainMenu {
   hide() {
     this.visible = false;
     this.active = false;
+    this.open = null;
     this.root.classList.remove('visible', 'leaving', 'panel-open');
+  }
+
+  /**
+   * Pause menu: the same panel style centred over the frozen, grey game.
+   * RESUME · OPTIONS (sound / graphics / language) · RESTART · MAIN MENU.
+   * @param {{resume:()=>void, restart:()=>void, mainMenu:()=>void}} actions
+   */
+  showPause(actions) {
+    this.mode = 'pause';
+    this.pauseActions = actions;
+    this.layoutKey = null;
+    this.visible = true;
+    this.active = false;
+    this.leaving = null;
+    this.introT = 0;
+    this.open = 'pause';
+    this.panelIndex = 0;
+    this.root.classList.add('visible', 'pause-mode', 'panel-open');
+    this.root.classList.remove('leaving');
+    for (const list of this.cards) for (const c of list) if (c.group) c.group.visible = false;
+    this.refresh();
+  }
+
+  get paused() {
+    return this.visible && this.mode === 'pause';
+  }
+
+  /** BACK: sub panel -> its parent; in the pause menu's top level it resumes the game. */
+  back() {
+    if (this.mode !== 'pause') return this.closePanel();
+    if (this.open === 'pauseOptions') return this.openPanel('pause', 1);
+    if (this.open === 'sound' || this.open === 'graphics' || this.open === 'language') {
+      const i = ['sound', 'graphics', 'language'].indexOf(this.open);
+      return this.openPanel('pauseOptions', i);
+    }
+    this.pauseActions?.resume();
   }
 
   // ---- Cards ------------------------------------------------------------------------------
@@ -351,16 +403,16 @@ export class MainMenu {
     this.openPanel(def.scenario ? 'scenario' : def.panel);
   }
 
-  openPanel(kind) {
+  openPanel(kind, index = 0) {
     this.open = kind;
-    this.panelIndex = 0;
+    this.panelIndex = index;
     this.farewell = false;
     this.root.classList.add('panel-open');
     this.refresh();
   }
 
   closePanel(silent = false) {
-    if (!this.open) return;
+    if (!this.open || this.mode === 'pause') return;
     this.open = null;
     this.root.classList.remove('panel-open');
     if (!silent) this.refresh();
@@ -371,7 +423,22 @@ export class MainMenu {
   /** Rows of the open panel: { kind:'slider'|'cycle'|'radio'|'button', ... }. */
   panelItems() {
     const s = this.settings;
+    const back = { kind: 'button', label: this.t('back'), act: () => this.back() };
     switch (this.open) {
+      case 'pause':
+        return [
+          { kind: 'button', label: this.t('resume'), primary: true, act: () => this.pauseActions?.resume() },
+          { kind: 'button', label: this.t('options'), act: () => this.openPanel('pauseOptions') },
+          { kind: 'button', label: this.t('restart'), act: () => this.pauseActions?.restart() },
+          { kind: 'button', label: this.t('mainMenu'), act: () => this.pauseActions?.mainMenu() },
+        ];
+      case 'pauseOptions':
+        return [
+          { kind: 'button', label: this.t('soundTitle'), act: () => this.openPanel('sound') },
+          { kind: 'button', label: this.t('graphicsTitle'), act: () => this.openPanel('graphics') },
+          { kind: 'button', label: this.t('languageTitle'), act: () => this.openPanel('language') },
+          back,
+        ];
       case 'scenario': {
         const items = [];
         if (this.canContinue()) items.push({ kind: 'button', label: this.t('continueStage'), primary: true, act: () => this.start('continue') });
@@ -382,7 +449,7 @@ export class MainMenu {
       case 'sound':
         return [
           ...['master', 'music', 'sfx'].map((k) => ({ kind: 'slider', key: k, label: this.t(k), value: s[k], max: 10 })),
-          { kind: 'button', label: this.t('back'), act: () => this.closePanel() },
+          back,
         ];
       case 'graphics': {
         const q = s.quality;
@@ -391,13 +458,13 @@ export class MainMenu {
           { kind: 'cycle', key: 'shake', label: this.t('shake'), text: this.t(s.shake ? 'on' : 'off') },
         ];
         if (document.fullscreenEnabled) items.push({ kind: 'cycle', key: 'fullscreen', label: this.t('fullscreen'), text: this.t(s.fullscreen ? 'on' : 'off') });
-        items.push({ kind: 'button', label: this.t('back'), act: () => this.closePanel() });
+        items.push(back);
         return items;
       }
       case 'language':
         return [
           ...LANGUAGES.map((l) => ({ kind: 'radio', label: LANGUAGE_NAMES[l], on: s.lang === l, act: () => s.set('lang', l) })),
-          { kind: 'button', label: this.t('back'), act: () => this.closePanel() },
+          back,
         ];
       case 'exit':
         return [
@@ -466,7 +533,7 @@ export class MainMenu {
     this.el.arrows[0].classList.toggle('off', this.cols[this.row] <= 0);
     this.el.arrows[1].classList.toggle('off', this.cols[this.row] >= row.cards.length - 1);
     const touch = matchMedia('(pointer: coarse)').matches;
-    this.el.hint.textContent = touch ? this.t('hintTouch') : this.t('hintKeys');
+    this.el.hint.textContent = this.mode === 'pause' ? (touch ? this.t('hintPauseTouch') : this.t('hintPause')) : touch ? this.t('hintTouch') : this.t('hintKeys');
     this.renderFoot();
     this.renderPanel();
   }
@@ -507,8 +574,8 @@ export class MainMenu {
 
   renderPanel() {
     if (!this.open) return;
-    const c = this.focused();
-    const def = c.def;
+    const pause = this.mode === 'pause';
+    const def = pause ? { glow: 0xffcf6a, title: { pause: 'paused', pauseOptions: 'optionsHead', sound: 'soundTitle', graphics: 'graphicsTitle', language: 'languageTitle' }[this.open] } : this.focused().def;
     const items = this.panelItems();
     this.panelIndex = THREE.MathUtils.clamp(this.panelIndex, 0, items.length - 1);
     const accent = `#${def.glow.toString(16).padStart(6, '0')}`;
@@ -554,22 +621,22 @@ export class MainMenu {
     if (!this.visible) return;
     if (!this.active) return;
     const k = e.code;
-    const nav = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Enter', 'NumpadEnter', 'Space', 'Escape', 'Backspace'];
+    const nav = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Enter', 'NumpadEnter', 'Space', 'Escape', 'Backspace', 'KeyP'];
     if (nav.includes(k)) e.preventDefault();
     const up = k === 'ArrowUp' || k === 'KeyW';
     const down = k === 'ArrowDown' || k === 'KeyS';
     const left = k === 'ArrowLeft' || k === 'KeyA';
     const right = k === 'ArrowRight' || k === 'KeyD';
     const enter = k === 'Enter' || k === 'NumpadEnter' || k === 'Space';
-    const back = k === 'Escape' || k === 'Backspace';
+    const back = k === 'Escape' || k === 'Backspace' || (k === 'KeyP' && this.mode === 'pause');
     if (this.open) {
       const items = this.panelItems();
       if (up) this.panelIndex = (this.panelIndex - 1 + items.length) % items.length;
       else if (down) this.panelIndex = (this.panelIndex + 1) % items.length;
       else if (left || right) this.adjust(items[this.panelIndex], left ? -1 : 1);
       else if (enter) this.activatePanel(this.panelIndex);
-      else if (back) this.closePanel();
-      this.refresh();
+      else if (back) this.back();
+      if (this.visible) this.refresh();
       return;
     }
     if (up) this.setRow(this.row - 1);
@@ -644,7 +711,7 @@ export class MainMenu {
   layout() {
     const W = window.innerWidth;
     const H = window.innerHeight;
-    const key = `${W}x${H}`;
+    const key = `${W}x${H}x${this.mode}`;
     if (key === this.layoutKey) return this.L;
     this.layoutKey = key;
     const L = (this.L = menuLayout(W, H));
@@ -665,6 +732,12 @@ export class MainMenu {
     Object.assign(this.el.arrows[0].style, { left: px(Math.max(L.stage.x, L.card.cx - ax - 52 * L.u)), top: px(ay) });
     Object.assign(this.el.arrows[1].style, { left: px(Math.min(L.stage.x + L.stage.w, L.card.cx + ax + 52 * L.u)), top: px(ay) });
     Object.assign(this.el.panel.style, { left: px(L.panel.x), top: px(L.panel.y), width: px(L.panel.w), minHeight: px(L.panel.h) });
+    if (this.mode === 'pause') {
+      // Centred panel under a centred logo.
+      const P = pauseLayout(W, H);
+      Object.assign(this.el.logoBox.style, { left: px(P.logo.x), top: px(P.logo.y), width: px(P.logo.w), height: px(P.logo.h) });
+      Object.assign(this.el.panel.style, { left: px(P.panel.x), top: px(P.panel.y), width: px(P.panel.w), minHeight: px(P.panel.h) });
+    }
     this.el.hint.style.top = px(L.hintY);
     this.root.classList.toggle('compact', L.compact);
     return L;
@@ -695,7 +768,14 @@ export class MainMenu {
     this.introT = (this.introT ?? 0) + dt;
     const L = this.layout();
     if (!this.loaded) return;
-    if (!this.active && !this.leaving && this.introT > 0.35) this.active = true;
+    if (!this.active && !this.leaving && this.introT > (this.mode === 'pause' ? 0.12 : 0.35)) this.active = true;
+    if (this.mode === 'pause') {
+      if (this.drawn) {
+        this.renderer.clear();
+        this.drawn = false;
+      }
+      return;
+    }
     const k = (L.card.h / L.H * VIS_H) / CARD_H; // world units per card unit
     const base = this.world(L.card.cx, L.card.cy);
     const openBase = this.world(L.openCx, L.card.cy);

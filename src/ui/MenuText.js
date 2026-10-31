@@ -69,6 +69,13 @@ export const MENU_TEXT = Object.freeze({
     hintKeys: '↑↓ MENU · ←→ BROWSE · ENTER SELECT · ESC BACK',
     hintTouch: 'TAP A CARD · SWIPE TO BROWSE',
     open: 'ENTER / TAP TO OPEN',
+    // Pause
+    paused: 'PAUSED',
+    resume: 'RESUME',
+    restart: 'RESTART',
+    mainMenu: 'MAIN MENU',
+    hintPause: '↑↓ SELECT · ENTER CONFIRM · ESC RESUME',
+    hintPauseTouch: 'TAP TO CHOOSE',
   },
   tr: {
     play: 'OYNA',
@@ -132,6 +139,12 @@ export const MENU_TEXT = Object.freeze({
     hintKeys: '↑↓ MENÜ · ←→ GEZ · ENTER SEÇ · ESC GERİ',
     hintTouch: 'KARTA DOKUN · KAYDIRARAK GEZ',
     open: 'AÇMAK İÇİN ENTER / DOKUN',
+    paused: 'DURAKLATILDI',
+    resume: 'DEVAM',
+    restart: 'YENİDEN BAŞLA',
+    mainMenu: 'ANA MENÜ',
+    hintPause: '↑↓ SEÇ · ENTER ONAYLA · ESC DEVAM',
+    hintPauseTouch: 'SEÇMEK İÇİN DOKUN',
   },
 });
 

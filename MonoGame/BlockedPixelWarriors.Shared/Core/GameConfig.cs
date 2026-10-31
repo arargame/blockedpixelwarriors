@@ -52,6 +52,17 @@ public static class GameConfig
         public const float Speed = 3.2f;
         public const int WagonCount = 6, GrowEvery = 1, MaxWagons = 14;
         public const float RespawnDelay = 4, TurretFireInterval = 1.4f;
+        /// <summary>
+        /// Trains come in from just off screen and their trip ends once off screen: visible line
+        /// relative to the camera z (key-art camera) plus a margin (Train.js view*).
+        /// </summary>
+        public const float ViewBottom = -1.2f, ViewTop = -53.1f, ViewMargin = 3;
+        /// <summary>Wait between leaving the screen and coming back, as a share of the old wait.</summary>
+        public const float ReturnFactor = 0.8f;
+        /// <summary>"Train incoming" warning lead time (s).</summary>
+        public const float WarnLead = 2.5f;
+        /// <summary>Cargo cubes drop when the cube under them is shot away (car units / s^2).</summary>
+        public const float CargoGravity = 30;
         public const float FastChance = 0.3f, SlowChance = 0.3f, FastMul = 1.9f, SlowMul = 0.55f;
         public const float StopChance = 0.65f, StopDuration = 3, StoppedFireMul = 0.4f;
         public const float CannonIntervalMin = 1.2f, CannonIntervalMax = 2.8f;

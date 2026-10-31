@@ -38,7 +38,7 @@ public sealed class MainMenu : IDisposable
     {
         public float W, H, U;
         public bool Compact;
-        public RectangleF Logo, Stage, Panel;
+        public RectangleF Logo, Stage, Panel, PauseLogo, PausePanel;
         public float NavX, NavY, NavW, PlateH, Gap;
         public Vector2 Card;
         public float CardWpx, CardHpx, HeadY, FootY, OpenCx, HintY;
@@ -69,6 +69,12 @@ public sealed class MainMenu : IDisposable
             var px = L.OpenCx + L.CardWpx / 2 + (compact ? 18 : 40) * u;
             L.Panel = new RectangleF(px, L.Card.Y - L.CardHpx * 0.52f, MathF.Min(panelW, L.Stage.Right - px), L.CardHpx * 1.04f);
             L.HintY = H - (compact ? 16 : 30) * u;
+            // Pause menu: logo centred at the top, the panel centred under it (pauseLayout).
+            var lw = MathF.Min(W * 0.3f, (compact ? 200 : 380) * u);
+            L.PauseLogo = new RectangleF((W - lw) / 2, (compact ? 8 : 34) * u, lw, lw * LogoAspect);
+            var pw = MathF.Min(W - 40 * u, (compact ? 420 : 500) * u);
+            var top = L.PauseLogo.Bottom + (compact ? 6 : 20) * u;
+            L.PausePanel = new RectangleF((W - pw) / 2, top, pw, MathF.Max(0, H - top - (compact ? 30 : 70) * u));
             return L;
         }
     }
@@ -108,6 +114,8 @@ public sealed class MainMenu : IDisposable
     private int _row, _panelIndex;
     private float _rowAnim, _openT, _time, _introT, _alpha, _footFlash;
     private string _open;
+    private string _mode = "main";
+    private Action _resume, _restart, _toMainMenu;
     private bool _farewell, _ignoreRelease;
     private (float t, string mode, bool fired)? _leaving;
     private Vector2 _pointer = new(-9999, -9999);
@@ -115,6 +123,8 @@ public sealed class MainMenu : IDisposable
     private (int row, int col)? _hover;
 
     public bool Visible { get; private set; }
+    /// <summary>The pause menu is up (the game is frozen under it).</summary>
+    public bool Paused => Visible && _mode == "pause";
     public bool Active { get; private set; }
     public float Ash { get; private set; }
     public bool TouchHints { get; set; }
@@ -177,6 +187,7 @@ public sealed class MainMenu : IDisposable
 
     public void Show()
     {
+        _mode = "main";
         Visible = true;
         Active = false;
         _leaving = null;
@@ -191,6 +202,42 @@ public sealed class MainMenu : IDisposable
         Visible = false;
         Active = false;
         _open = null;
+    }
+
+    /// <summary>
+    /// Pause menu: the same panel style centred over the frozen, grey game.
+    /// RESUME · OPTIONS (sound / graphics / language) · RESTART · MAIN MENU.
+    /// </summary>
+    public void ShowPause(Action resume, Action restart, Action mainMenu)
+    {
+        _mode = "pause";
+        _resume = resume;
+        _restart = restart;
+        _toMainMenu = mainMenu;
+        Visible = true;
+        Active = false;
+        _leaving = null;
+        _introT = 0;
+        _alpha = 0;
+        _open = "pause";
+        _openT = 1;
+        _panelIndex = 0;
+        foreach (var row in _rows)
+        foreach (var c in row)
+            c.Visible = false;
+    }
+
+    /// <summary>BACK: sub panel -> its parent; at the pause menu's top level it resumes.</summary>
+    private void Back()
+    {
+        if (_mode != "pause")
+        {
+            ClosePanel();
+            return;
+        }
+        if (_open == "pauseOptions") OpenPanel("pause", 1);
+        else if (_open is "sound" or "graphics" or "language") OpenPanel("pauseOptions", Array.IndexOf(new[] { "sound", "graphics", "language" }, _open));
+        else _resume?.Invoke();
     }
 
     /// <summary>Plays the chosen card into the game, then calls OnPlay(mode).</summary>
@@ -241,20 +288,36 @@ public sealed class MainMenu : IDisposable
         OpenPanel(d.Scenario ? "scenario" : d.Panel);
     }
 
-    public void OpenPanel(string kind)
+    public void OpenPanel(string kind, int index = 0)
     {
         _open = kind;
-        _panelIndex = 0;
+        _panelIndex = index;
         _farewell = false;
     }
 
-    private void ClosePanel() => _open = null;
+    private void ClosePanel()
+    {
+        if (_mode != "pause") _open = null;
+    }
 
     private List<Item> PanelItems()
     {
         var items = new List<Item>();
+        var back = new Item { Kind = "button", Label = T("back"), Act = Back };
         switch (_open)
         {
+            case "pause":
+                items.Add(new Item { Kind = "button", Label = T("resume"), Primary = true, Act = () => _resume?.Invoke() });
+                items.Add(new Item { Kind = "button", Label = T("options"), Act = () => OpenPanel("pauseOptions") });
+                items.Add(new Item { Kind = "button", Label = T("restart"), Act = () => _restart?.Invoke() });
+                items.Add(new Item { Kind = "button", Label = T("mainMenu"), Act = () => _toMainMenu?.Invoke() });
+                break;
+            case "pauseOptions":
+                items.Add(new Item { Kind = "button", Label = T("soundTitle"), Act = () => OpenPanel("sound") });
+                items.Add(new Item { Kind = "button", Label = T("graphicsTitle"), Act = () => OpenPanel("graphics") });
+                items.Add(new Item { Kind = "button", Label = T("languageTitle"), Act = () => OpenPanel("language") });
+                items.Add(back);
+                break;
             case "scenario":
                 var cont = CanContinue();
                 if (cont) items.Add(new Item { Kind = "button", Label = T("continueStage"), Primary = true, Act = () => Start("continue") });
@@ -263,13 +326,13 @@ public sealed class MainMenu : IDisposable
                 break;
             case "sound":
                 foreach (var k in new[] { "master", "music", "sfx" }) items.Add(new Item { Kind = "slider", Key = k, Label = T(k), Value = S.Get(k), Max = 10 });
-                items.Add(new Item { Kind = "button", Label = T("back"), Act = ClosePanel });
+                items.Add(back);
                 break;
             case "graphics":
                 items.Add(new Item { Kind = "cycle", Key = "quality", Label = T("quality"), Text = S.Quality != null ? T(S.Quality) : $"{T("auto")} · {T(RunningQuality)}" });
                 items.Add(new Item { Kind = "cycle", Key = "shake", Label = T("shake"), Text = T(S.Shake ? "on" : "off") });
                 if (ToggleFullscreen != null) items.Add(new Item { Kind = "cycle", Key = "fullscreen", Label = T("fullscreen"), Text = T(IsFullscreen?.Invoke() == true ? "on" : "off") });
-                items.Add(new Item { Kind = "button", Label = T("back"), Act = ClosePanel });
+                items.Add(back);
                 break;
             case "language":
                 foreach (var l in _data.Languages)
@@ -277,7 +340,7 @@ public sealed class MainMenu : IDisposable
                     var lang = l;
                     items.Add(new Item { Kind = "radio", Label = _data.LanguageNames[l], On = S.Lang == l, Act = () => SetSetting(s => s.Lang = lang) });
                 }
-                items.Add(new Item { Kind = "button", Label = T("back"), Act = ClosePanel });
+                items.Add(back);
                 break;
             case "exit":
                 items.Add(new Item { Kind = "button", Label = T("yes"), Danger = true, Act = Quit });
@@ -371,8 +434,13 @@ public sealed class MainMenu : IDisposable
         _introT += dt;
         _alpha = _leaving is { } lv ? 1 - EaseInOut((lv.t - 0.2f) / 0.55f) : MathX.Clamp01(_introT / 0.45f);
         _L = Layout.Compute(vp.Width, vp.Height, Compact);
-        if (!Active && _leaving == null && _introT > 0.35f) Active = true;
+        if (!Active && _leaving == null && _introT > (_mode == "pause" ? 0.12f : 0.35f)) Active = true;
         if (Active) HandleInput(input);
+        if (_mode == "pause")
+        {
+            _openT = 1;
+            return;
+        }
         float Follow(float a, float b, float rate) => a + (b - a) * (1 - MathF.Exp(-rate * dt));
         _rowAnim = Follow(_rowAnim, _row, 9);
         _openT = Follow(_openT, _open != null ? 1 : 0, 10);
@@ -517,7 +585,7 @@ public sealed class MainMenu : IDisposable
         var left = P(Keys.Left, Keys.A);
         var right = P(Keys.Right, Keys.D);
         var enter = P(Keys.Enter, Keys.Space);
-        var back = P(Keys.Escape, Keys.Back) || input.BackPressed;
+        var back = P(Keys.Escape, Keys.Back) || input.BackPressed || (_mode == "pause" && P(Keys.P));
         KeyNav(up, down, left, right, enter, back, P(Keys.C), input.BackPressed);
     }
 
@@ -533,7 +601,7 @@ public sealed class MainMenu : IDisposable
             else if (down) _panelIndex = (_panelIndex + 1) % items.Count;
             else if (left || right) Adjust(items[Math.Clamp(_panelIndex, 0, items.Count - 1)], left ? -1 : 1);
             else if (enter) ActivatePanel(_panelIndex);
-            else if (back) ClosePanel();
+            else if (back) Back();
             return;
         }
         if (up) SetRow(_row - 1);
@@ -596,6 +664,12 @@ public sealed class MainMenu : IDisposable
     {
         if (!Visible || _L == null) return;
         var a = _alpha;
+        if (_mode == "pause")
+        {
+            _ui.Rect(vp, new Color(8, 9, 12) * (0.45f * a));
+            _ui.Vignette(vp, Color.Black * (0.55f * a));
+            return;
+        }
         _ui.Batch.Draw(_shade, new Rectangle(vp.X, vp.Y, vp.Width, vp.Height), Color.White * a);
         _ui.Vignette(vp, Color.Black * (0.45f * a));
     }
@@ -603,7 +677,7 @@ public sealed class MainMenu : IDisposable
     /// <summary>The 3D cards (own depth, full resolution).</summary>
     public void DrawCards()
     {
-        if (!Visible || _L == null) return;
+        if (!Visible || _L == null || _mode == "pause") return;
         _cards.BeginCards(_view, _proj);
         foreach (var row in _rows)
         foreach (var c in row)
@@ -631,6 +705,16 @@ public sealed class MainMenu : IDisposable
         var u = L.U;
         var a = _alpha;
         EnsureTextures();
+        if (_mode == "pause")
+        {
+            var pl = L.PauseLogo;
+            _ui.Texture(_logo, new RectangleF(pl.X, pl.Y + 10 * u, pl.Width, pl.Height), Color.Black * (0.4f * a));
+            _ui.Texture(_logo, pl, Color.White * a);
+            DrawPanel(a, 0);
+            var ph = TouchHints ? T("hintPauseTouch") : T("hintPause");
+            _ui.TextCentered(_ui.Ui, ph, new Vector2(L.W / 2, L.HintY), 12 * u, Color.White * (0.55f * a), 0, 3 * u / (12 * u));
+            return;
+        }
 
         // Logo.
         var lt = EaseBack(_introT / 0.8f);
@@ -920,13 +1004,16 @@ public sealed class MainMenu : IDisposable
         var L = _L;
         var u = L.U;
         var c = L.Compact;
+        var pause = _mode == "pause";
         var d = Focused.Def;
         var items = PanelItems();
         _panelIndex = Math.Clamp(_panelIndex, 0, items.Count - 1);
-        var accent = new Color((d.GlowHex >> 16) & 255, (d.GlowHex >> 8) & 255, d.GlowHex & 255);
+        var glowHex = pause ? 0xffcf6a : d.GlowHex;
+        var accent = new Color((glowHex >> 16) & 255, (glowHex >> 8) & 255, glowHex & 255);
+        var box = pause ? L.PausePanel : L.Panel;
         var padX = (c ? 18 : 32) * u;
         var padY = (c ? 14 : 26) * u;
-        var innerW = L.Panel.Width - padX * 2;
+        var innerW = box.Width - padX * 2;
         var headPx = (c ? 18 : 26) * u;
         var headH = headPx * 1.15f + (c ? 6 : 12) * u + 2 * u + (c ? 8 : 16) * u;
         // Content height first (the frame is centred on the card).
@@ -953,7 +1040,7 @@ public sealed class MainMenu : IDisposable
         var rowH = (c ? 7 : 12) * u * 2 + (c ? 16 : 22) * u;
         var btnPx = (c ? 15 : 19) * u;
         var btnH = (c ? 8 : 13) * u * 2 + btnPx * 1.2f;
-        var btnGap = (c ? 6 : 10) * u;
+        var btnGap = pause ? 12 * u : (c ? 6 : 10) * u;
         foreach (var it in items) h += it.Kind == "button" ? btnGap + btnH : rowH;
         string note = null;
         var warn = false;
@@ -966,7 +1053,7 @@ public sealed class MainMenu : IDisposable
         var notePx = 12 * u;
         if (note != null) h += 16 * u + notePx * 1.3f;
         h += padY;
-        var fr = new RectangleF(L.Panel.X + offset, L.Panel.Y + MathF.Max(0, (L.Panel.Height - h) / 2), L.Panel.Width, h);
+        var fr = new RectangleF(box.X + offset, box.Y + MathF.Max(0, (box.Height - h) / 2), box.Width, h);
 
         // Frame: drop shadow, gradient fill, gold hairline, inset lines, corner brackets.
         SoftBox(new RectangleF(fr.X, fr.Y + 20 * u, fr.Width, fr.Height), 50 * u, Color.Black * (0.55f * a));
@@ -983,7 +1070,9 @@ public sealed class MainMenu : IDisposable
 
         var x = fr.X + padX;
         var y = fr.Y + padY;
-        var heading = _open == "scenario" ? T("briefing") : T(d.Title);
+        var heading = pause
+            ? T(_open switch { "pause" => "paused", "pauseOptions" => "optionsHead", "sound" => "soundTitle", "graphics" => "graphicsTitle", _ => "languageTitle" })
+            : _open == "scenario" ? T("briefing") : T(d.Title);
         _ui.Serif.DrawShadowed(_ui.Batch, heading, new Vector2(x, y), headPx, HeadGold * a, new Color(0x1a, 0x10, 0x04) * a, new Vector2(0, 2 * u), 5 * u / headPx);
         y += headPx * 1.15f + (c ? 6 : 12) * u;
         _ui.Batch.Draw(_hGrad, new Vector2(x, y), null, accent * a, 0, Vector2.Zero, new Vector2(innerW / 256f, 2 * u), SpriteEffects.None, 0);

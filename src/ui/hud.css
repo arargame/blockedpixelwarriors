@@ -708,3 +708,53 @@ body {
 }
 .continue-btn small { font-size: 0.7em; opacity: 0.7; margin-left: 8px; border: 1px solid rgba(0,0,0,0.4); border-radius: 3px; padding: 0 5px; }
 .tick.crane { --tick: #f0b21c; }
+
+/* Train about to come in: pulsing hazard chip at the screen edge it will enter from. */
+.train-warn {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  transform: translate(-50%, -50%);
+  border-radius: 8px;
+  border: 2px solid #ffd34a;
+  background: rgba(40, 30, 6, 0.88);
+  color: #ffd34a;
+  font-size: 15px;
+  letter-spacing: 3px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.7);
+  box-shadow: 0 0 18px rgba(255, 200, 60, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+.train-warn.show { opacity: 1; animation: trainWarn 0.7s ease-in-out infinite; }
+.train-warn .tw-arrow { font-size: 13px; }
+.train-warn.show .tw-arrow { animation: trainWarnArrow 0.7s ease-in-out infinite; }
+.train-warn.top.show .tw-arrow { animation-name: trainWarnArrowDown; }
+@keyframes trainWarn { 50% { box-shadow: 0 0 30px rgba(255, 200, 60, 0.95); transform: translate(-50%, -50%) scale(1.06); } }
+@keyframes trainWarnArrow { 50% { transform: translateY(-4px); } }
+@keyframes trainWarnArrowDown { 50% { transform: translateY(4px); } }
+.hud.menu-mode .train-warn { opacity: 0 !important; }
+
+/* Pause button (top right, next to WAVE). */
+.hud-right { display: flex; align-items: flex-start; gap: 8px; }
+.hud-pause {
+  pointer-events: auto;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 10px;
+  background: rgba(20, 28, 40, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+.hud-pause i { width: 6px; height: 18px; border-radius: 2px; background: #fff; box-shadow: 0 2px 0 var(--hud-dark); }
+.hud.paused .hud-toast, .hud.paused .hud-notice, .hud.paused .train-warn, .hud.paused .hud-pause { opacity: 0; }
+.hud.menu-mode .hud-pause { opacity: 0 !important; pointer-events: none; }

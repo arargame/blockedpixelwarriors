@@ -35,6 +35,9 @@ public sealed class GameSession : IRenderable
     private readonly BillboardBatch _reticle;
     private readonly Targeting _targeting = new();
     private float _trainTimer = 1.5f, _deadTimer;
+    private bool _trainWarned;
+    /// <summary>Edge a train is announced to come in from ("top" / "bottom"), or null.</summary>
+    public string TrainWarnSide { get; private set; }
     private float _tMain, _tTriple, _tBurst, _tHoming = 0.8f;
     private int _side, _homingSide;
     private float _exhaustTimer, _damageSmokeTimer, _reticleSpin;
@@ -173,6 +176,8 @@ public sealed class GameSession : IRenderable
         Train?.Dispose();
         Train = null;
         _trainTimer = 1.5f;
+        _trainWarned = false;
+        TrainWarnSide = null;
         Heli.FlickerMul = 1;
         Heli.Respawn();
         Rig.Update(0, Heli.Position, true);
@@ -250,6 +255,7 @@ public sealed class GameSession : IRenderable
         Heli.Spawn = new Vector3(GameConfig.Stages.CheckpointX - 5, GameConfig.Heli.Altitude, GameConfig.Stages.CheckpointZ - 7);
         if (fromSave) Gate.Show(false);
         _trainTimer = 3;
+        _trainWarned = false;
         if (fromSave) return;
         Store?.Save(new CheckpointSave { Score = ScoreValue, Wave = Wave, Cards = _takenCards.ToList() });
         Settings?.Reach(2);
@@ -348,7 +354,39 @@ public sealed class GameSession : IRenderable
             OnTargetDestroyed = OnTrainPartDestroyed,
             OnBallHit = OnBallHit,
         };
-        _hud.Toast($"WAVE {Wave} - {Train.Title} INCOMING");
+        Train.View = TrainViewRange();
+        Train.PlaceAtEntry();
+        if (!_trainWarned) _hud.Toast($"WAVE {Wave} - {Train.Title} INCOMING");
+    }
+
+    /// <summary>Stretch of the line on screen (z), from the camera, with the off-screen margin.</summary>
+    public (float top, float bottom) TrainViewRange()
+    {
+        var cz = Rig.Smooth.Z;
+        return (cz + GameConfig.Train.ViewTop - GameConfig.Train.ViewMargin, cz + GameConfig.Train.ViewBottom + GameConfig.Train.ViewMargin);
+    }
+
+    /// <summary>A couple of seconds before a train comes in: toast + edge marker on the side it comes from.</summary>
+    private void WarnTrain()
+    {
+        _trainWarned = true;
+        var back = Train is { Destroyed: false };
+        var dirIn = back ? -Train.Dir : 1;
+        TrainWarnSide = dirIn > 0 ? "top" : "bottom";
+        if (back) _hud.Toast($"THE TRAIN IS BACK - {MathF.Round(Train.Integrity * 100)}%");
+        else _hud.Toast($"WAVE {Wave + 1} - {(Stage == Stage.Terrace ? "BLOCK HAULER" : "ARMORED TRAIN")} INCOMING");
+    }
+
+    /// <summary>Screen-edge marker point (world) while a train is announced / rolling in, else null.</summary>
+    public Vector3? TrainWarnPoint
+    {
+        get
+        {
+            if (TrainWarnSide == null) return null;
+            var v = TrainViewRange();
+            var m = GameConfig.Train.ViewMargin;
+            return new Vector3(GameConfig.Track.X, GameConfig.Track.RailTop + 1, TrainWarnSide == "top" ? v.top + m + 6 : v.bottom - m - 2);
+        }
     }
 
     private void OnTrainPartDestroyed(TargetKind kind, Vector3 position)
@@ -862,23 +900,36 @@ public sealed class GameSession : IRenderable
             _hud.Toast("LINE CLEAR - FLY UP THE TRACKS TO THE CHECKPOINT");
         }
         var trainsRun = Stage is Stage.Depot or Stage.Terrace;
+        if (Train != null) Train.View = TrainViewRange();
         if (trainsRun && (Train == null || Train.Finished))
         {
+            if (Train is { Finished: true, GapSet: false })
+            {
+                // Off screen: back after the old wait (run-on out of sight + respawn delay) x ReturnFactor,
+                // minus the moment it takes to roll in from just off screen.
+                Train.GapSet = true;
+                _trainTimer = MathF.Max(0.6f, GameConfig.Train.ReturnFactor * (Train.FinishRest + GameConfig.Train.RespawnDelay) - GameConfig.Train.ViewMargin / MathF.Max(1, Train.BaseSpeed));
+                _trainWarned = false;
+            }
             _trainTimer -= dt;
+            if (!_trainWarned && _trainTimer <= GameConfig.Train.WarnLead) WarnTrain();
             if (_trainTimer <= 0)
             {
                 if (Train != null && !Train.Destroyed)
                 {
+                    Train.View = TrainViewRange();
                     Train.RestartLap();
-                    _hud.Toast($"THE TRAIN IS BACK - {MathF.Round(Train.Integrity * 100)}%");
                 }
                 else
                 {
                     SpawnTrain();
                 }
+                _trainWarned = false;
                 _trainTimer = GameConfig.Train.RespawnDelay;
             }
         }
+        // The edge marker stays until the train has rolled into view.
+        if (TrainWarnSide != null && !(State == GameState.Playing && (Train == null || Train.Finished || Train.Entering))) TrainWarnSide = null;
         Train?.Update(dt, Heli.Position, Heli.Alive);
         CheckTrainCollision();
         RestockFarSide();

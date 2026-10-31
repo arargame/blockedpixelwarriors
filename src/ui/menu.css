@@ -440,3 +440,12 @@
 .menu.compact .pn-ctrl em.pn-text { min-width: calc(var(--u) * 110px); }
 .menu.compact .mf-open { display: none; }
 .menu.compact .mf-steps { padding-bottom: calc(var(--u) * 18px); }
+
+/* Pause menu: centred logo + panel over the frozen grey game. */
+.menu.pause-mode .menu-shade { background: radial-gradient(ellipse at 50% 50%, rgba(8, 9, 12, 0.45) 20%, rgba(8, 9, 12, 0.78) 100%); }
+.menu.pause-mode .menu-nav,
+.menu.pause-mode .menu-link,
+.menu.pause-mode .menu-brand,
+.menu.pause-mode .menu-canvas { display: none; }
+.menu.pause-mode .menu-panel { transition: opacity 0.2s; transform: none; }
+.menu.pause-mode .pn-btn { margin-top: calc(var(--u) * 12px); }
