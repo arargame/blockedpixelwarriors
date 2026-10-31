@@ -149,7 +149,7 @@ export class ProjectileSystem {
    * @param {THREE.Object3D|null} model
    * @param {{scale?: number, spin?: boolean, max?: number}} [opts]
    */
-  setModel(kind, model, { scale = 1, spin = false, max = 96 } = {}) {
+  setModel(kind, model, { scale = 1, spin = false, roll = false, max = 96, emissive = 3, shadow = true } = {}) {
     if (!model) return;
     this.models ??= {};
     const meshes = [];
@@ -159,15 +159,15 @@ export class ProjectileSystem {
       const g = o.geometry.clone().applyMatrix4(o.matrixWorld);
       g.scale(scale, scale, scale);
       const m = o.material.clone();
-      if (m.emissiveIntensity !== undefined && m.emissive?.getHex()) m.emissiveIntensity = 3;
+      if (m.emissiveIntensity !== undefined && m.emissive?.getHex()) m.emissiveIntensity = emissive;
       const inst = new THREE.InstancedMesh(g, m, max);
       inst.count = 0;
-      inst.castShadow = true;
+      inst.castShadow = shadow;
       inst.frustumCulled = false;
       meshes.push(inst);
       this.scene.add(inst);
     });
-    this.models[kind] = { meshes, spin, max };
+    this.models[kind] = { meshes, spin, roll, max };
   }
 
   /** Back-compat: homing missiles use the Blender rocket. */
@@ -181,8 +181,12 @@ export class ProjectileSystem {
       let n = 0;
       for (const p of this.items) {
         if (p.kind !== kind || n >= set.max) continue;
+        // Gem-tinted shots keep their coloured streak look.
+        if (p.tint && (kind === 'plasma' || kind === 'nova')) continue;
         rocketQuat.setFromUnitVectors(FORWARD, rocketDir.copy(p.vel).normalize());
         if (set.spin) rocketQuat.multiply(spinQuat.setFromAxisAngle(SPIN_AXIS, p.life * 14 + p.seed));
+        // Roll about the flight axis (plasma bolts: fins and rings turn).
+        if (set.roll) rocketQuat.multiply(spinQuat.setFromAxisAngle(FORWARD, p.life * 11 + p.seed));
         rocketMat.compose(p.pos, rocketQuat, ONE);
         for (const m of set.meshes) m.setMatrixAt(n, rocketMat);
         n++;
@@ -231,8 +235,13 @@ export class ProjectileSystem {
       switch (p.kind) {
         case 'plasma': {
           const pulse = 1 + Math.sin(p.life * 40 + p.seed) * 0.12;
-          this.glows.push(x, y, z, 1.6 * pulse, 1.6 * pulse, 1.4, 0.15, 1.3, 0.9);
-          this.comets.push(x, y, z, 0.95, 3.0, 1.8, 1.8, 1.9, 1, 0, v.x, v.y, v.z);
+          if (this.models?.plasma) {
+            // 3D Blender bolt (plasma.glb) + a soft magenta halo for the bloom.
+            this.glows.push(x, y, z, 1.25 * pulse, 1.25 * pulse, 1.2, 0.12, 1.1, 0.55);
+          } else {
+            this.glows.push(x, y, z, 1.6 * pulse, 1.6 * pulse, 1.4, 0.15, 1.3, 0.9);
+            this.comets.push(x, y, z, 0.95, 3.0, 1.8, 1.8, 1.9, 1, 0, v.x, v.y, v.z);
+          }
           break;
         }
         case 'tracer':
@@ -244,8 +253,11 @@ export class ProjectileSystem {
           this.glows.push(x, y, z, 0.9, 0.9, 4, 2, 0.6, 1);
           break;
         case 'nova':
-          this.streaks.push(x, y, z, 0.42, 1.6, 1.2, 3.2, 4.2, 1, 0, v.x, v.y, v.z);
-          this.glows.push(x, y, z, 0.9, 0.9, 0.6, 2.2, 3.4, 0.9);
+          if (this.models?.nova) this.glows.push(x, y, z, 0.8, 0.8, 0.4, 1.6, 2.6, 0.6);
+          else {
+            this.streaks.push(x, y, z, 0.42, 1.6, 1.2, 3.2, 4.2, 1, 0, v.x, v.y, v.z);
+            this.glows.push(x, y, z, 0.9, 0.9, 0.6, 2.2, 3.4, 0.9);
+          }
           break;
         case 'missile':
           if (!this.models?.missile) this.streaks.push(x, y, z, 0.22, 0.8, 4.5, 3.0, 1.4, 1, 0, v.x, v.y, v.z);

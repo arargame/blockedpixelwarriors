@@ -62,7 +62,7 @@ public sealed class ProjectileSystem : IRenderable
     private readonly List<Projectile> _items = new(256);
     private readonly ObjectPool<Projectile> _pool = new(() => new Projectile(), 128);
     private readonly BillboardBatch _comets, _tracerBolts, _glows, _orbs, _tracerBodies, _streaks;
-    private readonly (GpuMesh mesh, InstanceBuffer buffer, bool spin)[] _models = new (GpuMesh, InstanceBuffer, bool)[7];
+    private readonly (GpuMesh mesh, InstanceBuffer buffer, bool spin, bool roll)[] _models = new (GpuMesh, InstanceBuffer, bool, bool)[7];
     private static readonly Vector3 SpinAxis = Vector3.Normalize(new Vector3(1, 0.3f, 0));
 
     /// <summary>Returns true when the projectile hit something (it is consumed).</summary>
@@ -83,14 +83,17 @@ public sealed class ProjectileSystem : IRenderable
         _orbs = B("orb", 400, false, 16);
         _tracerBodies = B("streak", 400, false, 14, true);
         _streaks = B("streak", 600, true, 14, true);
-        void Model(ProjectileKind k, string name, int max, bool spin)
+        void Model(ProjectileKind k, string name, int max, bool spin, bool roll = false)
         {
             var mesh = models.Mesh(name);
-            if (mesh != null) _models[(int)k] = (mesh, new InstanceBuffer(device, max, true), spin);
+            if (mesh != null) _models[(int)k] = (mesh, new InstanceBuffer(device, max, true), spin, roll);
         }
         Model(ProjectileKind.Missile, "projectile_missile", 64, false);
         Model(ProjectileKind.Shell, "projectile_shell", 96, false);
         Model(ProjectileKind.Cannonball, "projectile_cannonball", 32, true);
+        // T / D power-up bolts: Blender plasma (crystal head, rings, twisted fins) rolling in flight.
+        Model(ProjectileKind.Plasma, "projectile_plasma", 200, false, true);
+        Model(ProjectileKind.Nova, "projectile_nova", 200, false, true);
     }
 
     public void Spawn(ProjectileKind kind, Vector3 position, Vector3 direction, AimTarget? target = null, ShotStyle? style = null)
@@ -242,10 +245,13 @@ public sealed class ProjectileSystem : IRenderable
         foreach (var p in _items)
         {
             var model = _models[(int)p.Kind];
-            if (model.buffer != null)
+            // Gem-tinted plasma keeps its coloured streak look.
+            var tintedBolt = p.Tint.HasValue && p.Kind is ProjectileKind.Plasma or ProjectileKind.Nova;
+            if (model.buffer != null && !tintedBolt)
             {
                 var q = FromForward(Vector3.Normalize(p.Vel));
                 if (model.spin) q *= Quaternion.CreateFromAxisAngle(SpinAxis, p.Life * 14 + p.Seed);
+                if (model.roll) q *= Quaternion.CreateFromAxisAngle(-Vector3.UnitZ, p.Life * 11 + p.Seed);
                 model.buffer.Add(Matrix.CreateFromQuaternion(q) * Matrix.CreateTranslation(p.Pos), Vector4.One);
             }
             var v = p.Vel;
@@ -277,8 +283,12 @@ public sealed class ProjectileSystem : IRenderable
                 case ProjectileKind.Plasma:
                 {
                     var pulse = 1 + MathF.Sin(p.Life * 40 + p.Seed) * 0.12f;
-                    _glows.Push(x, y, z, 1.6f * pulse, 1.6f * pulse, 1.4f, 0.15f, 1.3f, 0.9f);
-                    _comets.Push(x, y, z, 0.95f, 3.0f, 1.8f, 1.8f, 1.9f, 1, 0, v.X, v.Y, v.Z);
+                    if (model.buffer != null) _glows.Push(x, y, z, 1.25f * pulse, 1.25f * pulse, 1.2f, 0.12f, 1.1f, 0.55f);
+                    else
+                    {
+                        _glows.Push(x, y, z, 1.6f * pulse, 1.6f * pulse, 1.4f, 0.15f, 1.3f, 0.9f);
+                        _comets.Push(x, y, z, 0.95f, 3.0f, 1.8f, 1.8f, 1.9f, 1, 0, v.X, v.Y, v.Z);
+                    }
                     break;
                 }
                 case ProjectileKind.Tracer:
@@ -290,8 +300,12 @@ public sealed class ProjectileSystem : IRenderable
                     _glows.Push(x, y, z, 0.9f, 0.9f, 4, 2, 0.6f, 1);
                     break;
                 case ProjectileKind.Nova:
-                    _streaks.Push(x, y, z, 0.42f, 1.6f, 1.2f, 3.2f, 4.2f, 1, 0, v.X, v.Y, v.Z);
-                    _glows.Push(x, y, z, 0.9f, 0.9f, 0.6f, 2.2f, 3.4f, 0.9f);
+                    if (model.buffer != null) _glows.Push(x, y, z, 0.8f, 0.8f, 0.4f, 1.6f, 2.6f, 0.6f);
+                    else
+                    {
+                        _streaks.Push(x, y, z, 0.42f, 1.6f, 1.2f, 3.2f, 4.2f, 1, 0, v.X, v.Y, v.Z);
+                        _glows.Push(x, y, z, 0.9f, 0.9f, 0.6f, 2.2f, 3.4f, 0.9f);
+                    }
                     break;
                 case ProjectileKind.Missile:
                     if (model.buffer == null) _streaks.Push(x, y, z, 0.22f, 0.8f, 4.5f, 3.0f, 1.4f, 1, 0, v.X, v.Y, v.Z);
@@ -324,7 +338,7 @@ public sealed class ProjectileSystem : IRenderable
 
     public void Submit(RenderQueue queue)
     {
-        foreach (var (mesh, buffer, _) in _models)
+        foreach (var (mesh, buffer, _, _) in _models)
             if (buffer != null) queue.Add(mesh, Matrix.Identity, DrawOverrides.None, true, 0, RenderLayer.World, buffer);
         queue.Add(_comets);
         queue.Add(_tracerBolts);

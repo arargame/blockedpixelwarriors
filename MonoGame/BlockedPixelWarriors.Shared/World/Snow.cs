@@ -141,9 +141,11 @@ public sealed class RailSnow : IRenderable
             });
         }
         _instances = meshes.Select(_ => new InstanceBuffer(device, count, true)).ToArray();
-        foreach (var s in _spans) s.Depth = s.Cap * _rng.Range(0.3f, 0.9f);
+        foreach (var s in _spans) s.Depth = s.Cap * Amount * _rng.Range(0.3f, 0.9f);
         Write();
     }
+
+    private const float Amount = GameConfig.Track.RailSnow;
 
     public void Update(float dt, Train train, Effects effects)
     {
@@ -162,10 +164,10 @@ public sealed class RailSnow : IRenderable
             if (s.Z <= headZ && s.Z >= tailZ)
             {
                 var before = s.Depth;
-                s.Depth = s.Depth < 0.04f ? 0 : s.Depth * MathF.Exp(-11 * dt);
+                s.Depth = s.Depth < 0.004f ? 0 : s.Depth * MathF.Exp(-11 * dt);
                 s.Cooldown = _rng.Range(2, 9);
                 if (train.Dir > 0 ? s.Z > headZ - 1.6f : s.Z < tailZ + 1.6f) plowed += before - s.Depth;
-                if (before > 0.05f && Rng.Shared.Next() < dt * 3)
+                if (before > 0.05f * Amount && Rng.Shared.Next() < dt * 3)
                 {
                     effects.Smoke.Emit(new ParticleSpec
                     {
@@ -181,8 +183,8 @@ public sealed class RailSnow : IRenderable
             }
             else
             {
-                var target = s.Cap * capScale;
-                s.Depth = s.Depth < target ? MathF.Min(target, s.Depth + build * s.Rate * dt) : MathF.Max(target, s.Depth - 0.02f * dt);
+                var target = s.Cap * capScale * Amount;
+                s.Depth = s.Depth < target ? MathF.Min(target, s.Depth + build * Amount * s.Rate * dt) : MathF.Max(target, s.Depth - 0.02f * Amount * dt);
             }
         }
         _sprayTimer -= dt;
@@ -211,8 +213,10 @@ public sealed class RailSnow : IRenderable
         foreach (var b in _instances) b.Count = 0;
         foreach (var s in _spans)
         {
-            if (s.Depth < 0.04f) continue;
-            var m = Matrix.CreateScale(0.55f + s.Depth * 0.45f, 0.25f + s.Depth * 1.1f, 0.75f + s.Depth * 0.25f)
+            if (s.Depth < 0.004f) continue;
+            // Thin snow stays flat: the mound only gets its full height once the drift is deep.
+            var flat = Math.Clamp(s.Depth / 0.3f, 0.15f, 1);
+            var m = Matrix.CreateScale(0.55f + s.Depth * 0.45f, (0.25f + s.Depth * 1.1f) * flat, 0.75f + s.Depth * 0.25f)
                 * Matrix.CreateRotationY(s.Rot) * Matrix.CreateTranslation(GameConfig.Track.X, 0.3f, s.Z);
             _instances[s.Variant].Add(m, Vector4.One);
         }

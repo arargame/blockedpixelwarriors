@@ -4609,6 +4609,12 @@
   "projectile_shell": {
    "vertices": 980
   },
+  "projectile_plasma": {
+   "vertices": 879
+  },
+  "projectile_nova": {
+   "vertices": 879
+  },
   "supply_crate": {
    "vertices": 24
   },

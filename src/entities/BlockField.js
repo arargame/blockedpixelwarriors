@@ -201,7 +201,7 @@ export class BlockField {
    * @returns {boolean} false if there was no free cell nearby (caller shatters it instead)
    */
   dropFromTrain(from, color) {
-    const cargo = BlockField.isGoalColor(color) && this.cargoEnabled();
+    const cargo = BlockField.isGoalColor(color) && this.cargoEnabled() && (this.cargoWanted?.(color) ?? true);
     // Cargo lands where the forklift can get at it (closest such cell), else the closest free one.
     const reach = cargo ? this.reachableCells() : null;
     let best = null;

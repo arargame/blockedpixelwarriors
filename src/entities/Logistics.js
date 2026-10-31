@@ -206,7 +206,7 @@ class Engineer {
       }
     } else {
       for (const l of B.blocks) {
-        if (!l.alive || !l.cargo || l.drop > 0) continue;
+        if (!l.alive || !l.cargo || l.drop > 0 || (this.wants && !this.wants(l.color))) continue;
         for (const [dc, dr] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
           const c = l.c + dc;
           const r = l.r + dr;
@@ -759,10 +759,36 @@ export class Logistics {
     blocks.reachableCells = () => this.engineer.reachable(this.dock);
     // Train cargo only becomes protected, collectable cargo once the engineer is on duty.
     blocks.cargoEnabled = () => this.enabled;
+    // The engineer knows the mission: a colour stops being cargo once delivered + docked +
+    // on the forks reaches its goal (no time lost on surplus packages).
+    blocks.cargoWanted = (color) => this.wants(color);
+    this.engineer.wants = (color) => this.wants(color);
     this.onDelivered = null;
     this.onChinookLeft = null;
     this.onPackaged = null;
     this.reset();
+  }
+
+  /** Packages of a colour still needed: delivered + waiting on the dock + on the forks < goal. */
+  wants(color) {
+    const key = MISSION_KEY[color];
+    if (!key) return false;
+    let n = this.delivered[key];
+    for (const p of this.dock.slots.values()) if (MISSION_KEY[p.color] === key) n += 1;
+    if (this.engineer.carry && MISSION_KEY[this.engineer.carry] === key) n += 1;
+    return n < GameConfig.logistics.goal[key];
+  }
+
+  /** Cargo of colours no longer needed turns into ordinary blocks (shootable, no longer guarded). */
+  releaseSurplus() {
+    let changed = false;
+    for (const l of this.blocks.blocks) {
+      if (!l.alive || !l.cargo || this.wants(l.color)) continue;
+      l.cargo = false;
+      this.blocks.writeMatrix(l);
+      changed = true;
+    }
+    if (changed) this.blocks.flushMatrices();
   }
 
   /** Back to the start of a run: no engineer yet (he comes with the FIELD ENGINEER card). */
@@ -883,6 +909,7 @@ export class Logistics {
    */
   update(dt, clockRunning) {
     this.engineer.update(dt, this.dock, this.effects, (color) => this.onPackaged?.(color));
+    if (this.enabled) this.releaseSurplus();
     this.dock.update(dt, this.effects);
     if (this.countdownActive && !this.chinook.active && clockRunning) {
       this.timer -= dt;

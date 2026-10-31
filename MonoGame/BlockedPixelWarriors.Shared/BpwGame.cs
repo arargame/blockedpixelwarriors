@@ -130,7 +130,7 @@ public sealed class BpwGame : Game
         _renderer.SetSnowMap(_session.World.FloorSnow.Texture, _session.World.FloorSnow.Rect);
         _poster = _options.Scenario is "poster" or "static";
         if (_options.CapturePath != null) _session.Store = new MemoryCheckpointStore();
-        if (_options.Scenario is "play" or "cards" or "logistics" or "transit" or "terrace" or "pause" or "warn")
+        if (_options.Scenario is "play" or "cards" or "logistics" or "transit" or "terrace" or "pause" or "warn" or "plasma")
         {
             _session.StartRun();
             var vp = Viewport;
@@ -182,6 +182,13 @@ public sealed class BpwGame : Game
                     var z = crane != null ? MathHelper.Clamp(crane.World.Translation.Z + 7, -82, -60) : -66;
                     h.Position = new Vector3(-3, GameConfig.Heli.Altitude, z);
                 });
+            }
+            if (_options.Scenario == "plasma")
+            {
+                // T + D power-ups: the 3D plasma bolts in flight.
+                _session.PowerUps.Activate(SupplyType.T, 999);
+                _session.PowerUps.Activate(SupplyType.D, 999);
+                Sim(_options.Extra > 0 ? _options.Extra : 3.2f, () => _session.Heli.Invulnerable = 5);
             }
             if (_options.Scenario == "warn")
             {

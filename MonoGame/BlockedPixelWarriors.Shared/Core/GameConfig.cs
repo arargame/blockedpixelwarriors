@@ -29,6 +29,8 @@ public static class GameConfig
     public static class Track
     {
         public const float X = 3.0f, StartZ = -95, EndZ = 55, Gauge = 1.9f, RailTop = 0.42f;
+        /// <summary>How much snow piles up between the rails (1 = the original drifts).</summary>
+        public const float RailSnow = 0.1f;
     }
 
     public static class Heli
@@ -98,6 +100,8 @@ public static class GameConfig
     /// </summary>
     public static class Stages
     {
+        /// <summary>Cubes shot off a train on the terrace bounce onto it and break open: share that leaves a supply.</summary>
+        public const float DropSupplyChance = 0.6f;
         public const float TerraceMinX = -15, TerraceMaxX = 21, TerraceMinZ = -84, TerraceMaxZ = -58;
         public const float CheckpointX = 3, CheckpointZ = -55.5f;
         public const float HaulerStartZ = -200, HaulerEndZ = -20;

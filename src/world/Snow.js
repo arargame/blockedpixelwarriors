@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GameConfig } from '../config/GameConfig.js';
 import { BillboardBatch } from '../fx/BillboardBatch.js';
 import { VoxelModelBuilder } from '../util/VoxelModelBuilder.js';
 import { Palette } from '../config/Palette.js';
@@ -135,7 +136,8 @@ export class RailSnow {
     this.meshes.forEach((m) => this.group.add(m));
     this.dummy = new THREE.Object3D();
     this.sprayTimer = 0;
-    for (const sp of this.spans) sp.depth = sp.cap * rng.range(0.3, 0.9);
+    this.amount = GameConfig.track.railSnow ?? 1;
+    for (const sp of this.spans) sp.depth = sp.cap * this.amount * rng.range(0.3, 0.9);
     this.write();
   }
 
@@ -175,10 +177,10 @@ export class RailSnow {
       if (s.z <= headZ && s.z >= tailZ) {
         // Under the train: the hot wheels and plow melt / throw the snow off the span.
         const before = s.depth;
-        s.depth = s.depth < 0.04 ? 0 : s.depth * Math.exp(-11 * dt);
+        s.depth = s.depth < 0.004 ? 0 : s.depth * Math.exp(-11 * dt);
         s.cooldown = this.rng.range(2, 9);
         if (train.dir > 0 ? s.z > headZ - 1.6 : s.z < tailZ + 1.6) plowed += before - s.depth;
-        if (before > 0.05 && Math.random() < dt * 3) effects.smoke.emit({
+        if (before > 0.05 * this.amount && Math.random() < dt * 3) effects.smoke.emit({
           x: this.track.x + (Math.random() - 0.5) * 2, y: 0.5, z: s.z, vy: 1.2, drag: 1,
           life: 0.9, size0: 0.4, size1: 1.3, color0: [1.2, 1.22, 1.26, 0.5], color1: [1.2, 1.2, 1.25, 0],
         });
@@ -187,9 +189,9 @@ export class RailSnow {
         // Each refill draws a new random amount, so the pattern changes after every train.
         if (s.cooldown <= 0) s.cap = THREE.MathUtils.clamp(s.cap + this.rng.range(-0.35, 0.35), 0, 1);
       } else {
-        const target = s.cap * capScale;
-        if (s.depth < target) s.depth = Math.min(target, s.depth + build * s.rate * dt);
-        else s.depth = Math.max(target, s.depth - 0.02 * dt); // slow melt back to the dusting
+        const target = s.cap * capScale * this.amount;
+        if (s.depth < target) s.depth = Math.min(target, s.depth + build * this.amount * s.rate * dt);
+        else s.depth = Math.max(target, s.depth - 0.02 * this.amount * dt); // slow melt back to the dusting
       }
     }
     // Plow spray: snow thrown off both sides of the locomotive front, scaled by what it cleared.
@@ -213,11 +215,13 @@ export class RailSnow {
     const counts = [0, 0, 0];
     const d = this.dummy;
     for (const s of this.spans) {
-      if (s.depth < 0.04) continue;
+      if (s.depth < 0.004) continue;
       const mesh = this.meshes[s.variant];
       d.position.set(this.track.x, 0.3, s.z);
       d.rotation.set(0, s.rot, 0);
-      d.scale.set(0.55 + s.depth * 0.45, 0.25 + s.depth * 1.1, 0.75 + s.depth * 0.25);
+      // Thin snow stays flat: the mound only gets its full height once the drift is deep.
+      const flat = THREE.MathUtils.clamp(s.depth / 0.3, 0.15, 1);
+      d.scale.set(0.55 + s.depth * 0.45, (0.25 + s.depth * 1.1) * flat, 0.75 + s.depth * 0.25);
       d.updateMatrix();
       mesh.setMatrixAt(counts[s.variant]++, d.matrix);
     }

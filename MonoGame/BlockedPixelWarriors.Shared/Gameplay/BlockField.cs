@@ -55,6 +55,11 @@ public sealed class BlockField : IRenderable
     public int DockColumns = 1;
     /// <summary>Whether red / green / blue train cubes land as protected cargo (engineer on duty).</summary>
     public Func<bool> CargoEnabled = () => false;
+    /// <summary>Colour still needed by the mission (surplus lands as ordinary blocks).</summary>
+    public Func<BlockColor, bool> CargoWanted = _ => true;
+
+    /// <summary>Re-upload block instances after flags changed outside the field.</summary>
+    public void MarkDirty() => _dirty = true;
     /// <summary>Cells the forklift occupies or is about to (no block may fall there).</summary>
     public Func<int, int, bool> IsReserved = (_, _) => false;
     /// <summary>Cell keys (c * Rows + r) the forklift can drive to, or null.</summary>
@@ -177,7 +182,7 @@ public sealed class BlockField : IRenderable
     /// </summary>
     public bool DropFromTrain(Vector3 from, BlockColor color)
     {
-        var cargo = IsGoalColor(color) && CargoEnabled();
+        var cargo = IsGoalColor(color) && CargoEnabled() && CargoWanted(color);
         // Cargo lands where the forklift can get at it (closest such cell), else the closest free one.
         var reach = cargo ? ReachableCells() : null;
         int bc = -1, br = -1;

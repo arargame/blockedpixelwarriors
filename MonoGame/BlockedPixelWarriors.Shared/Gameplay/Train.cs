@@ -333,18 +333,20 @@ public sealed class Train : IRenderable
     public Action<TargetKind, Vector3> OnTargetDestroyed;
     public Action OnShieldDown;
 
-    public Train(TrainFactory factory, Effects effects, LightRig lights, Microsoft.Xna.Framework.Graphics.GraphicsDevice device, int wave, uint seed, bool hauler = false)
+    public Train(TrainFactory factory, Effects effects, LightRig lights, Microsoft.Xna.Framework.Graphics.GraphicsDevice device, int wave, uint seed, bool hauler = false, bool terrace = false)
     {
         _factory = factory;
         _effects = effects;
         _lights = lights;
         Wave = wave;
         _hauler = hauler && factory.HasHauler;
-        // Line + platform: stage 1 board, or the stage-2 terrace with the hauler's long approach.
-        _pathStart = _hauler ? GameConfig.Stages.HaulerStartZ : GameConfig.Track.StartZ;
-        _pathEnd = _hauler ? GameConfig.Stages.HaulerEndZ : GameConfig.Track.EndZ;
-        _arenaMinZ = _hauler ? GameConfig.Stages.TerraceMinZ : GameConfig.Board.MinZ;
-        _arenaMaxZ = _hauler ? GameConfig.Stages.TerraceMaxZ : GameConfig.Board.MaxZ;
+        // Line + platform: stage 1 board, or the stage-2 terrace with the hauler's long approach
+        // (both trains run there in turn).
+        var up = terrace || _hauler;
+        _pathStart = up ? GameConfig.Stages.HaulerStartZ : GameConfig.Track.StartZ;
+        _pathEnd = up ? GameConfig.Stages.HaulerEndZ : GameConfig.Track.EndZ;
+        _arenaMinZ = up ? GameConfig.Stages.TerraceMinZ : GameConfig.Board.MinZ;
+        _arenaMaxZ = up ? GameConfig.Stages.TerraceMaxZ : GameConfig.Board.MaxZ;
         BaseSpeed = GameConfig.Train.Speed * (1 + (wave - 1) * 0.08f);
         Speed = BaseSpeed;
         if (_hauler)
@@ -422,6 +424,13 @@ public sealed class Train : IRenderable
             }
             return false;
         }
+    }
+
+    /// <summary>Terrace: the train waits out of sight while the other one runs (no light, not drawn).</summary>
+    public void Park(bool parked)
+    {
+        if (parked) _lights.Points.Remove(_gemLight);
+        else if (!_lights.Points.Contains(_gemLight)) _lights.Points.Add(_gemLight);
     }
 
     /// <summary>The same train comes round again the other way, cargo reloaded, damage kept.</summary>

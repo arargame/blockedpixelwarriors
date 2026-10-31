@@ -42,6 +42,8 @@ export const GameConfig = Object.freeze({
     // The rails continue far up the line (stage 2 terrace, the Block Hauler's approach).
     meshStartZ: -205,
     gauge: 1.9,
+    // How much snow piles up between the rails (1 = the original drifts).
+    railSnow: 0.1,
   }),
 
   heli: Object.freeze({
@@ -147,6 +149,9 @@ export const GameConfig = Object.freeze({
     terrace: Object.freeze({ minX: -15, maxX: 21, minZ: -84, maxZ: -58, frameHeight: 1.35, frameWidth: 0.9 }),
     // Checkpoint gate over the bridge just before the terrace (heli flies through it).
     checkpoint: Object.freeze([3, -55.5]),
+    // Cubes shot off a train up here bounce onto the terrace and break open: this share leaves a
+    // supply crate (weapons, repair kit...).
+    dropSupplyChance: 0.6,
     // Block Hauler line: comes from far beyond the terrace, leaves behind the camera.
     haulerPath: Object.freeze({ startZ: -200, endZ: -20 }),
     // Swinging wrecking balls: hit damage, chain length (train units), crane cab HP.

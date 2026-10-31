@@ -155,6 +155,8 @@ public sealed class Engineer
     public float Lift;
     public bool Active, Visible;
     public BlockColor? Carry;
+    /// <summary>Colours the mission still needs (set by Logistics): surplus cargo is left alone.</summary>
+    public Func<BlockColor, bool> Wants = _ => true;
     public float Beacon;
 
     public Engineer(BlockField blocks)
@@ -261,7 +263,7 @@ public sealed class Engineer
         {
             foreach (var l in b.Blocks)
             {
-                if (!l.Alive || !l.Cargo || l.Drop > 0) continue;
+                if (!l.Alive || !l.Cargo || l.Drop > 0 || !Wants(l.Color)) continue;
                 foreach (var (dc, dr) in PickDirs)
                 {
                     int c = l.C + dc, r = l.R + dr;
@@ -750,6 +752,10 @@ public sealed class Logistics : IRenderable
         blocks.ReachableCells = () => Engineer.Active ? Engineer.Reachable(Dock, _reach) : null;
         // Train cargo only becomes protected, collectable cargo once the engineer is on duty.
         blocks.CargoEnabled = () => Enabled;
+        // The engineer knows the mission: a colour stops being cargo once delivered + docked +
+        // on the forks reaches its goal (no time lost on surplus packages).
+        blocks.CargoWanted = Wants;
+        Engineer.Wants = Wants;
         Reset();
     }
 
@@ -768,6 +774,30 @@ public sealed class Logistics : IRenderable
         BlockColor.Teal => MissionColor.Blue,
         _ => null,
     };
+
+    /// <summary>Packages of a colour still needed: delivered + waiting on the dock + on the forks &lt; goal.</summary>
+    public bool Wants(BlockColor color)
+    {
+        if (MissionKey(color) is not { } key) return false;
+        var n = Delivered[(int)key];
+        foreach (var p in Dock.Packages)
+            if (MissionKey(p.Color) == key) n++;
+        if (Engineer.Carry is { } carry && MissionKey(carry) == key) n++;
+        return n < Goal[(int)key];
+    }
+
+    /// <summary>Cargo of colours no longer needed turns into ordinary blocks (shootable, unguarded).</summary>
+    private void ReleaseSurplus()
+    {
+        var changed = false;
+        foreach (var l in _blocks.Blocks)
+        {
+            if (!l.Alive || !l.Cargo || Wants(l.Color)) continue;
+            l.Cargo = false;
+            changed = true;
+        }
+        if (changed) _blocks.MarkDirty();
+    }
 
     /// <summary>Back to the start of a run: no engineer yet (he comes with the FIELD ENGINEER card).</summary>
     public void Reset()
@@ -862,6 +892,7 @@ public sealed class Logistics : IRenderable
     public void Update(float dt, bool clockRunning)
     {
         Engineer.Update(dt, Dock, _effects, c => OnPackaged?.Invoke(c));
+        if (Enabled) ReleaseSurplus();
         Dock.Update(dt, _effects);
         if (CountdownActive && !Chinook.Active && clockRunning)
         {

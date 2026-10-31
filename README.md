@@ -30,6 +30,18 @@ satırın kartları sağa-sola kayar (←/→, kaydırma, tekerlek). **ENTER** /
 Kod: `src/ui/MainMenu.js` (yerleşim `menuLayout`, karusel, paneller), `MenuCards.js` (kartlar ve
 yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (ayarlar + ilerleme).
 
+### Oyun akışı notları
+
+- **Pause:** ESC / P ya da sağ üstteki ❚❚ düğmesi oyunu dondurur: Devam, Ayarlar (ses / grafik / dil),
+  Yeniden başla, Ana menü. Sekme gizlenince de durur.
+- **Tren girişi:** tren her seferde ekranın hemen dışından girer, ekrandan çıkınca sefer biter; dönüş
+  beklemesi eskisinin %80'i. Gelmeden 2.5 sn önce "TRAIN INCOMING / IS BACK" yazısı ve girdiği kenarda
+  yanıp sönen **TRAIN** işareti çıkar.
+- **Vagondaki kutular:** alttaki kutu vurulunca üstündekiler aşağı düşer.
+- **2. bölüm (teras):** Block Hauler ile zırhlı tren sırayla gelir (her biri hasarını korur). Trenden
+  vurulan kutular terasa sekip düşer ve kırılır; %60 ihtimalle ikmal (silah / tamir) bırakır.
+- **Raylardaki kar** eskisinin %10'u kadar birikir (`GameConfig.track.railSnow`).
+
 ### Görev
 
 Trenin vagonlarındaki **kırmızı, yeşil ve mavi** kutuları vurup aşağı düşür. Mühendis forkliftiyle
@@ -182,7 +194,9 @@ tuşuyla seç: seçilen kart ortaya gelip parlar ve oyuna karışarak kaybolur, 
   modellendi). **FIELD ENGINEER** kartı seçilene kadar sahada yoktur; o zamana kadar trenden düşen
   kutular sıradan blok olur. Karolar arasında yol bularak (BFS) en yakın kargoya gider, çatallarını altına sokup kaldırır
   ve kutuyu **en soldaki sütuna (iskele)** taşır. Çalışırken turuncu tepe lambası yanıp söner.
-  Önü bloklarla kapanırsa bekler; bloğu vurarak yolunu açabilirsin.
+  Önü bloklarla kapanırsa bekler; bloğu vurarak yolunu açabilirsin. Görevi bilir: bir rengin
+  teslim edilen + iskelede bekleyen + çatalındaki paket sayısı 20'ye ulaşınca o rengi toplamaz;
+  o renkteki kargo sıradan (vurulabilir) bloğa döner, trenden düşenler de kargo olmaz.
 - **Hediye paketleri:** iskeleye bırakılan kutu, **altın kurdeleli ve fiyonklu bir hediye paketine**
   dönüşür. Paketler **vurulamaz**: mermiler içlerinden geçer. Hafifçe ışıldar ve alınmayı bekler. İskele
   sarı-siyah şeritle boyalıdır; paketler üst üste konmaz, sıra dolunca forklift bekler (13 yer,
@@ -254,6 +268,8 @@ URL parametreleri:
 | Güdümlü roket | `tools/blender/build_rocket.py` | `assets/models/rocket.glb / .blend` |
 | Taret mermisi, forklift + mühendis asker, CH-47F Chinook | `tools/blender/build_props.py` | `assets/models/bullet.glb`, `forklift.glb`, `chinook.glb` (+ `.blend`) |
 | Geliştirme kartı | `tools/blender/build_card.py` | `assets/models/card.glb / .blend` |
+| BLOCK HAULER treni | `tools/blender/build_hauler.py` | `assets/models/hauler.glb / .blend` |
+| T / D plazma mermileri | `tools/blender/build_plasma.py` | `assets/models/plasma.glb / .blend` (PlasmaBolt, NovaBolt) |
 
 Oyun `.glb` dosyalarını yükler; yüklenemezse basit yedek modellere döner. Ayrıntılar: `tools/blender/README.md`.
 

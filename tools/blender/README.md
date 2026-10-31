@@ -71,3 +71,19 @@ Kök objeler (her biri bir vagon, oyun yeniden yerleştirir): `HaulerLoco`, `Hau
 python tools/blender/build_hauler.py                       # hauler.glb + hauler.blend
 python tools/blender/build_hauler.py --render captures     # + Cycles önizleme (ön ve yan)
 ```
+
+# Plazma mermileri (T ve D güçlendirmeleri)
+
+`build_plasma.py` iki enerji mermisi kurar ve `assets/models/plasma.glb` olarak dışa aktarır:
+
+- **PlasmaBolt** (T - üçlü ateş): fasetli macenta kristal baş, içinde beyaz sıcak çekirdek, başın
+  çevresinde iki camgöbeği enerji halkası, mavi konik kuyruk ve ona sarılan üç burgulu kanat.
+- **NovaBolt** (D - 8 yöne ateş): aynı mermi buz mavisi / beyaz tonlarda.
+
+Mermiler Blender'da +Y yönüne bakar (oyunda -Z ileri), tüm malzemeler ışık saçar (bloom parlatır).
+Oyun mermiyi uçuş ekseni etrafında döndürür; kanatlar ve halkalar üstten bakınca da 3D okunur.
+
+```bash
+python tools/blender/build_plasma.py                         # plasma.glb + plasma.blend
+python tools/blender/build_plasma.py --render captures/p.png  # + önizleme
+```

@@ -186,6 +186,8 @@ export class Game {
     this.stage = Stage.DEPOT;
     this.cameraMode = 'board';
     this.train = null;
+    this.looseCubes = [];
+    this.idleTrain = null;
     this.trainTimer = 1.5;
     this.trainWarned = false;
     this.trainWarnSide = null;
@@ -498,6 +500,9 @@ export class Game {
     this.checkpoint.show(false);
     this.train?.dispose();
     this.train = null;
+    this.idleTrain?.dispose();
+    this.idleTrain = null;
+    this.clearLooseCubes();
     this.trainTimer = 1.5;
     this.trainWarned = false;
     this.trainWarnSide = null;
@@ -511,13 +516,14 @@ export class Game {
     this.hud.setScore(this.score);
   }
 
-  spawnTrain() {
+  /** New train (wave + 1). On the terrace `kind` picks the Block Hauler or the armored train. */
+  spawnTrain(kind = 'hauler') {
     this.wave += 1;
     this.train?.dispose();
     const terrace = this.stage === Stage.TERRACE;
     this.train = new Train({
       track: this.world.track, effects: this.effects, factory: this.trainFactory, wave: this.wave, seed: this.wave,
-      hauler: terrace ? this.haulerFactory : null,
+      hauler: terrace && kind === 'hauler' ? this.haulerFactory : null,
       path: terrace ? GameConfig.stages.haulerPath : null,
       arena: terrace ? GameConfig.stages.terrace : null,
     });
@@ -526,8 +532,8 @@ export class Game {
     this.train.onBallHit = (center) => this.onBallHit(center);
     this.train.onFire = (muzzle, target) => this.fireEnemyShell(muzzle, target);
     this.train.onCannonFire = (muzzle, target) => this.fireCannonShell(muzzle, target);
-    // Cubes shot off the train fall onto the board as new blocks.
-    this.train.onCargoKnocked = (position, colorKey) => !terrace && this.blocks.dropFromTrain(position, colorKey);
+    // Cubes shot off the train fall onto the board as new blocks (terrace: they break open there).
+    this.train.onCargoKnocked = (position, colorKey) => (terrace ? this.dropOnTerrace(position, colorKey) : this.blocks.dropFromTrain(position, colorKey));
     this.train.onShieldDown = () => this.hud.toast('GEM SHIELD DOWN - HIT THE HEAD!');
     this.train.onTargetDestroyed = (kind, position) => {
       this.addScore(SCORE[kind] ?? 0);
@@ -559,12 +565,115 @@ export class Game {
    */
   warnTrain() {
     this.trainWarned = true;
-    const back = this.train && !this.train.destroyed;
-    const dirIn = back ? -this.train.dir : 1;
-    this.trainWarnSide = dirIn > 0 ? 'top' : 'bottom';
+    const next = this.nextTrain();
+    this.trainWarnSide = next.dirIn > 0 ? 'top' : 'bottom';
     if (this.options.poster) return;
-    if (back) this.hud.toast(`THE TRAIN IS BACK - ${Math.round(this.train.integrity * 100)}%`);
-    else this.hud.toast(`WAVE ${this.wave + 1} - ${this.stage === Stage.TERRACE ? 'BLOCK HAULER' : 'ARMORED TRAIN'} INCOMING`);
+    if (next.back) this.hud.toast(`${next.back.kind === 'hauler' ? 'THE BLOCK HAULER' : 'THE TRAIN'} IS BACK - ${Math.round(next.back.integrity * 100)}%`);
+    else this.hud.toast(`WAVE ${this.wave + 1} - ${next.kind === 'hauler' && this.stage === Stage.TERRACE ? 'BLOCK HAULER' : 'ARMORED TRAIN'} INCOMING`);
+  }
+
+  /**
+   * Which train comes next: the same one round again (depot), or on the terrace the Block Hauler
+   * and the armored train in turn (each keeps its own damage between trips).
+   * @returns {{back: Train|null, kind: string, dirIn: number}}
+   */
+  nextTrain() {
+    const cur = this.train && !this.train.destroyed ? this.train : null;
+    if (this.stage === Stage.TERRACE) {
+      if (this.idleTrain) return { back: this.idleTrain, kind: this.idleTrain.kind, dirIn: -this.idleTrain.dir };
+      return { back: null, kind: this.train?.kind === 'hauler' ? 'armored' : 'hauler', dirIn: 1 };
+    }
+    return cur ? { back: cur, kind: cur.kind, dirIn: -cur.dir } : { back: null, kind: 'armored', dirIn: 1 };
+  }
+
+  /** Terrace: the train that just left parks out of sight and the other one comes in. */
+  nextTerraceTrain() {
+    const prev = this.train;
+    const parked = this.idleTrain;
+    this.idleTrain = null;
+    if (prev && !prev.destroyed) {
+      prev.group.visible = false;
+      this.idleTrain = prev;
+    } else prev?.dispose();
+    this.train = null;
+    if (parked) {
+      this.train = parked;
+      parked.group.visible = true;
+      parked.view = this.trainViewRange();
+      parked.restartLap();
+    } else {
+      this.spawnTrain(prev?.kind === 'hauler' ? 'armored' : 'hauler');
+    }
+  }
+
+  /**
+   * Terrace: a cube shot off a train bounces onto the platform beside the line, then breaks open
+   * (often leaving a supply crate). Cubes knocked off away from the terrace just shatter.
+   * @returns {boolean} false -> the caller shatters it in the air
+   */
+  dropOnTerrace(from, colorKey) {
+    const t = GameConfig.stages.terrace;
+    if (from.z < t.minZ - 2 || from.z > t.maxZ + 2) return false;
+    const tx = this.world.track.x;
+    const side = rnd.chance(0.7) ? -1 : 1;
+    const target = new THREE.Vector3(
+      THREE.MathUtils.clamp(tx + side * rnd.range(2.4, 6), t.minX + 1.2, t.maxX - 1.2),
+      0,
+      THREE.MathUtils.clamp(from.z + rnd.spread(1.5), t.minZ + 1.5, t.maxZ - 1.5),
+    );
+    const size = 0.88 * 1.6;
+    const mesh = new THREE.Mesh(this.trainFactory.cargoGeometry, this.materials.block(colorKey));
+    mesh.scale.setScalar(size);
+    mesh.castShadow = true;
+    mesh.position.copy(from);
+    this.scene.add(mesh);
+    const T = 0.75;
+    const g = 22;
+    target.y = size / 2;
+    const vel = new THREE.Vector3((target.x - from.x) / T, (target.y - from.y + 0.5 * g * T * T) / T, (target.z - from.z) / T);
+    this.looseCubes.push({ mesh, vel, g, size, bounced: false, rest: -1, color: Palette.blocks[colorKey], spin: new THREE.Vector3(rnd.spread(6), rnd.spread(6), rnd.spread(6)) });
+    return true;
+  }
+
+  updateLooseCubes(dt) {
+    for (let i = this.looseCubes.length - 1; i >= 0; i--) {
+      const c = this.looseCubes[i];
+      const m = c.mesh;
+      if (c.rest < 0) {
+        c.vel.y -= c.g * dt;
+        m.position.addScaledVector(c.vel, dt);
+        m.rotation.x += c.spin.x * dt;
+        m.rotation.y += c.spin.y * dt;
+        m.rotation.z += c.spin.z * dt;
+        if (m.position.y <= c.size / 2 && c.vel.y < 0) {
+          m.position.y = c.size / 2;
+          this.effects.snowPuff(v1.set(m.position.x, 0.2, m.position.z), 5);
+          if (!c.bounced) {
+            // One small hop, then it settles flat.
+            c.bounced = true;
+            c.vel.set(c.vel.x * 0.25, -c.vel.y * 0.3, c.vel.z * 0.25);
+            c.spin.multiplyScalar(0.3);
+          } else {
+            c.rest = 0.55;
+            m.rotation.set(0, m.rotation.y, 0);
+          }
+        }
+      } else {
+        c.rest -= dt;
+        if (c.rest <= 0) {
+          // Breaks open.
+          m.removeFromParent();
+          this.looseCubes.splice(i, 1);
+          this.effects.shatter(m.position, c.color, 12, 1.1, [0.16, 0.36]);
+          if (Math.random() < GameConfig.stages.dropSupplyChance) this.supplies.spawnRandom(v1.copy(m.position), this.supplyPool);
+        }
+      }
+    }
+  }
+
+  clearLooseCubes() {
+    for (const c of this.looseCubes ?? []) c.mesh.removeFromParent();
+    this.looseCubes = [];
   }
 
   /** Edge marker while a train is announced / still on its way in. */
@@ -1138,17 +1247,19 @@ export class Game {
       this.trainTimer -= dt;
       if (!this.trainWarned && this.trainTimer <= cfg.warnLead) this.warnTrain();
       if (this.trainTimer <= 0) {
-        if (this.train && !this.train.destroyed) {
+        if (this.stage === Stage.TERRACE) this.nextTerraceTrain();
+        else if (this.train && !this.train.destroyed) {
           this.train.view = this.trainViewRange();
           this.train.restartLap();
         } else {
-          this.spawnTrain();
+          this.spawnTrain('armored');
         }
         this.trainWarned = false;
         this.trainTimer = cfg.respawnDelay;
       }
     }
     this.updateTrainWarning();
+    this.updateLooseCubes(dt);
     this.train?.update(dt, this.heli.position, this.heli.alive);
     this.checkTrainCollision();
     this.restockFarSide();

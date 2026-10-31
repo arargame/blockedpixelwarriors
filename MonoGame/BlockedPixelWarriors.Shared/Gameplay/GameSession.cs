@@ -36,6 +36,19 @@ public sealed class GameSession : IRenderable
     private readonly Targeting _targeting = new();
     private float _trainTimer = 1.5f, _deadTimer;
     private bool _trainWarned;
+    /// <summary>Terrace: the train waiting out of sight while the other one runs.</summary>
+    private Train _idleTrain;
+
+    private sealed class LooseCube
+    {
+        public Vector3 Pos, Vel, Rot, Spin;
+        public float Size, Rest = -1;
+        public bool Bounced;
+        public BlockColor Color;
+    }
+
+    private readonly List<LooseCube> _loose = new();
+    private InstanceBuffer _looseBuffer;
     /// <summary>Edge a train is announced to come in from ("top" / "bottom"), or null.</summary>
     public string TrainWarnSide { get; private set; }
     private float _tMain, _tTriple, _tBurst, _tHoming = 0.8f;
@@ -175,6 +188,9 @@ public sealed class GameSession : IRenderable
         Gate.Show(false);
         Train?.Dispose();
         Train = null;
+        _idleTrain?.Dispose();
+        _idleTrain = null;
+        _loose.Clear();
         _trainTimer = 1.5f;
         _trainWarned = false;
         TrainWarnSide = null;
@@ -339,17 +355,18 @@ public sealed class GameSession : IRenderable
         ScoreValue += points;
     }
 
-    private void SpawnTrain()
+    /// <summary>New train (wave + 1). On the terrace `kind` picks the Block Hauler or the armored train.</summary>
+    private void SpawnTrain(string kind = "hauler")
     {
         Wave++;
         Train?.Dispose();
         var terrace = Stage == Stage.Terrace;
-        Train = new Train(_trainFactory, Effects, _lights, _device, Wave, (uint)Wave, terrace)
+        Train = new Train(_trainFactory, Effects, _lights, _device, Wave, (uint)Wave, terrace && kind == "hauler", terrace)
         {
             OnFire = FireEnemyShell,
             OnCannonFire = FireCannonShell,
-            // Up on the terrace there is no block field: knocked cubes shatter.
-            OnCargoKnocked = (p, c) => !terrace && Blocks.DropFromTrain(p, c),
+            // Up on the terrace knocked cubes bounce onto the platform and break open there.
+            OnCargoKnocked = (p, c) => terrace ? DropOnTerrace(p, c) : Blocks.DropFromTrain(p, c),
             OnShieldDown = () => _hud.Toast("GEM SHIELD DOWN - HIT THE HEAD!"),
             OnTargetDestroyed = OnTrainPartDestroyed,
             OnBallHit = OnBallHit,
@@ -370,11 +387,108 @@ public sealed class GameSession : IRenderable
     private void WarnTrain()
     {
         _trainWarned = true;
-        var back = Train is { Destroyed: false };
-        var dirIn = back ? -Train.Dir : 1;
+        var (back, kind, dirIn) = NextTrain();
         TrainWarnSide = dirIn > 0 ? "top" : "bottom";
-        if (back) _hud.Toast($"THE TRAIN IS BACK - {MathF.Round(Train.Integrity * 100)}%");
-        else _hud.Toast($"WAVE {Wave + 1} - {(Stage == Stage.Terrace ? "BLOCK HAULER" : "ARMORED TRAIN")} INCOMING");
+        if (back != null) _hud.Toast($"{(back.IsHauler ? "THE BLOCK HAULER" : "THE TRAIN")} IS BACK - {MathF.Round(back.Integrity * 100)}%");
+        else _hud.Toast($"WAVE {Wave + 1} - {(kind == "hauler" && Stage == Stage.Terrace ? "BLOCK HAULER" : "ARMORED TRAIN")} INCOMING");
+    }
+
+    /// <summary>
+    /// Which train comes next: the same one again (depot), or on the terrace the Block Hauler and the
+    /// armored train in turn (each keeps its damage between trips).
+    /// </summary>
+    private (Train back, string kind, int dirIn) NextTrain()
+    {
+        var cur = Train is { Destroyed: false } ? Train : null;
+        if (Stage == Stage.Terrace)
+        {
+            if (_idleTrain != null) return (_idleTrain, _idleTrain.IsHauler ? "hauler" : "armored", -_idleTrain.Dir);
+            return (null, Train is { IsHauler: true } ? "armored" : "hauler", 1);
+        }
+        return cur != null ? (cur, "armored", -cur.Dir) : (null, "armored", 1);
+    }
+
+    /// <summary>Terrace: the train that just left parks out of sight and the other one comes in.</summary>
+    private void NextTerraceTrain()
+    {
+        var prev = Train;
+        var parked = _idleTrain;
+        _idleTrain = null;
+        if (prev is { Destroyed: false })
+        {
+            prev.Park(true);
+            _idleTrain = prev;
+        }
+        else prev?.Dispose();
+        Train = null;
+        if (parked != null)
+        {
+            Train = parked;
+            parked.Park(false);
+            parked.View = TrainViewRange();
+            parked.RestartLap();
+        }
+        else SpawnTrain(prev is { IsHauler: true } ? "armored" : "hauler");
+    }
+
+    /// <summary>
+    /// Terrace: a cube shot off a train bounces onto the platform beside the line, then breaks open
+    /// (often leaving a supply crate). Cubes knocked off away from the terrace just shatter.
+    /// </summary>
+    private bool DropOnTerrace(Vector3 from, BlockColor color)
+    {
+        if (from.Z < GameConfig.Stages.TerraceMinZ - 2 || from.Z > GameConfig.Stages.TerraceMaxZ + 2) return false;
+        var r = Rng.Shared;
+        var side = r.Chance(0.7f) ? -1 : 1;
+        var size = 0.88f * 1.6f;
+        var target = new Vector3(
+            Math.Clamp(GameConfig.Track.X + side * r.Range(2.4f, 6), GameConfig.Stages.TerraceMinX + 1.2f, GameConfig.Stages.TerraceMaxX - 1.2f),
+            size / 2,
+            Math.Clamp(from.Z + r.Spread(1.5f), GameConfig.Stages.TerraceMinZ + 1.5f, GameConfig.Stages.TerraceMaxZ - 1.5f));
+        const float T = 0.75f, g = 22;
+        var vel = new Vector3((target.X - from.X) / T, (target.Y - from.Y + 0.5f * g * T * T) / T, (target.Z - from.Z) / T);
+        _loose.Add(new LooseCube { Pos = from, Vel = vel, Size = size, Color = color, Spin = new Vector3(r.Spread(6), r.Spread(6), r.Spread(6)) });
+        return true;
+    }
+
+    private void UpdateLooseCubes(float dt)
+    {
+        for (var i = _loose.Count - 1; i >= 0; i--)
+        {
+            var c = _loose[i];
+            if (c.Rest < 0)
+            {
+                c.Vel.Y -= 22 * dt;
+                c.Pos += c.Vel * dt;
+                c.Rot += c.Spin * dt;
+                if (c.Pos.Y <= c.Size / 2 && c.Vel.Y < 0)
+                {
+                    c.Pos.Y = c.Size / 2;
+                    Effects.SnowPuff(new Vector3(c.Pos.X, 0.2f, c.Pos.Z), 5);
+                    if (!c.Bounced)
+                    {
+                        // One small hop, then it settles flat.
+                        c.Bounced = true;
+                        c.Vel = new Vector3(c.Vel.X * 0.25f, -c.Vel.Y * 0.3f, c.Vel.Z * 0.25f);
+                        c.Spin *= 0.3f;
+                    }
+                    else
+                    {
+                        c.Rest = 0.55f;
+                        c.Rot = new Vector3(0, c.Rot.Y, 0);
+                    }
+                }
+            }
+            else
+            {
+                c.Rest -= dt;
+                if (c.Rest > 0) continue;
+                // Breaks open.
+                _loose.RemoveAt(i);
+                Effects.Shatter(c.Pos, Train.PackedColor(c.Color), 12, 1.1f, 0.16f, 0.36f);
+                if (Rng.Shared.Next() < GameConfig.Stages.DropSupplyChance) SpawnSupply(c.Pos);
+            }
+        }
     }
 
     /// <summary>Screen-edge marker point (world) while a train is announced / rolling in, else null.</summary>
@@ -915,19 +1029,21 @@ public sealed class GameSession : IRenderable
             if (!_trainWarned && _trainTimer <= GameConfig.Train.WarnLead) WarnTrain();
             if (_trainTimer <= 0)
             {
-                if (Train != null && !Train.Destroyed)
+                if (Stage == Stage.Terrace) NextTerraceTrain();
+                else if (Train != null && !Train.Destroyed)
                 {
                     Train.View = TrainViewRange();
                     Train.RestartLap();
                 }
                 else
                 {
-                    SpawnTrain();
+                    SpawnTrain("armored");
                 }
                 _trainWarned = false;
                 _trainTimer = GameConfig.Train.RespawnDelay;
             }
         }
+        UpdateLooseCubes(dt);
         // The edge marker stays until the train has rolled into view.
         if (TrainWarnSide != null && !(State == GameState.Playing && (Train == null || Train.Finished || Train.Entering))) TrainWarnSide = null;
         Train?.Update(dt, Heli.Position, Heli.Alive);
@@ -1136,6 +1252,15 @@ public sealed class GameSession : IRenderable
         Mines.Submit(queue);
         Gate.Submit(queue);
         Train?.Submit(queue);
+        if (_loose.Count > 0)
+        {
+            _looseBuffer ??= new InstanceBuffer(_device, 48, true);
+            _looseBuffer.Count = 0;
+            foreach (var c in _loose.Take(48))
+                _looseBuffer.Add(Matrix.CreateScale(c.Size) * MathX.RotationXYZ(c.Rot.X, c.Rot.Y, c.Rot.Z) * Matrix.CreateTranslation(c.Pos), new Vector4(TrainFactory.BlockLinear(c.Color), 1));
+            _looseBuffer.Upload();
+            queue.Add(_trainFactory.CargoCube, Matrix.Identity, DrawOverrides.None, true, 0, RenderLayer.World, _looseBuffer, _trainFactory.CubeMaterial);
+        }
         Heli.Submit(queue);
         Supplies.Submit(queue);
         Projectiles.Submit(queue);
