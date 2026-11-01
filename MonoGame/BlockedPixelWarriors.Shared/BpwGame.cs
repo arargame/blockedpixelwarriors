@@ -344,7 +344,9 @@ public sealed class BpwGame : Game
         var vp = Viewport;
         var k = UiScale(vp);
         _ui.Scale = k;
-        var playing = _session.State is GameState.Playing or GameState.Dead;
+        // Tank level: its own state drives the touch controls (left stick = hull, the two buttons on
+        // the right = barrel); the heli session only plays the attract game behind the menu then.
+        var playing = _tankMode ? _tank.HudPlaying && !_cards.Active : _session.State is GameState.Playing or GameState.Dead;
         _input.Update(vp, k, playing && !_session.Paused);
         HandleScreens();
         // Desktop: F11 / Alt+Enter toggles borderless full screen.
@@ -631,13 +633,17 @@ public sealed class BpwGame : Game
         // ---- Bottom centre: reload bar, key help (fades out after 12 s) ----
         var y = vp.Height - 18 * k;
         var bw = 180 * k;
-        var reload = new RectangleF(cx - bw / 2, y - 7 * k, bw, 7 * k);
-        _ui.Rect(reload, Color.Black * 0.45f);
-        _ui.Rect(new RectangleF(reload.X, reload.Y, reload.Width * Math.Clamp(t.ReloadRatio, 0, 1), reload.Height), new Color(0xff, 0xb0, 0x2a));
+        // Reload bar on desktop only (phones: the HP row owns the bottom; the gun fires by itself).
+        if (!_input.TouchMode)
+        {
+            var reload = new RectangleF(cx - bw / 2, y - 7 * k, bw, 7 * k);
+            _ui.Rect(reload, Color.Black * 0.45f);
+            _ui.Rect(new RectangleF(reload.X, reload.Y, reload.Width * Math.Clamp(t.ReloadRatio, 0, 1), reload.Height), new Color(0xff, 0xb0, 0x2a));
+        }
         var helpAlpha = Math.Clamp(13 - t.Time, 0, 1);
         if (helpAlpha > 0 && !_input.TouchMode)
         {
-            const string help = "W S drive · A D turn · turret auto-aims · Q E / ← → pick another target · SPACE fire · ESC menu";
+            const string help = "W S drive · A D turn hull · ← → / Q E turn barrel · auto aim & fire · ESC menu";
             var hw = _ui.Ui.Measure(help, 13 * k) + 24 * k;
             _ui.Panel(new RectangleF(cx - hw / 2, y - 34 * k, hw, 22 * k), 8 * k, new Color(15, 22, 30) * 0.55f * helpAlpha);
             _ui.TextCentered(_ui.Ui, help, new Vector2(cx, y - 23 * k), 13 * k, Color.White * 0.92f * helpAlpha);

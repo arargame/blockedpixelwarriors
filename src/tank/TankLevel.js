@@ -51,7 +51,8 @@ const SCORE = Object.freeze({ block: 10, fighter: 500 });
  * nearest the gun is the new lock. The mouse does not aim. Shells fly straight and hit the first
  * block in their path.
  * Skill cards every 200 broken blocks: HOMING ROCKETS (R crates drop), CHAIN REACTION.
- * Controls: W/S drive, A/D turn the hull, Q/E or arrows turn the turret, SPACE / click fires,
+ * Controls: W/S drive, A/D turn the hull, Q/E or left/right arrows turn the barrel (arrows never
+ * move the hull); phones: left stick drives (screen-relative), two buttons turn the barrel. SPACE / click fires,
  * ENTER restarts a finished phase, ESC pause menu. Own scene and camera.
  */
 export class TankLevel {
@@ -153,13 +154,13 @@ export class TankLevel {
     this.hp = GameConfig.tank.hp;
     this.buildHud();
 
-    // The mouse no longer aims: a left click just fires (touch fires with the FIRE button).
+    // The mouse never aims: a left click just fires (the turret aims and fires by itself).
     this.onPointerMove = () => {};
     this.onPointerDown = (e) => {
       if (!this.active || this.paused || this.cards?.active) return;
       if (e.pointerType === 'mouse' && e.button === 0) this.fireQueued = true;
     };
-    this.touch = { left: false, right: false, fire: false };
+    this.touch = { left: false, right: false };
   }
 
   buildHud() {
@@ -167,17 +168,17 @@ export class TankLevel {
     el.className = 'tank-hud';
     el.innerHTML = `
       <div class="th-banner" data-banner></div>
-      <div class="th-keys"><b>W S</b> drive · <b>A D</b> turn · turret <b>auto-aims</b> · <b>Q E / ← →</b> pick another target · <b>SPACE</b> fire · <b>ESC</b> menu</div>
+      <div class="th-keys"><b>W S</b> drive · <b>A D</b> turn hull · <b>← →</b> / <b>Q E</b> turn barrel · auto aim &amp; fire · <b>ESC</b> menu</div>
       <div class="th-touch">
         <button class="th-btn" data-tl aria-label="turret left">&#9664;</button>
         <button class="th-btn" data-tr aria-label="turret right">&#9654;</button>
-        <button class="th-btn fire" data-fire aria-label="fire">FIRE</button>
       </div>
+      <div class="th-stick" data-stick><i></i></div>
       <div class="th-reload"><i></i></div>`;
     Object.assign(el.style, { display: 'none' });
     this.hud = el;
     this.reloadBar = el.querySelector('.th-reload i');
-    this.hudEl = { banner: el.querySelector('[data-banner]'), keys: el.querySelector('.th-keys') };
+    this.hudEl = { banner: el.querySelector('[data-banner]'), keys: el.querySelector('.th-keys'), stick: el.querySelector('[data-stick]') };
     (this.element.parentElement ?? document.body).appendChild(el);
     // Phones: turret left / right and FIRE buttons (like the heli's turn buttons); the drag
     // joystick drives the hull.
@@ -199,7 +200,6 @@ export class TankLevel {
     };
     hold('[data-tl]', 'left');
     hold('[data-tr]', 'right');
-    hold('[data-fire]', 'fire');
   }
 
   /** Starts (or restarts) phase 1: tank at the bottom of the channel, everything cleared. */
@@ -295,19 +295,36 @@ export class TankLevel {
     }
     const playing = this.state === 'playing';
     const driving = playing || this.state === 'won';
-    // W / S drive, A / D turn the hull; Q / E or the left / right arrows (or the touch buttons)
-    // turn the turret; the drag joystick also drives.
+    // Hull: W / S drive, A / D turn (the arrow keys never move the hull). Turret: Q / E or the
+    // left / right arrows (phones: the two buttons on the right). Phones: the left stick drives.
     const drive = driving ? {
-      throttle: (k('KeyW', 'ArrowUp') ? 1 : 0) - (k('KeyS', 'ArrowDown') ? 1 : 0),
+      throttle: (k('KeyW') ? 1 : 0) - (k('KeyS') ? 1 : 0),
       turn: (k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0),
       turret: (k('KeyQ', 'ArrowLeft') || this.touch.left ? 1 : 0) - (k('KeyE', 'ArrowRight') || this.touch.right ? 1 : 0),
     } : { throttle: 0, turn: 0, turret: 0 };
-    if (driving && this.input.dragging && !drive.throttle && !drive.turn) {
-      drive.throttle = THREE.MathUtils.clamp(-this.input.move.z * 1.4, -1, 1);
-      drive.turn = THREE.MathUtils.clamp(this.input.move.x * 1.4, -1, 1);
-    }
-    this.step(dt, drive, driving && (this.fireQueued || keys.has('Space') || this.touch.fire));
+    if (driving && this.input.dragging && !drive.throttle && !drive.turn) Object.assign(drive, this.stickDrive(this.input.move.x, this.input.move.z));
+    this.step(dt, drive, driving && (this.fireQueued || keys.has('Space')));
     this.fireQueued = false;
+  }
+
+  /**
+   * Left stick (like the heli's): screen-relative - the hull turns toward the stick direction and
+   * drives forward once it roughly faces it (turns on the spot first for a sharp change).
+   * @param {number} sx stick right (+1) / left (-1)
+   * @param {number} sy stick down (+1) / up (-1)
+   */
+  stickDrive(sx, sy) {
+    const mag = Math.min(1, Math.hypot(sx, sy));
+    if (mag < 0.12) return { throttle: 0, turn: 0 };
+    // Camera looks up the channel (+z = screen up), +x is the screen's left.
+    const want = Math.atan2(-sx, -sy);
+    let err = want - this.tank.heading;
+    while (err > Math.PI) err -= Math.PI * 2;
+    while (err < -Math.PI) err += Math.PI * 2;
+    return {
+      throttle: mag * Math.max(0, Math.cos(err)) ** 2,
+      turn: -THREE.MathUtils.clamp(err * 2.5, -1, 1),
+    };
   }
 
   /** One simulation step (also driven by test scripts). */
@@ -732,6 +749,18 @@ export class TankLevel {
     this.hitFlash = Math.max(0, (this.hitFlash ?? 0) - dt * 1.8);
     // Key help fades after the first seconds.
     if (this.time > 12) this.hudEl.keys.classList.add('faded');
+    // Phones: the drag joystick shows where it was put down and where the thumb is.
+    const st = this.hudEl.stick;
+    const showStick = this.input.pointerId !== null && this.input.dragStart && matchMedia('(pointer: coarse)').matches;
+    st.classList.toggle('on', !!showStick);
+    if (showStick) {
+      const r = Math.min(window.innerWidth, window.innerHeight) * 0.12;
+      const host = this.hud.getBoundingClientRect();
+      st.style.left = `${this.input.dragStart.x - host.left}px`;
+      st.style.top = `${this.input.dragStart.y - host.top}px`;
+      st.style.width = st.style.height = `${r * 2}px`;
+      st.firstElementChild.style.transform = `translate(${this.input.move.x * r}px, ${this.input.move.z * r}px)`;
+    }
     this.reloadBar.style.width = `${Math.round((1 - t.cooldown / (t.reloadTime || GameConfig.tank.reload)) * 100)}%`;
     const ui = this.ui;
     if (!ui) return;

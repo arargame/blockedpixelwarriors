@@ -343,21 +343,34 @@ public sealed class TankLevel : ICombatWorld, UI.IHudModel
             return;
         }
         var playing = State == TankLevelState.Playing || State == TankLevelState.Won;
-        // W / S drive, A / D turn the hull; Q / E or the left / right arrows (phones: the left /
-        // right buttons) turn the turret; the left stick also drives.
-        float throttle = (input.Down(Keys.W) || input.Down(Keys.Up) ? 1 : 0) - (input.Down(Keys.S) || input.Down(Keys.Down) ? 1 : 0);
+        // Hull: W / S drive, A / D turn (the arrow keys never move the hull). Turret: Q / E or the
+        // left / right arrows (phones: the two buttons on the right). Phones: the left stick drives.
+        float throttle = (input.Down(Keys.W) ? 1 : 0) - (input.Down(Keys.S) ? 1 : 0);
         float turn = (input.Down(Keys.D) ? 1 : 0) - (input.Down(Keys.A) ? 1 : 0);
         float turret = (input.Down(Keys.Q) || input.Down(Keys.Left) || input.Touch.TurnLeft ? 1 : 0) - (input.Down(Keys.E) || input.Down(Keys.Right) || input.Touch.TurnRight ? 1 : 0);
         var cmd = input.Command;
-        if (cmd.StickActive && throttle == 0 && turn == 0)
-        {
-            throttle = MathHelper.Clamp(-cmd.Stick.Y, -1, 1);
-            turn = MathHelper.Clamp(cmd.Stick.X, -1, 1);
-        }
+        if (cmd.StickActive && throttle == 0 && turn == 0) (throttle, turn) = StickDrive(cmd.Stick.X, cmd.Stick.Y);
         if (!playing) throttle = turn = turret = 0;
-        // The mouse / taps no longer aim: a click or tap fires, SPACE fires.
-        var fire = input.Down(Keys.Space) || input.Taps.Count > 0;
+        // The mouse never aims and taps never fire (the turret aims and fires by itself); SPACE or a
+        // mouse click fires at will.
+        var fire = input.Down(Keys.Space) || (!input.TouchMode && input.Taps.Count > 0);
         Step(dt, throttle, turn, null, playing && fire, turret);
+    }
+
+    /// <summary>
+    /// Left stick (like the heli's): screen-relative - the hull turns toward the stick direction and
+    /// drives forward once it roughly faces it (turns on the spot first for a sharp change).
+    /// </summary>
+    /// <param name="sx">stick right (+1) / left (-1)</param>
+    /// <param name="sy">stick down (+1) / up (-1)</param>
+    public (float throttle, float turn) StickDrive(float sx, float sy)
+    {
+        var mag = MathF.Min(1, MathF.Sqrt(sx * sx + sy * sy));
+        if (mag < 0.12f) return (0, 0);
+        // Camera looks up the channel (+z = screen up), +x is the screen's left.
+        var err = Wrap(MathF.Atan2(-sx, -sy) - Heading);
+        var c = MathF.Max(0, MathF.Cos(err));
+        return (mag * c * c, -Math.Clamp(err * 2.5f, -1, 1));
     }
 
     /// <summary>One simulation step (also driven directly by capture scenarios).</summary>

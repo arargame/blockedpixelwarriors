@@ -783,7 +783,7 @@ body {
 .tp-bar.drain i { background: #38c8ff; box-shadow: 0 0 4px rgba(56, 200, 255, 0.6); }
 .tank-panel.danger .tp-bar.drain i { background: #ff4d4d; box-shadow: 0 0 5px rgba(255, 77, 77, 0.8); animation: hp-pulse 0.6s ease-in-out infinite alternate; }
 @media (pointer: coarse) {
-  .hud.tank-mode .skill-feed { bottom: 280px; }
+  .hud.tank-mode .skill-feed { bottom: 190px; }
 }
 .tank-hud {
   position: absolute; inset: 0;
@@ -801,8 +801,8 @@ body {
   .tank-hud .th-touch .th-btn { position: absolute; bottom: 90px; width: 74px; height: 74px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.5); background: rgba(15, 22, 30, 0.55); color: #fff; font-size: 26px; pointer-events: auto; touch-action: none; }
   .tank-hud .th-touch [data-tl] { right: 120px; }
   .tank-hud .th-touch [data-tr] { right: 30px; }
-  .tank-hud .th-touch .fire { right: 75px; bottom: 180px; font-size: 15px; font-weight: 800; background: rgba(200, 60, 30, 0.7); }
   .tank-hud .th-keys { display: none; }
+  .tank-hud .th-reload { display: none; }
 }
 .tank-hud .th-banner { position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%) scale(0.9); opacity: 0; transition: opacity 0.25s, transform 0.25s; text-align: center; display: flex; flex-direction: column; gap: 8px; }
 .tank-hud .th-banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
@@ -812,3 +812,7 @@ body {
 .tank-hud .th-banner.lost b { color: #ff6b5a; }
 .tank-hud .th-banner.power b { font-size: 30px; color: #ffb030; }
 .tank-hud .th-keys.faded { opacity: 0; }
+/* Phones: the drive joystick (left) - ring where the thumb went down, knob under the thumb. */
+.tank-hud .th-stick { position: absolute; display: none; transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.55); background: rgba(15, 22, 30, 0.3); }
+.tank-hud .th-stick.on { display: block; }
+.tank-hud .th-stick i { position: absolute; left: 50%; top: 50%; width: 46%; height: 46%; margin: -23% 0 0 -23%; border-radius: 50%; background: rgba(255, 255, 255, 0.75); }
