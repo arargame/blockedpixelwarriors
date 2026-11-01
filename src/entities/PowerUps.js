@@ -126,6 +126,24 @@ export class SupplyCrates {
     return this.spawn(types[Math.floor(Math.random() * types.length)], position);
   }
 
+  /**
+   * Stage 2 CRT comm device (type 'C'): thrown from the train onto the terrace along a ballistic
+   * arc that lands at `target`; it never expires.
+   */
+  spawnCrt(mesh, position, target) {
+    const glow = new THREE.Sprite(this.glowMaterial.clone());
+    glow.material.color.set(0x6dff8a).multiplyScalar(1.3);
+    glow.scale.setScalar(2.6);
+    const T = 0.9;
+    const g = 16;
+    const hover = 0.62;
+    const vel = new THREE.Vector3((target.x - position.x) / T, (hover - position.y + 0.5 * g * T * T) / T, (target.z - position.z) / T);
+    const item = { type: 'C', mesh, glow, color: 0x6dff8a, gem: null, pos: position.clone(), vel, landed: false, pulled: false, age: 0, spin: Math.random() * 6, keep: true, drag: false };
+    this.group.add(mesh, glow);
+    this.items.push(item);
+    return item;
+  }
+
   spawn(type, position, gemKind = null) {
     let gem = null;
     let mesh;
@@ -183,8 +201,10 @@ export class SupplyCrates {
         it.pos.addScaledVector(it.vel, dt);
       } else if (!it.landed) {
         it.vel.y -= 16 * dt;
-        it.vel.x *= Math.exp(-2 * dt);
-        it.vel.z *= Math.exp(-2 * dt);
+        if (it.drag !== false) {
+          it.vel.x *= Math.exp(-2 * dt);
+          it.vel.z *= Math.exp(-2 * dt);
+        }
         it.pos.addScaledVector(it.vel, dt);
         if (it.pos.y <= hover && it.vel.y < 0) {
           it.pos.y = hover;
@@ -197,9 +217,10 @@ export class SupplyCrates {
       const bob = it.landed ? Math.sin(it.age * 3) * 0.12 : 0;
       it.spin += dt * (it.pulled ? 6 : 1.6);
       it.mesh.position.set(it.pos.x, it.pos.y + bob, it.pos.z);
-      it.mesh.rotation.set(it.type === 'G' ? 0.3 : 0.35, it.spin, it.type === 'G' ? 0 : 0.2);
+      if (it.type === 'C') it.mesh.rotation.set(0.12, it.spin, 0);
+      else it.mesh.rotation.set(it.type === 'G' ? 0.3 : 0.35, it.spin, it.type === 'G' ? 0 : 0.2);
       it.glow.position.copy(it.mesh.position);
-      it.glow.material.opacity = (0.55 + Math.sin(it.age * 6) * 0.2) * (it.type === 'G' ? 0.35 : 1);
+      it.glow.material.opacity = (0.55 + Math.sin(it.age * 6) * 0.2) * (it.type === 'G' ? 0.35 : it.type === 'C' ? 0.7 : 1);
       // Glow sits under the supply so it halos the floor instead of washing out the model.
       it.glow.position.y = 0.25;
       // Magnet trail sparkles.
@@ -208,7 +229,7 @@ export class SupplyCrates {
         this.effects.fire.emit({ x: it.pos.x, y: it.pos.y, z: it.pos.z, life: 0.25, size0: 0.35, size1: 0.05, color0: [c.r * 3, c.g * 3, c.b * 3, 1], color1: [c.r, c.g, c.b, 0] });
       }
       // Blink during the last seconds (not while being pulled in).
-      const left = cfg.crateLifetime - it.age;
+      const left = it.keep ? Infinity : cfg.crateLifetime - it.age;
       it.mesh.visible = it.pulled || left > 4 || Math.floor(left * 8) % 2 === 0;
       if (canPickup && dist < cfg.pickupRadius) {
         this.effects.sparkBurst(it.mesh.position, 26, 7, [3, 3, 3, 1]);
@@ -219,6 +240,11 @@ export class SupplyCrates {
         this.remove(i);
       }
     }
+  }
+
+  /** New run: every supply / gem / comm device still lying around goes. */
+  clear() {
+    for (let i = this.items.length - 1; i >= 0; i--) this.remove(i);
   }
 
   remove(i) {

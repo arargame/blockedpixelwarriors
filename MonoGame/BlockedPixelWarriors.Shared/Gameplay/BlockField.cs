@@ -36,7 +36,10 @@ public sealed class BlockField : IRenderable
     private readonly Effects _effects;
     private readonly Block[] _grid;
     private readonly List<Block> _chain = new();
-    private readonly Rng _rng = new(2026);
+    private Rng _rng;
+    private readonly uint _seed;
+    private readonly bool _scatter;
+    private readonly (float x, float z, float r)[] _avoid;
     private readonly GpuMesh _block, _armor, _supply, _cargo, _acid;
     private readonly GpuMesh[] _snow;
     private readonly RenderMaterial _blockMaterial;
@@ -46,8 +49,8 @@ public sealed class BlockField : IRenderable
     private bool _dirty = true;
 
     public float Size => GameConfig.BlockSize;
-    public float OriginX => GameConfig.Board.MinX;
-    public float OriginZ => GameConfig.Board.MinZ;
+    public float OriginX { get; }
+    public float OriginZ { get; }
     public int Cols { get; }
     public int Rows { get; }
     public List<Block> Blocks { get; } = new();
@@ -67,11 +70,24 @@ public sealed class BlockField : IRenderable
 
     public int Key(int c, int r) => c * Rows + r;
 
-    public BlockField(ModelLibrary models, Effects effects)
+    /// <summary>
+    /// Stage 1 depot board (key-art layout), or with <paramref name="scatter"/> the stage-2 terrace:
+    /// random same-coloured clusters inside the bounds, clear of the line and the <paramref name="avoid"/> circles.
+    /// </summary>
+    public BlockField(ModelLibrary models, Effects effects, (float minX, float maxX, float minZ, float maxZ)? bounds = null, bool scatter = false,
+        (float x, float z, float r)[] avoid = null, uint seed = 2026)
     {
         _effects = effects;
-        Cols = (int)MathF.Floor((GameConfig.Board.MaxX - OriginX) / Size);
-        Rows = (int)MathF.Floor((GameConfig.Board.MaxZ - OriginZ) / Size);
+        var b = bounds ?? (GameConfig.Board.MinX, GameConfig.Board.MaxX, GameConfig.Board.MinZ, GameConfig.Board.MaxZ);
+        OriginX = b.minX;
+        OriginZ = b.minZ;
+        _seed = seed;
+        _rng = new Rng(seed);
+        _scatter = scatter;
+        _avoid = avoid ?? Array.Empty<(float, float, float)>();
+        if (scatter) DockColumns = 0;
+        Cols = (int)MathF.Floor((b.maxX - OriginX) / Size);
+        Rows = (int)MathF.Floor((b.maxZ - OriginZ) / Size);
         _grid = new Block[Cols * Rows];
         var device = models.Device;
         _block = models.Mesh("block");
@@ -149,9 +165,55 @@ public sealed class BlockField : IRenderable
         return b;
     }
 
+    /// <summary>
+    /// Terrace (BlockField.js createScatter): small same-coloured clusters (2-5 blocks, so chains
+    /// still pop) scattered over the platform, clear of the line, planters, crates and heli spawn.
+    /// </summary>
+    private void CreateScatter()
+    {
+        var colors = new[] { BlockColor.Red, BlockColor.Green, BlockColor.Teal, BlockColor.Yellow };
+        bool Free(int c, int r)
+        {
+            if (c < 0 || r < 0 || c >= Cols || r >= Rows || IsTrackCell(c)) return false;
+            if (Cell(c, r) is { Alive: true }) return false;
+            var (x, z) = CellCenter(c, r);
+            // Keep a lane either side of the rails free (cubes knocked off the trains land there).
+            if (MathF.Abs(x - GameConfig.Track.X) < 2.4f) return false;
+            foreach (var a in _avoid)
+                if ((x - a.x) * (x - a.x) + (z - a.z) * (z - a.z) < a.r * a.r) return false;
+            return true;
+        }
+        var clusters = GameConfig.Stages.TerraceBlocks;
+        var steps = new (int dc, int dr)[] { (1, 0), (-1, 0), (0, 1), (0, -1) };
+        var placed = 0;
+        for (var tries = 0; placed < clusters && tries < clusters * 30; tries++)
+        {
+            var c = _rng.Int(0, Cols - 1);
+            var r = _rng.Int(0, Rows - 1);
+            if (!Free(c, r)) continue;
+            var color = colors[_rng.Int(0, colors.Length - 1)];
+            var n = _rng.Int(2, 5);
+            for (var k = 0; k < n; k++)
+            {
+                PlaceBlock(c, r, color, snow: _rng.Chance(0.6f) ? _rng.Int(0, 2) : -1);
+                var open = steps.Where(d => Free(c + d.dc, r + d.dr)).ToList();
+                if (open.Count == 0) break;
+                var (dc, dr) = open[_rng.Int(0, open.Count - 1)];
+                c += dc;
+                r += dr;
+            }
+            placed++;
+        }
+    }
+
     /// <summary>Hand-authored opening layout matching the key art (row 0 = far wall, col 0 = left wall).</summary>
     private void CreateLayout()
     {
+        if (_scatter)
+        {
+            CreateScatter();
+            return;
+        }
         string[] map =
         {
             "..........GY", ".....Y....TR", "......G...YG", "..........RT", "R.........GY", "GG........TR", "TY........YG",
@@ -173,7 +235,9 @@ public sealed class BlockField : IRenderable
     {
         foreach (var b in Blocks) b.Alive = false;
         _chain.Clear();
+        _rng = new Rng(_seed);
         CreateLayout();
+        _dirty = true;
     }
 
     /// <summary>

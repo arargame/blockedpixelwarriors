@@ -512,7 +512,7 @@ public sealed class Hud : IHudEvents
             {
                 var sw = new RectangleF(tx, cy - 4.5f * k, 9 * k, 9 * k);
                 _ui.Rect(sw, Color.White * alpha);
-                _ui.Rect(new RectangleF(sw.X + 1.5f * k, sw.Y + 1.5f * k, sw.Width - 3 * k, sw.Height - 3 * k), MissionSwatch[it.Swatch.Value == BlockColor.Red ? 0 : it.Swatch.Value == BlockColor.Green ? 1 : 2] * alpha);
+                _ui.Rect(new RectangleF(sw.X + 1.5f * k, sw.Y + 1.5f * k, sw.Width - 3 * k, sw.Height - 3 * k), (it.Swatch.Value == BlockColor.Yellow ? CrtSwatch : MissionSwatch[it.Swatch.Value == BlockColor.Red ? 0 : it.Swatch.Value == BlockColor.Green ? 1 : 2]) * alpha);
                 tx += 9 * k + 7 * k;
             }
             var ta = (it.Done ? 0.6f : 0.92f) * alpha;
@@ -530,6 +530,8 @@ public sealed class Hud : IHudEvents
     }
 
     private static readonly Color[] MissionSwatch = { new(0xe0, 0x1d, 0x22), new(0x36, 0xc2, 0x25), new(0x0e, 0xa2, 0xa8) };
+    /// <summary>Stage-2 objective "Collect comm devices" (passed as the Yellow swatch).</summary>
+    private static readonly Color CrtSwatch = new(0x6d, 0xff, 0x8a);
 
     /// <summary>MISSION  [r] n/100  [g] n/100  [b] n/100 | DOCK n/cap</summary>
     private RectangleF DrawMission(Vector2 pos, float h, Logistics l, float k, float alpha, bool narrow)

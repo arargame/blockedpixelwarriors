@@ -1,5 +1,5 @@
 import railArtUrl from '../../assets/textures/menu/rail.jpg?url';
-import lockedAUrl from '../../assets/textures/menu/locked_a.jpg?url';
+import tankArtUrl from '../../assets/textures/menu/tank.jpg?url';
 import lockedBUrl from '../../assets/textures/menu/locked_b.jpg?url';
 import { CARD_W, CARD_H, SERIF, drawRichText } from './UpgradeCards.js';
 import { menuText } from './MenuText.js';
@@ -20,7 +20,7 @@ export const MENU_ROWS = Object.freeze([
     head: 'playHead',
     cards: [
       { id: 'rail', scenario: true, art: railArtUrl, focus: 0.55, jewel: 0xff4a3a, glow: 0xffb050, title: 'railTitle', kind: 'railKind', text: 'railText' },
-      { id: 'locked2', locked: true, art: lockedAUrl, emblem: 'lock', tint: '#2f6bff', jewel: 0x7d8796, glow: 0x7fa8ff, title: 'lockedTitle', kind: 'locked2Kind', text: 'lockedText' },
+      { id: 'tank', level: 'tank', art: tankArtUrl, focus: 0.5, jewel: 0x7be86a, glow: 0xffb050, title: 'tankTitle', kind: 'tankKind', text: 'tankText' },
       { id: 'locked3', locked: true, art: lockedBUrl, emblem: 'lock', tint: '#ff4a2a', jewel: 0x7d8796, glow: 0xff9a7a, title: 'lockedTitle', kind: 'locked3Kind', text: 'lockedText' },
     ],
   },
@@ -63,7 +63,7 @@ export function menuFrontCanvas(def, img, lang) {
   g.fillRect(0, 0, W, H);
   const artBottom = H * MENU_ART_BOTTOM;
 
-  if (img && def.scenario) {
+  if (img && (def.scenario || def.level)) {
     // Sharp painting, cover-fitted to the window around the point of interest.
     const s = Math.max(W / img.width, (artBottom + H * 0.08) / img.height);
     const iw = img.width * s;

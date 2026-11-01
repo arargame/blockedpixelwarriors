@@ -19,6 +19,7 @@
 import * as THREE from 'three';
 import { createVoxelLogo } from '/src/ui/VoxelLogo.js';
 import { Palette } from '/src/config/Palette.js';
+import { buildGround as buildTankGround } from '/src/tank/TankLevel.js';
 
 const tmpV = new THREE.Vector3();
 const tmpN = new THREE.Vector3();
@@ -254,6 +255,44 @@ class Exporter {
     await this.writeGeometryList('supply_gem', [{ geometry: sup.gemGeometry, material: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.05, metalness: 0.35, flatShading: true }) }]);
     if (g.mines?.geometry) await this.writeGeometryList('spike_ball', [{ geometry: g.mines.geometry, material: g.mines.material }]);
 
+    // ---- Stage 2: CRT comm device (unit-cube template, also the pickup) and the terrace blocks ----
+    if (g.crt?.template) {
+      g.crt.template.updateMatrixWorld(true);
+      await this.writeModel('crt_device', collect(g.crt.template), g.crt.template);
+    }
+    if (g.terraceBlocks) prefabs.terraceAvoid = g.terraceBlocks.avoid.map((a) => [a.x, a.z, a.r]);
+
+    // ---- Tank level: hull / turret / barrel / one track link, each in its own space ----------
+    const tankGltf = g.options?.tankGltf;
+    if (tankGltf) {
+      const root = tankGltf.scene.getObjectByName('Tank');
+      root.updateMatrixWorld(true);
+      const part = (name) => root.getObjectByName(name);
+      const hull = part('TankHull');
+      const turret = part('TankTurret');
+      const barrel = part('TankBarrel');
+      const link = part('TankLink');
+      const muzzle = part('TankMuzzle');
+      await this.writeModel('tank_hull', collect(hull), root);
+      await this.writeModel('tank_turret', collect(turret, (o) => !isUnder(o, barrel)), turret);
+      await this.writeModel('tank_barrel', collect(barrel), barrel);
+      const wasVisible = link.visible;
+      link.visible = true;
+      await this.writeModel('tank_link', collect(link), link);
+      link.visible = wasVisible;
+      const rel = (a, b) => new THREE.Matrix4().copy(a.matrixWorld).invert().multiply(b.matrixWorld).toArray();
+      prefabs.tank = {
+        turretMatrix: rel(root, turret),
+        barrelMatrix: rel(turret, barrel),
+        muzzle: muzzle.position.toArray(),
+        track: JSON.parse(root.userData.track),
+      };
+      const ground = buildTankGround();
+      ground.updateMatrixWorld(true);
+      await this.writeModel('tank_ground', [ground], null);
+      await this.writeGeometryList('tank_shell', [{ geometry: new THREE.CapsuleGeometry(0.13, 0.5, 4, 8).rotateX(Math.PI / 2), material: new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffa040, emissiveIntensity: 2.2, roughness: 0.3 }) }]);
+    }
+
     // ---- Logistics: forklift + engineer, gift packages, dock marking, CH-47F ------------------
     const L = g.logistics;
     if (L) {
@@ -357,7 +396,7 @@ class Exporter {
         text: MENU_TEXT,
         rows: MENU_ROWS.map((r) => ({
           id: r.id, label: r.label, sub: r.sub, head: r.head,
-          cards: r.cards.map((c) => ({ id: c.id, scenario: !!c.scenario, locked: !!c.locked, panel: c.panel ?? null, jewel: linear(c.jewel), glow: linear(c.glow), glowHex: c.glow, title: c.title })),
+          cards: r.cards.map((c) => ({ id: c.id, scenario: !!c.scenario, locked: !!c.locked, panel: c.panel ?? null, level: c.level ?? null, jewel: linear(c.jewel), glow: linear(c.glow), glowHex: c.glow, title: c.title })),
         })),
       };
     }

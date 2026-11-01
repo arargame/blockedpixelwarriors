@@ -25,6 +25,8 @@ public sealed class TrainTarget
     /// <summary>Cargo: resting box when loaded, height to settle at after a fall, fall speed.</summary>
     public BoundingBox Home;
     public float RestY = float.NaN, FallVel;
+    /// <summary>Stage 2: this cube is a CRT comm device (drawn with the radio model, dropped as a pickup).</summary>
+    public bool Crt;
     public Vector3 Center => (Box.Min + Box.Max) * 0.5f;
 }
 
@@ -96,6 +98,8 @@ public sealed class TrainFactory
     public GpuMesh CargoSnow { get; }
     public RenderMaterial CubeMaterial { get; }
     public GpuMesh Shield { get; }
+    /// <summary>CRT comm device (crt.glb, centred in a unit cube like a cargo cube).</summary>
+    public GpuMesh CrtDevice { get; }
     public GpuMesh CraneSlew { get; }
     public GpuMesh Chain { get; }
     public GpuMesh Ball { get; }
@@ -118,6 +122,7 @@ public sealed class TrainFactory
         TurretHead = models.Mesh("turret_head");
         CargoCube = models.Mesh("cargo_cube");
         CargoSnow = models.Mesh("cargo_snowcap");
+        CrtDevice = models.Mesh("crt_device");
         // Cube colour comes per instance (materials.block(color) = palette * 1.12).
         CubeMaterial = CargoCube.Material.Clone();
         CubeMaterial.BaseColor = Vector4.One;
@@ -184,69 +189,72 @@ public sealed class TrainFactory
     {
         var rand = new Rng(seed * 977 + 13);
         var cars = new List<TrainCar>();
-        foreach (var name in HaulerOrder)
-        {
-            var data = _prefabs.Hauler[name];
-            var car = new TrainCar
-            {
-                Kind = CarKind.Hauler,
-                Body = _models.Mesh(data.Model),
-                Length = data.Length,
-                Chimneys = (data.Chimneys ?? new()).Select(MathX.V3).ToArray(),
-                Cannons = Array.Empty<Cannon>(),
-                Core = data.Core != null ? MathX.V3(data.Core) : null,
-            };
-            foreach (var t in data.Turrets ?? new())
-                car.Turrets.Add(new Turret { Mount = MathX.V3(t.Position), Muzzles = t.Muzzles.Select(MathX.V3).ToArray() });
-            if (name == "HaulerHopper" && data.Deck != null)
-            {
-                const float s = 0.88f;
-                var deckY = data.Deck[1];
-                var color = Palette.BlockColors[(int)MathF.Floor(rand.Next() * 4)];
-                foreach (var x in new[] { -0.47f, 0.47f })
-                foreach (var z in new[] { -1.5f, -0.5f, 0.5f, 1.5f })
-                {
-                    var layers = 1 + (rand.Next() < 0.55f ? 1 : 0);
-                    var k = rand.Next() < 0.6f ? color : Palette.BlockColors[(int)MathF.Floor(rand.Next() * 4)];
-                    for (var l = 0; l < layers; l++)
-                        AddCube(car, new Vector3(x, deckY + s * 0.5f + l * s, z), s, k, l == layers - 1 && rand.Next() < 0.4f);
-                }
-            }
-            Crane crane = null;
-            if (data.Crane != null)
-            {
-                crane = new Crane
-                {
-                    Pivot = MathX.V3(data.Crane.Pivot), Tip = MathX.V3(data.Crane.Tip),
-                    Phase = rand.Next() * MathF.PI * 2, Amp = 1.25f + rand.Next() * 0.2f, Speed = 0.5f + rand.Next() * 0.15f,
-                };
-                car.Cranes.Add(crane);
-            }
-            var turretIndex = 0;
-            foreach (var t in data.Targets)
-            {
-                var target = new TrainTarget
-                {
-                    Kind = t.Kind switch { "gem" => TargetKind.Gem, "turret" => TargetKind.Turret, "crane" => TargetKind.Crane, _ => TargetKind.Hull },
-                    Box = new BoundingBox(MathX.V3(t.Min), MathX.V3(t.Max)),
-                    Hp = t.Hp < 0 ? float.PositiveInfinity : t.Hp,
-                    MaxHp = t.Hp < 0 ? float.PositiveInfinity : t.Hp,
-                };
-                if (target.Kind == TargetKind.Turret && turretIndex < car.Turrets.Count)
-                {
-                    target.Turret = car.Turrets[turretIndex++];
-                    target.Turret.Target = target;
-                }
-                if (target.Kind == TargetKind.Crane && crane != null)
-                {
-                    target.Crane = crane;
-                    crane.Target = target;
-                }
-                car.Targets.Add(target);
-            }
-            cars.Add(car);
-        }
+        foreach (var name in HaulerOrder) cars.Add(BuildHaulerCar(name, rand));
         return cars;
+    }
+
+    /// <summary>One Block Hauler car by name (also used when a trip adds a car at the tail).</summary>
+    public TrainCar BuildHaulerCar(string name, Rng rand)
+    {
+        var data = _prefabs.Hauler[name];
+        var car = new TrainCar
+        {
+            Kind = CarKind.Hauler,
+            Body = _models.Mesh(data.Model),
+            Length = data.Length,
+            Chimneys = (data.Chimneys ?? new()).Select(MathX.V3).ToArray(),
+            Cannons = Array.Empty<Cannon>(),
+            Core = data.Core != null ? MathX.V3(data.Core) : null,
+        };
+        foreach (var t in data.Turrets ?? new())
+            car.Turrets.Add(new Turret { Mount = MathX.V3(t.Position), Muzzles = t.Muzzles.Select(MathX.V3).ToArray() });
+        if (name == "HaulerHopper" && data.Deck != null)
+        {
+            const float s = 0.88f;
+            var deckY = data.Deck[1];
+            var color = Palette.BlockColors[(int)MathF.Floor(rand.Next() * 4)];
+            foreach (var x in new[] { -0.47f, 0.47f })
+            foreach (var z in new[] { -1.5f, -0.5f, 0.5f, 1.5f })
+            {
+                var layers = 1 + (rand.Next() < 0.55f ? 1 : 0);
+                var k = rand.Next() < 0.6f ? color : Palette.BlockColors[(int)MathF.Floor(rand.Next() * 4)];
+                for (var l = 0; l < layers; l++)
+                    AddCube(car, new Vector3(x, deckY + s * 0.5f + l * s, z), s, k, l == layers - 1 && rand.Next() < 0.4f);
+            }
+        }
+        Crane crane = null;
+        if (data.Crane != null)
+        {
+            crane = new Crane
+            {
+                Pivot = MathX.V3(data.Crane.Pivot), Tip = MathX.V3(data.Crane.Tip),
+                Phase = rand.Next() * MathF.PI * 2, Amp = 1.25f + rand.Next() * 0.2f, Speed = 0.5f + rand.Next() * 0.15f,
+            };
+            car.Cranes.Add(crane);
+        }
+        var turretIndex = 0;
+        foreach (var t in data.Targets)
+        {
+            var target = new TrainTarget
+            {
+                Kind = t.Kind switch { "gem" => TargetKind.Gem, "turret" => TargetKind.Turret, "crane" => TargetKind.Crane, _ => TargetKind.Hull },
+                Box = new BoundingBox(MathX.V3(t.Min), MathX.V3(t.Max)),
+                Hp = t.Hp < 0 ? float.PositiveInfinity : t.Hp,
+                MaxHp = t.Hp < 0 ? float.PositiveInfinity : t.Hp,
+            };
+            if (target.Kind == TargetKind.Turret && turretIndex < car.Turrets.Count)
+            {
+                target.Turret = car.Turrets[turretIndex++];
+                target.Turret.Target = target;
+            }
+            if (target.Kind == TargetKind.Crane && crane != null)
+            {
+                target.Crane = crane;
+                crane.Target = target;
+            }
+            car.Targets.Add(target);
+        }
+        return car;
     }
 
     /// <summary>Flatcar stacks: 2 wide x 3 long, 1-3 high, mostly one colour (buildCargoWagon).</summary>
@@ -292,6 +300,8 @@ public sealed class Train : IRenderable
     private readonly TrainFactory _factory;
     private readonly List<(Matrix world, Vector3 vel, Vector3 spin, Vector3 rot, Vector3 pos, float scale, float life)> _wreckage = new();
     private readonly InstanceBuffer _cubes, _snowCaps;
+    private readonly uint _seed;
+    private int _wagons;
     private readonly PointLight _gemLight;
     private readonly LightRig _lights;
     private float _smokeTimer, _cannonTimer = 1, _shieldTime, _shieldHit, _stopTimer;
@@ -317,7 +327,7 @@ public sealed class Train : IRenderable
     public int Dir { get; private set; } = 1;
     public int Lap { get; private set; } = 1;
     public float HeadZ;
-    public float TotalLength { get; }
+    public float TotalLength { get; private set; }
     public bool Destroyed { get; private set; }
     public bool Finished { get; private set; }
     public string Mode { get; private set; } = "NORMAL";
@@ -329,7 +339,7 @@ public sealed class Train : IRenderable
     // Events (Observer): the session reacts to fire, knocked cargo and destroyed parts.
     public Action<Vector3, Vector3> OnFire;
     public Action<Vector3, Vector3> OnCannonFire;
-    public Func<Vector3, BlockColor, bool> OnCargoKnocked;
+    public Func<Vector3, BlockColor, TrainTarget, bool> OnCargoKnocked;
     public Action<TargetKind, Vector3> OnTargetDestroyed;
     public Action OnShieldDown;
 
@@ -347,6 +357,7 @@ public sealed class Train : IRenderable
         _pathEnd = up ? GameConfig.Stages.HaulerEndZ : GameConfig.Track.EndZ;
         _arenaMinZ = up ? GameConfig.Stages.TerraceMinZ : GameConfig.Board.MinZ;
         _arenaMaxZ = up ? GameConfig.Stages.TerraceMaxZ : GameConfig.Board.MaxZ;
+        _seed = seed;
         BaseSpeed = GameConfig.Train.Speed * (1 + (wave - 1) * 0.08f);
         Speed = BaseSpeed;
         if (_hauler)
@@ -372,11 +383,13 @@ public sealed class Train : IRenderable
             offset += car.Length + 0.35f;
         }
         TotalLength = offset * Scale;
+        _wagons = Cars.Count - 1;
         HeadZ = _pathStart + TotalLength;
         foreach (var car in Cars)
         foreach (var t in car.Targets)
             if (t.Kind == TargetKind.Cargo) t.Home = t.Box;
-        var cubes = Cars.Sum(c => c.Targets.Count(t => t.Kind == TargetKind.Cargo));
+        // Room for the cars every trip adds (up to MaxWagons).
+        var cubes = Cars.Sum(c => c.Targets.Count(t => t.Kind == TargetKind.Cargo)) + GameConfig.Train.MaxWagons * 20;
         _cubes = new InstanceBuffer(device, Math.Max(1, cubes), true);
         _snowCaps = new InstanceBuffer(device, Math.Max(1, cubes), true);
         _gemLight = new PointLight { Color = Palette.ToLinear(_hauler ? 0xff7a20u : 0xff0a1eu), Intensity = 4, Distance = 5, Decay = 2 };
@@ -433,13 +446,16 @@ public sealed class Train : IRenderable
         else if (!_lights.Points.Contains(_gemLight)) _lights.Points.Add(_gemLight);
     }
 
-    /// <summary>The same train comes round again the other way, cargo reloaded, damage kept.</summary>
-    public void RestartLap()
+    /// <summary>
+    /// The same train comes round again (the other way unless told), one car longer, cargo
+    /// reloaded, damage kept.
+    /// </summary>
+    public void RestartLap(int? dir = null)
     {
         Lap++;
         Finished = false;
-        Dir = -Dir;
-        _rotationY = Dir > 0 ? 0 : MathF.PI;
+        SetDirection(dir ?? -Dir);
+        AddWagon();
         PlaceAtEntry();
         PlanTrip();
         foreach (var car in Cars)
@@ -452,6 +468,41 @@ public sealed class Train : IRenderable
             t.RestY = float.NaN;
             t.FallVel = 0;
         }
+    }
+
+    /// <summary>+1: runs down the line toward the camera (comes in at the top), -1: the way back.</summary>
+    public void SetDirection(int dir)
+    {
+        Dir = dir > 0 ? 1 : -1;
+        _rotationY = Dir > 0 ? 0 : MathF.PI;
+    }
+
+    /// <summary>One more car at the tail (armored: the key-art pattern; hauler: its car order), up to MaxWagons.</summary>
+    public TrainCar AddWagon()
+    {
+        if (_wagons >= GameConfig.Train.MaxWagons) return null;
+        var i = _wagons;
+        TrainCar car;
+        if (_hauler)
+        {
+            var order = TrainFactory.HaulerOrder;
+            car = _factory.BuildHaulerCar(order[1 + i % (order.Length - 1)], new Rng((uint)(Rng.Shared.Next() * 1e9f) + 1));
+        }
+        else
+        {
+            var pattern = new[] { CarKind.Armored, CarKind.Cargo, CarKind.Armored, CarKind.Cargo, CarKind.Cargo, CarKind.Armored, CarKind.Cargo };
+            var kind = pattern[i % pattern.Length];
+            car = _factory.Build(kind, kind == CarKind.Armored ? _seed * 31 + (uint)i : _seed * 17 + (uint)i);
+        }
+        var offset = TotalLength / Scale;
+        car.OffsetZ = -offset - car.Length / 2;
+        Cars.Add(car);
+        TotalLength = (offset + car.Length + 0.35f) * Scale;
+        _wagons++;
+        foreach (var t in car.Targets)
+            if (t.Kind == TargetKind.Cargo) t.Home = t.Box;
+        UpdateTransforms();
+        return car;
     }
 
     /// <summary>Visible stretch of the line (z), set by the session from the camera each frame.</summary>
@@ -969,7 +1020,7 @@ public sealed class Train : IRenderable
         {
             SettleColumn(car, target);
             _effects.Impact(world);
-            if (OnCargoKnocked == null || !OnCargoKnocked(world, target.Color))
+            if (OnCargoKnocked == null || !OnCargoKnocked(world, target.Color, target))
             {
                 _effects.Explosion(world, 0.7f);
                 _effects.Shatter(world, PackedColor(target.Color), 14, 1.1f);
@@ -1012,7 +1063,9 @@ public sealed class Train : IRenderable
             {
                 if (t.Kind != TargetKind.Cargo || !t.Alive) continue;
                 t.Alive = false;
-                _effects.Shatter(car.ToWorld(t.Center), PackedColor(t.Color), 8, 1.4f);
+                // A CRT radio survives the wreck (it is thrown clear as a pickup).
+                if (t.Crt) OnCargoKnocked?.Invoke(car.ToWorld(t.Center), t.Color, t);
+                else _effects.Shatter(car.ToWorld(t.Center), PackedColor(t.Color), 8, 1.4f);
             }
             foreach (var turret in car.Turrets) turret.Alive = false;
             foreach (var c in car.Cranes)
@@ -1057,6 +1110,11 @@ public sealed class Train : IRenderable
             {
                 if (t.Kind != TargetKind.Cargo || !t.Alive) continue;
                 var m = Matrix.CreateScale(t.Size) * Matrix.CreateRotationY(t.CubeYaw) * Matrix.CreateTranslation(t.Center) * car.World;
+                if (t.Crt && _factory.CrtDevice != null)
+                {
+                    queue.Add(_factory.CrtDevice, m);
+                    continue;
+                }
                 _cubes.Add(m, new Vector4(TrainFactory.BlockLinear(t.Color), 1));
                 if (t.Snow) _snowCaps.Add(m, Vector4.One);
             }

@@ -2,7 +2,7 @@
  * Player settings (main menu OPTIONS) and scenario progress, kept in localStorage.
  * MonoGame keeps the same fields in %LOCALAPPDATA%/BlockedPixelWarriors/settings.json.
  *
- * Volumes are 0..10 steps (the game has no audio yet; the values are kept for when it does).
+ * Volumes are 0..10 steps (so far only the pickup chime plays: master x effects).
  * `quality` null = automatic (medium on phones, high elsewhere); it applies on the next start.
  */
 export const SETTINGS_KEY = 'bpw.settings';

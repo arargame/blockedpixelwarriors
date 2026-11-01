@@ -152,6 +152,12 @@ export const GameConfig = Object.freeze({
     // Cubes shot off a train up here bounce onto the terrace and break open: this share leaves a
     // supply crate (weapons, repair kit...).
     dropSupplyChance: 0.6,
+    // Clusters of shootable blocks already waiting on the terrace when stage 2 starts.
+    terraceBlocks: 14,
+    // Exactly one cargo cube in this many (counted over every train on the terrace) is a CRT
+    // comm device; stage 2 asks for crtGoal of them.
+    crtEvery: 100,
+    crtGoal: 15,
     // Block Hauler line: comes from far beyond the terrace, leaves behind the camera.
     haulerPath: Object.freeze({ startZ: -200, endZ: -20 }),
     // Swinging wrecking balls: hit damage, chain length (train units), crane cab HP.
@@ -159,6 +165,25 @@ export const GameConfig = Object.freeze({
     chainLength: 2.3,
     craneHp: 24,
     saveKey: 'bpw.checkpoint',
+  }),
+
+  /** Tank level (src/tank/): the player's Blender tank on an empty test range. */
+  tank: Object.freeze({
+    speed: 7,              // forward top speed (units / s)
+    reverseMul: 0.6,
+    accel: 9,
+    brake: 14,
+    turnSpeed: 1.6,        // hull turn rate (rad / s)
+    turretSpeed: 2.4,      // turret traverse (rad / s)
+    reload: 0.85,          // seconds between shots
+    recoilKick: 7.5,       // barrel kick-back speed on a shot (units / s)
+    recoilSpring: 140,
+    recoilDamping: 15,
+    shellSpeed: 46,
+    shellRange: 60,
+    blinkHz: 1.4,          // tail / amber lamp blink rate
+    bounds: 90,            // half size of the drivable range
+    camera: Object.freeze({ height: 17, back: 14, fov: 42 }),
   }),
 
   /** Upgrade cards (src/ui/UpgradeCards.js). */

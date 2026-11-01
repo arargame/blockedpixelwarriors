@@ -107,6 +107,19 @@ public static class GameConfig
         public const float HaulerStartZ = -200, HaulerEndZ = -20;
         public const float BallDamage = 20, ChainLength = 2.3f, CraneHp = 24;
         public const string SaveFile = "checkpoint.json";
+        /// <summary>Clusters of shootable blocks already on the terrace when stage 2 starts.</summary>
+        public const int TerraceBlocks = 14;
+        /// <summary>Exactly one loaded cargo cube in this many (all terrace trains) is a CRT comm device; stage 2 asks for CrtGoal.</summary>
+        public const int CrtEvery = 100, CrtGoal = 15;
+    }
+
+    /// <summary>Tank level (TankLevel.cs): the player's Blender tank on an empty test range.</summary>
+    public static class Tank
+    {
+        public const float Speed = 7, ReverseMul = 0.6f, Accel = 9, Brake = 14, TurnSpeed = 1.6f, TurretSpeed = 2.4f;
+        public const float Reload = 0.85f, RecoilKick = 7.5f, RecoilSpring = 140, RecoilDamping = 15;
+        public const float ShellSpeed = 46, ShellRange = 60, BlinkHz = 1.4f, Bounds = 90;
+        public const float CameraHeight = 17, CameraBack = 14, CameraFov = 42;
     }
 
     /// <summary>Upgrade cards (GameConfig.cards).</summary>

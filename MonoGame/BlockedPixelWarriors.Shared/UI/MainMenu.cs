@@ -285,7 +285,7 @@ public sealed class MainMenu : IDisposable
             _footFlash = 0.5f;
             return;
         }
-        OpenPanel(d.Scenario ? "scenario" : d.Panel);
+        OpenPanel(d.Scenario ? "scenario" : d.Level != null ? "level" : d.Panel);
     }
 
     public void OpenPanel(string kind, int index = 0)
@@ -322,6 +322,11 @@ public sealed class MainMenu : IDisposable
                 var cont = CanContinue();
                 if (cont) items.Add(new Item { Kind = "button", Label = T("continueStage"), Primary = true, Act = () => Start("continue") });
                 items.Add(new Item { Kind = "button", Label = T("newGame"), Primary = !cont, Act = () => Start("new") });
+                items.Add(new Item { Kind = "button", Label = T("back"), Act = ClosePanel });
+                break;
+            case "level":
+                var level = Focused.Def.Level;
+                items.Add(new Item { Kind = "button", Label = T("play"), Primary = true, Act = () => Start(level) });
                 items.Add(new Item { Kind = "button", Label = T("back"), Act = ClosePanel });
                 break;
             case "sound":
@@ -895,6 +900,12 @@ public sealed class MainMenu : IDisposable
             var shake = _footFlash > 0 ? MathF.Sin(_footFlash * 50) * 6 * u * (_footFlash / 0.5f) : 0;
             var ccol = _footFlash > 0 ? new Color(0xff, 0x8a, 0x7a) : d.Locked ? new Color(0xa9, 0xb3, 0xc2) : LabelGold;
             _ui.TextCentered(_ui.Serif, cap, new Vector2(cx + shake, y + cpx * 0.6f), cpx, ccol * a, 0, 4 * u / cpx);
+            y += cpx * 1.2f + 10 * u;
+        }
+        else if (d.Level != null)
+        {
+            var cpx = 14 * u;
+            _ui.TextCentered(_ui.Serif, T("prototype"), new Vector2(cx, y + cpx * 0.6f), cpx, LabelGold * a, 0, 4 * u / cpx);
             y += cpx * 1.2f + 10 * u;
         }
         else if (d.Panel is "sound" or "graphics" or "language")

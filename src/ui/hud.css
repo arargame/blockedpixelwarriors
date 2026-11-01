@@ -683,6 +683,7 @@ body {
 .obj-sw.red { background: #e01d22; }
 .obj-sw.green { background: #36c225; }
 .obj-sw.blue { background: #0ea2a8; }
+.obj-sw.crt { background: #6dff8a; border: 2px solid #59633a; border-radius: 3px; box-shadow: 0 0 6px rgba(109, 255, 138, 0.7); }
 .obj-prog { margin-left: auto; padding-left: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .obj.done .obj-prog { color: #ffd34a; }
 .obj.fresh { animation: obj-pop 0.6s ease-out; }
@@ -758,3 +759,19 @@ body {
 .hud-pause i { width: 6px; height: 18px; border-radius: 2px; background: #fff; box-shadow: 0 2px 0 var(--hud-dark); }
 .hud.paused .hud-toast, .hud.paused .hud-notice, .hud.paused .train-warn, .hud.paused .hud-pause { opacity: 0; }
 .hud.menu-mode .hud-pause { opacity: 0 !important; pointer-events: none; }
+
+/* Tank level: the heli HUD is put away (only the pause button stays); the level's own strip. */
+.hud.tank-mode > *:not(.hud-top), .hud.tank-mode .hud-score, .hud.tank-mode .hud-center, .hud.tank-mode .hud-wave { display: none !important; }
+.hud.tank-mode .hud-top { justify-content: flex-end; }
+.tank-hud {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  font-family: var(--hud-font, 'Arial Black', Impact, sans-serif); color: #fff; pointer-events: none;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55); z-index: 5;
+}
+.tank-hud .th-title { font-size: 22px; letter-spacing: 2px; }
+.tank-hud .th-title small { font-size: 12px; opacity: 0.75; margin-left: 8px; letter-spacing: 1px; }
+.tank-hud .th-keys { font-family: system-ui, sans-serif; font-size: 13px; background: rgba(15, 22, 30, 0.55); padding: 5px 12px; border-radius: 8px; }
+.tank-hud .th-keys b { color: #ffd34a; }
+.tank-hud .th-reload { width: 180px; height: 7px; border-radius: 4px; background: rgba(0, 0, 0, 0.45); overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.35); }
+.tank-hud .th-reload i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #ff9a2a, #ffd34a); }

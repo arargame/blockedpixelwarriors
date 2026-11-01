@@ -8,6 +8,9 @@ import chinookUrl from '../assets/models/chinook.glb?url';
 import cardUrl from '../assets/models/card.glb?url';
 import haulerUrl from '../assets/models/hauler.glb?url';
 import plasmaUrl from '../assets/models/plasma.glb?url';
+import crtUrl from '../assets/models/crt.glb?url';
+import tankUrl from '../assets/models/tank.glb?url';
+import { PickupSfx } from './audio/PickupSfx.js';
 import * as THREE from 'three';
 import { Settings } from './core/Settings.js';
 import marbleUrl from '../assets/textures/marble_tile.jpg?url';
@@ -31,7 +34,7 @@ const camOverride = params.get('cam')?.split(',').map(Number);
   // Blender helicopter (falls back to the procedural one with ?procedural or on load failure).
   // Blender props: rocket, turret bullet, engineer's forklift, CH-47F cargo chopper.
   const load = (url) => new GLTFLoader().loadAsync(url).catch(() => null);
-  const [heliGltf, floorTexture, rocketGltf, bulletGltf, forkliftGltf, chinookGltf, cardGltf, haulerGltf, terraceFloorTexture, plasmaGltf] = await Promise.all([
+  const [heliGltf, floorTexture, rocketGltf, bulletGltf, forkliftGltf, chinookGltf, cardGltf, haulerGltf, terraceFloorTexture, plasmaGltf, crtGltf, tankGltf] = await Promise.all([
     params.has('procedural') ? null : loadHelicopterGltf(),
     new THREE.TextureLoader().loadAsync(marbleUrl).catch(() => null),
     load(rocketUrl),
@@ -43,8 +46,12 @@ const camOverride = params.get('cam')?.split(',').map(Number);
     // Stage 2 terrace tiles: beige marble with white veins.
     new THREE.TextureLoader().loadAsync(terraceTileUrl).catch(() => null),
     load(plasmaUrl),
+    // Stage 2 CRT comm device (Blender, from Blocked's CRT supply atlas).
+    load(crtUrl),
+    // Tank level: the player's tank (Blender, after the Meshy concept).
+    load(tankUrl),
   ]);
-  const game = new Game(document.getElementById('app'), { quality, settings, poster, camOverride, heliGltf, floorTexture, terraceFloorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf });
+  const game = new Game(document.getElementById('app'), { quality, settings, poster, camOverride, heliGltf, floorTexture, terraceFloorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf, crtGltf, tankGltf });
   if (poster || params.has('fixedres')) game.pipeline.adaptive = false;
   window.__game = game;
   game.projectiles.setMissileModel(rocketGltf?.scene ?? null);
@@ -54,6 +61,9 @@ const camOverride = params.get('cam')?.split(',').map(Number);
   const bolt = (name) => plasmaGltf?.scene.getObjectByName(name) ?? null;
   game.projectiles.setModel('plasma', bolt('PlasmaBolt'), { scale: 1.7, roll: true, max: 200, emissive: 0.75, shadow: false });
   game.projectiles.setModel('nova', bolt('NovaBolt'), { scale: 1.4, roll: true, max: 200, emissive: 0.75, shadow: false });
+
+  // Audio may only start after a user gesture (pickup chime).
+  for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, () => PickupSfx.unlock(), { passive: true });
 
   if (poster) {
     game.renderPoster({ logo: params.has('logo'), hideHeli: params.has('noheli') });

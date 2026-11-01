@@ -28,10 +28,18 @@ export class BlockField {
   /**
    * @param {import('../textures/MaterialLibrary.js').MaterialLibrary} materials
    * @param {import('../fx/EffectsManager.js').EffectsManager} effects
+   * @param {object} [opts]
+   * @param {{minX:number,maxX:number,minZ:number,maxZ:number}} [opts.bounds] area (default: the depot board)
+   * @param {'depot'|'scatter'} [opts.layout] the key-art depot map, or random clusters (terrace)
+   * @param {{x:number,z:number,r:number}[]} [opts.avoid] circles kept free of blocks (scatter)
+   * @param {number} [opts.seed]
    */
-  constructor(materials, effects) {
+  constructor(materials, effects, opts = {}) {
     this.effects = effects;
-    const b = GameConfig.board;
+    this.layout = opts.layout ?? 'depot';
+    this.avoid = opts.avoid ?? [];
+    this.seed = opts.seed ?? 2026;
+    const b = opts.bounds ?? GameConfig.board;
     this.size = GameConfig.blockSize;
     this.originX = b.minX;
     this.originZ = b.minZ;
@@ -46,7 +54,7 @@ export class BlockField {
     /** Pending chain explosions. */
     this.chain = [];
     this.onBlockDestroyed = null;
-    this.rng = new Random(2026);
+    this.rng = new Random(this.seed);
 
     const geometry = new RoundedBoxGeometry(1, 1, 1, 3, 0.06);
     this.meshes = {};
@@ -77,8 +85,8 @@ export class BlockField {
     this.reachableCells = () => null;
     /** Whether red / green / blue train cubes land as protected cargo (engineer on duty). */
     this.cargoEnabled = () => true;
-    /** Dock columns from the left edge (2 with the DOUBLE ROW card). */
-    this.dockColumns = 1;
+    /** Dock columns from the left edge (2 with the DOUBLE ROW card; none on the terrace). */
+    this.dockColumns = this.layout === 'depot' ? 1 : 0;
 
     this.createLayout();
     this.flushMatrices();
@@ -164,8 +172,56 @@ export class BlockField {
     return l;
   }
 
+  /** Removes every block and lays the opening layout out again (new run). */
+  reset() {
+    for (const l of this.blocks) {
+      if (!l.alive) continue;
+      l.alive = false;
+      this.writeMatrix(l);
+    }
+    this.chain.length = 0;
+    this.rng = new Random(this.seed);
+    this.createLayout();
+    this.flushMatrices();
+  }
+
+  /**
+   * Terrace: small same-coloured clusters (2-5 blocks, so chains still pop) scattered over the
+   * platform, clear of the line, the planters, the crate stacks and the heli's spawn.
+   */
+  createScatter() {
+    const colors = ['red', 'green', 'teal', 'yellow'];
+    const free = (c, r) => {
+      if (c < 0 || r < 0 || c >= this.cols || r >= this.rows || this.isTrackCell(c)) return false;
+      if (this.cells.get(this.key(c, r))?.alive) return false;
+      const { x, z } = this.cellCenter(c, r);
+      // Keep a lane either side of the rails free (cubes knocked off the trains land there).
+      if (Math.abs(x - GameConfig.track.x) < 2.4) return false;
+      return !this.avoid.some((a) => (x - a.x) ** 2 + (z - a.z) ** 2 < a.r * a.r);
+    };
+    const clusters = GameConfig.stages.terraceBlocks;
+    let placed = 0;
+    for (let tries = 0; placed < clusters && tries < clusters * 30; tries++) {
+      let c = this.rng.int(0, this.cols - 1);
+      let r = this.rng.int(0, this.rows - 1);
+      if (!free(c, r)) continue;
+      const color = colors[this.rng.int(0, colors.length - 1)];
+      const n = this.rng.int(2, 5);
+      for (let k = 0; k < n; k++) {
+        this.placeBlock(c, r, color, { snow: this.rng.chance(0.6) ? this.rng.int(0, 2) : -1 });
+        const steps = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dc, dr]) => free(c + dc, r + dr));
+        if (!steps.length) break;
+        const [dc, dr] = steps[this.rng.int(0, steps.length - 1)];
+        c += dc;
+        r += dr;
+      }
+      placed++;
+    }
+  }
+
   /** Hand-authored opening layout matching the key art (row 0 = far wall, col 0 = left wall). */
   createLayout() {
+    if (this.layout === 'scatter') return this.createScatter();
     // R/G/T/Y = block color, '.' = empty. Columns 8-9 are the railway, 2-4 the heli lane.
     const MAP = [
       '..........GY',

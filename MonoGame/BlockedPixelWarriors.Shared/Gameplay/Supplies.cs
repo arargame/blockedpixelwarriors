@@ -8,7 +8,8 @@ using Microsoft.Xna.Framework.Graphics;
 namespace BlockedPixelWarriors.Gameplay;
 
 /// <summary>Supply types: T triple fire, D 8-way burst, R homing rockets, H repair kit, G gem.</summary>
-public enum SupplyType { T, D, R, H, G }
+/// <summary>C = stage-2 CRT comm device (never random, never expires).</summary>
+public enum SupplyType { T, D, R, H, G, C }
 
 public enum GemKind { Blue, Green, Red, Black }
 
@@ -26,6 +27,7 @@ public static class SupplyCatalog
         new("HOMING ROCKETS", new Color(0xff, 0x6a, 0x4a), 0xe0442a, true),
         new("REPAIR KIT", new Color(0xff, 0x4d, 0x5e), 0xe8303c, false),
         new("GEM POWER", Color.White, 0xffffff, true),
+        new("COMM DEVICE", new Color(0x6d, 0xff, 0x8a), 0x6dff8a, false),
     };
 
     public static readonly GemDef[] Gems =
@@ -92,10 +94,12 @@ public sealed class SupplyCrates : IRenderable
         public float Age, Spin;
         public Matrix World;
         public float GlowOpacity;
+        /// <summary>CRT: flies a fixed arc (no air drag) and never expires.</summary>
+        public bool Keep;
     }
 
     private readonly Effects _effects;
-    private readonly GpuMesh _crate, _firstAid, _gem;
+    private readonly GpuMesh _crate, _firstAid, _gem, _crt;
     private readonly RenderMaterial[] _crateMaterials = new RenderMaterial[3];
     private readonly RenderMaterial[] _gemMaterials = new RenderMaterial[4];
     private readonly BillboardBatch _glows;
@@ -110,6 +114,7 @@ public sealed class SupplyCrates : IRenderable
         _crate = models.Mesh("supply_crate");
         _firstAid = models.Mesh("supply_firstaid");
         _gem = models.Mesh("supply_gem");
+        _crt = models.Mesh("crt_device");
         var baseMat = _crate.Material;
         foreach (var type in new[] { SupplyType.T, SupplyType.D, SupplyType.R })
         {
@@ -145,7 +150,7 @@ public sealed class SupplyCrates : IRenderable
         Span<SupplyType> pool = stackalloc SupplyType[5];
         var n = 0;
         foreach (SupplyType t in Enum.GetValues(typeof(SupplyType)))
-            if ((gems || t != SupplyType.G) && (homing || t != SupplyType.R)) pool[n++] = t;
+            if (t != SupplyType.C && (gems || t != SupplyType.G) && (homing || t != SupplyType.R)) pool[n++] = t;
         return Spawn(pool[(int)(Rng.Shared.Next() * n)], position);
     }
 
@@ -165,6 +170,23 @@ public sealed class SupplyCrates : IRenderable
             item.Gem = gemKind ?? (GemKind)(int)(rng.Next() * 4);
             item.Color = SupplyCatalog.Of(item.Gem.Value).Color;
         }
+        _items.Add(item);
+        return item;
+    }
+
+    /// <summary>A CRT comm device thrown from a train along a ballistic arc landing at <paramref name="target"/>.</summary>
+    public Item SpawnCrt(Vector3 position, Vector3 target)
+    {
+        const float T = 0.9f, g = 16, hover = 0.62f;
+        var item = new Item
+        {
+            Type = SupplyType.C,
+            Color = SupplyCatalog.Of(SupplyType.C).Color,
+            Pos = position,
+            Vel = new Vector3((target.X - position.X) / T, (hover - position.Y + 0.5f * g * T * T) / T, (target.Z - position.Z) / T),
+            Spin = Rng.Shared.Next() * 6,
+            Keep = true,
+        };
         _items.Add(item);
         return item;
     }
@@ -191,8 +213,11 @@ public sealed class SupplyCrates : IRenderable
             else if (!it.Landed)
             {
                 it.Vel.Y -= 16 * dt;
-                it.Vel.X *= MathF.Exp(-2 * dt);
-                it.Vel.Z *= MathF.Exp(-2 * dt);
+                if (!it.Keep)
+                {
+                    it.Vel.X *= MathF.Exp(-2 * dt);
+                    it.Vel.Z *= MathF.Exp(-2 * dt);
+                }
                 it.Pos += it.Vel * dt;
                 if (it.Pos.Y <= hover && it.Vel.Y < 0)
                 {
@@ -207,15 +232,18 @@ public sealed class SupplyCrates : IRenderable
             it.Spin += dt * (it.Pulled ? 6 : 1.6f);
             var meshPos = new Vector3(it.Pos.X, it.Pos.Y + bob, it.Pos.Z);
             var gem = it.Type == SupplyType.G;
-            var scale = gem ? Matrix.CreateScale(0.62f, 1.25f, 0.62f) : it.Type == SupplyType.H ? Matrix.CreateScale(0.95f) : Matrix.Identity;
-            it.World = scale * MathX.RotationXYZ(gem ? 0.3f : 0.35f, it.Spin, gem ? 0 : 0.2f) * Matrix.CreateTranslation(meshPos);
-            it.GlowOpacity = (0.55f + MathF.Sin(it.Age * 6) * 0.2f) * (gem ? 0.35f : 1);
+            var crt = it.Type == SupplyType.C;
+            var scale = gem ? Matrix.CreateScale(0.62f, 1.25f, 0.62f) : it.Type == SupplyType.H ? Matrix.CreateScale(0.95f) : crt ? Matrix.CreateScale(1.15f) : Matrix.Identity;
+            it.World = crt
+                ? scale * MathX.RotationXYZ(0.12f, it.Spin, 0) * Matrix.CreateTranslation(meshPos)
+                : scale * MathX.RotationXYZ(gem ? 0.3f : 0.35f, it.Spin, gem ? 0 : 0.2f) * Matrix.CreateTranslation(meshPos);
+            it.GlowOpacity = (0.55f + MathF.Sin(it.Age * 6) * 0.2f) * (gem ? 0.35f : crt ? 0.7f : 1);
             if (it.Pulled && rng.Next() < 0.6f)
             {
                 var c = Palette.ToLinear(it.Gem.HasValue ? SupplyCatalog.Of(it.Gem.Value).Glow : it.Color);
                 _effects.Fire.Emit(new ParticleSpec { Position = it.Pos, Life = 0.25f, Size0 = 0.35f, Size1 = 0.05f, Aspect = 1, Color0 = new Vector4(c * 3, 1), Color1 = new Vector4(c, 0), HasColor1 = true });
             }
-            var left = GameConfig.Supply.CrateLifetime - it.Age;
+            var left = it.Keep ? float.PositiveInfinity : GameConfig.Supply.CrateLifetime - it.Age;
             it.Visible = it.Pulled || left > 4 || (int)MathF.Floor(left * 8) % 2 == 0;
             if (canPickup && dist < GameConfig.Supply.PickupRadius)
             {
@@ -248,13 +276,16 @@ public sealed class SupplyCrates : IRenderable
                     case SupplyType.G:
                         queue.Add(_gem, it.World, DrawOverrides.None, true, 0, RenderLayer.World, null, _gemMaterials[(int)it.Gem.GetValueOrDefault()]);
                         break;
+                    case SupplyType.C:
+                        if (_crt != null) queue.Add(_crt, it.World);
+                        break;
                     default:
                         queue.Add(_crate, it.World, DrawOverrides.None, true, 0, RenderLayer.World, null, _crateMaterials[(int)it.Type]);
                         break;
                 }
             }
-            var glow = Palette.ToLinear(it.Gem.HasValue ? SupplyCatalog.Of(it.Gem.Value).Glow : it.Color) * (it.Type == SupplyType.G ? 1.1f : 1.4f);
-            var size = it.Type == SupplyType.G ? 2.6f : 2.2f;
+            var glow = Palette.ToLinear(it.Gem.HasValue ? SupplyCatalog.Of(it.Gem.Value).Glow : it.Color) * (it.Type == SupplyType.G ? 1.1f : 1.3f);
+            var size = it.Type is SupplyType.G or SupplyType.C ? 2.6f : 2.2f;
             var p = it.World.Translation;
             _glows.Push(p.X, 0.25f, p.Z, size, size, glow.X, glow.Y, glow.Z, it.GlowOpacity);
         }

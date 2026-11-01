@@ -400,7 +400,7 @@ export class MainMenu {
       this.el.foot.classList.add('flash');
       return;
     }
-    this.openPanel(def.scenario ? 'scenario' : def.panel);
+    this.openPanel(def.scenario ? 'scenario' : def.level ? 'level' : def.panel);
   }
 
   openPanel(kind, index = 0) {
@@ -446,6 +446,11 @@ export class MainMenu {
         items.push({ kind: 'button', label: this.t('back'), act: () => this.closePanel() });
         return items;
       }
+      case 'level':
+        return [
+          { kind: 'button', label: this.t('play'), primary: true, act: () => this.start(this.focused().def.level) },
+          { kind: 'button', label: this.t('back'), act: () => this.closePanel() },
+        ];
       case 'sound':
         return [
           ...['master', 'music', 'sfx'].map((k) => ({ kind: 'slider', key: k, label: this.t(k), value: s[k], max: 10 })),
@@ -558,6 +563,8 @@ export class MainMenu {
       html += '</div>';
       const cap = def.locked ? `${this.t('locked')} · ${this.t('comingSoon')}` : this.t('stageOf', { n: Math.max(at, Math.min(2, p.best)) });
       html += `<div class="mf-cap${def.locked ? ' locked' : ''}">${cap}</div>`;
+    } else if (def?.level) {
+      html += `<div class="mf-cap">${this.t('prototype')}</div>`;
     } else if (def?.panel === 'sound') {
       html += `<div class="mf-vals">${['master', 'music', 'sfx'].map((k) => `<span class="mf-val"><b>${this.t(k)}</b>${meter(s[k], 10, 'mini')}</span>`).join('')}</div>`;
     } else if (def?.panel === 'graphics') {

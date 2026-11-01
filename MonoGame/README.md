@@ -67,7 +67,8 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
   ve metinler web'den dışa aktarılır (`card_menu_<id>_<lang>`, `scene.json` → `prefabs.menu`).
 - Ayarlar: `Core/Settings.cs` → `%LOCALAPPDATA%/BlockedPixelWarriors/settings.json` (dil, ses
   seviyeleri, kalite, kamera sarsıntısı, tam ekran) ve `progress.json` (senaryo ilerlemesi). Kalite
-  bir sonraki açılışta uygulanır. Oyunda henüz ses yok; ses seviyeleri sesler için saklanır.
+  bir sonraki açılışta uygulanır. Şimdilik tek ses toplama sesi (`Audio/PickupSfx.cs`, Blocked Pixel
+  Panzer'in PickupSfx sentezi; genel x efekt seviyesi).
   Dil şimdilik menüyü çevirir (EN / TR); oyun içi yazılar İngilizce.
 - UI: `Hud` (web HUD'unun SpriteBatch portu), `UiKit` (9-slice paneller, bitmap fontlar),
   `GameInput` + `TouchControls`.
@@ -90,13 +91,22 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
   toplar, geri sayım), görev paneli (100 kırmızı / yeşil / mavi → MISSION COMPLETE),
   DOUBLE ROW, GEM MINE, HOMING ROCKETS, FLICKER, RUSH DELIVERY, SURPRISE EGG (dikenli toplar),
   HUD, menüler, kar.
+- **2. bölüm:** terasta rastgele blok kümeleri (`BlockField` scatter düzeni, web ile aynı tohum ve
+  kaçınma daireleri), Hauler yukarıdan / zırhlı tren aşağıdan sırayla gelir, her tren dönüşte ters
+  yönden ve bir vagon fazlasıyla gelir (`Train.RestartLap`, `AddWagon`). Yüklenen her 100 kutudan
+  tam biri CRT haberleşme cihazı (`CrtDevices`, model `crt_device`); vurulunca ikmal gibi toplanır
+  (`SupplyType.C`, kaybolmaz). Görev: 15 cihaz + Block Hauler.
+- **Tank seviyesi (IRON TRACKS kartı):** `Gameplay/TankLevel.cs` kendi kamerası, ışıkları ve
+  efektleriyle; tank `tank_hull / tank_turret / tank_barrel / tank_link` modelleri (Blender), palet
+  bağlantıları instancing ile iki halka boyunca döner, namlu geri teper, lambalar yanıp söner.
+  Klavye W/S/A/D + fare / tık / SPACE; telefonda sol joystick sürer, dokunma nişan + ateş.
 - Kartlar sahnenin post zincirinden sonra tam çözünürlükte çizilir (`Card.glfx`: key + rim ışık,
   RoomEnvironment, clearcoat, fragment başına ACES + sRGB — web'deki ayrı kart canvas'ı gibi).
 
 ## Test / ekran görüntüsü
 
 ```bash
-BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|menu|play|cards|logistics|transit|terrace [--warmup 25] [--extra 30] [--pick 0] [--touch] [--mobile]
+BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|menu|play|cards|logistics|transit|terrace|tank [--warmup 25] [--extra 30] [--pick 0] [--touch] [--mobile]
 # menü: tuş betiği ve dil (save = 2. bölüm kaydı + ilerleme)
 BlockedPixelWarriors --capture menu.png --frames 3 --scenario menu --lang tr --menu down,right,enter
 node tools/staticshot.mjs web.png   # aynı "static" kareyi web sürümünden alır (karşılaştırma)

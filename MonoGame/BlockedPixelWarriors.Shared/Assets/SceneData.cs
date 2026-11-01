@@ -176,6 +176,28 @@ public sealed class PrefabData
     public Dictionary<string, HaulerCarData> Hauler { get; set; }
     /// <summary>Main menu rows, cards and strings (MenuCards.js / MenuText.js).</summary>
     public MenuData Menu { get; set; }
+    /// <summary>Terrace planters / crates / heli spawn (x, z, radius): the stage-2 blocks avoid them.</summary>
+    public List<float[]> TerraceAvoid { get; set; }
+    /// <summary>Tank level: part matrices, muzzle, track loop.</summary>
+    public TankData Tank { get; set; }
+}
+
+public sealed class TankData
+{
+    public float[] TurretMatrix { get; set; }
+    public float[] BarrelMatrix { get; set; }
+    public float[] Muzzle { get; set; }
+    public TankTrackData Track { get; set; }
+}
+
+public sealed class TankTrackData
+{
+    public float[] X { get; set; }
+    public float Yc { get; set; }
+    public float R { get; set; }
+    public float Zc { get; set; }
+    public int Count { get; set; }
+    public float Perimeter { get; set; }
 }
 
 public sealed class MenuData
@@ -203,6 +225,8 @@ public sealed class MenuCardData
     public bool Scenario { get; set; }
     public bool Locked { get; set; }
     public string Panel { get; set; }
+    /// <summary>Opens a separate level (e.g. "tank").</summary>
+    public string Level { get; set; }
     public float[] Jewel { get; set; }
     public float[] Glow { get; set; }
     public int GlowHex { get; set; }

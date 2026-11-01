@@ -38,6 +38,9 @@ public sealed class BpwGame : Game
     private readonly float[] _frameTimes = new float[90];
     private int _frameTimeCount;
     private bool _poster;
+    private TankLevel _tank;
+    private bool _tankMode;
+    private SkyDome _sky;
 
     public BpwGame(IPlatformServices platform, LaunchOptions options = null)
     {
@@ -91,6 +94,8 @@ public sealed class BpwGame : Game
             Lights = _lights,
             Sky = new SkyDome(device, _assets.Effect("Sky"), scene.Sky),
         };
+        _sky = _renderer.Sky;
+        _tank = new TankLevel(_models, scene, _lights.EnvMap, _quality);
         _renderer.Post.LensK = scene.Camera.LensK;
         Console.WriteLine($"[bpw] {device.Adapter.Description} profile={device.GraphicsProfile} hdr={_renderer.Post.HdrSupported} quality={_quality.Name}");
         // Phones: one graded sample without the colour fringe (the MOBILE shader variant).
@@ -113,7 +118,8 @@ public sealed class BpwGame : Game
             OnPlay = mode =>
             {
                 _hud.MenuMode = false;
-                if (mode == "continue") _session.ContinueRun();
+                if (mode == "tank") StartTank();
+                else if (mode == "continue") _session.ContinueRun();
                 else _session.StartRun();
             },
             OnQuit = Exit,
@@ -174,6 +180,8 @@ public sealed class BpwGame : Game
                 // CONTINUE from a checkpoint, then hover beside the first crane car as the hauler passes.
                 _session.Store = new MemoryCheckpointStore(new CheckpointSave { Score = 1234, Wave = 3, Cards = new List<string> { "flicker" } });
                 _session.ContinueRun();
+                // Make the 3rd loaded cargo cube a CRT (normally 1 in 100) so the capture shows one.
+                _session.ForceCrtSlot(2);
                 var h = _session.Heli;
                 Sim(_options.Extra > 0 ? _options.Extra : 40, () =>
                 {
@@ -250,6 +258,16 @@ public sealed class BpwGame : Game
             }
         }
         if (_options.Touch) _input.TouchMode = true;
+        if (_options.Scenario == "tank")
+        {
+            // Tank level: drive a curve, turret toward a point, fire, capture mid-shell.
+            StartTank();
+            for (float t = 0; t < 2.5f; t += 1 / 30f) _tank.Step(1 / 30f, 1, -1, _tank.Position + new Vector3(10, 0, 6), false);
+            for (float t = 0; t < 0.6f; t += 1 / 30f) _tank.Step(1 / 30f, 0, 0, null, false);
+            _tank.Step(1 / 30f, 0, 0, null, true);
+            for (float t = 0; t < (_options.Extra > 0 ? _options.Extra : 0.3f); t += 1 / 30f) _tank.Step(1 / 30f, 0, 0, null, false);
+            Console.WriteLine($"[tank] pos {_tank.Position} heading {_tank.Heading} turret {_tank.TurretYaw}");
+        }
         if (_options.Scenario == "poster") _session.StagePoster();
         if (_options.Scenario == "static") _session.StageStatic();
         if (_options.CapturePath != null)
@@ -262,6 +280,7 @@ public sealed class BpwGame : Game
     /// <summary>Main menu over a fresh attract-mode depot.</summary>
     private void ShowMenu()
     {
+        StopTank();
         _session.ShowAttract();
         _hud.HideOverlay();
         _hud.MenuMode = true;
@@ -298,6 +317,19 @@ public sealed class BpwGame : Game
             _graphics.ToggleFullScreen();
         }
         var command = _options.CapturePath != null && _options.Scenario == "play" ? AutoPilot(_session.Time) : _input.Command;
+        if (_tankMode)
+        {
+            if (!_session.Paused)
+            {
+                if (_input.PausePressed) PauseTank();
+                else _tank.Update(dt, _input, vp);
+            }
+            // The menu / card grey wash fades out (only the menu drives it in this level).
+            _renderer.Post.Ash = 0;
+            _menu.Update(dt, _input, vp);
+            base.Update(gameTime);
+            return;
+        }
         if (!_session.Paused && !_poster)
         {
             _session.Step(dt, command);
@@ -347,6 +379,42 @@ public sealed class BpwGame : Game
         }
     }
 
+    /// <summary>Tank level (menu card IRON TRACKS): its own scene, the heli game is put away.</summary>
+    private void StartTank()
+    {
+        if (!_tank.Available)
+        {
+            ShowMenu();
+            return;
+        }
+        _tankMode = true;
+        _session.ShowAttract();
+        _hud.MenuMode = true;
+        _tank.Start();
+    }
+
+    private void StopTank()
+    {
+        if (!_tankMode) return;
+        _tankMode = false;
+        _hud.MenuMode = false;
+    }
+
+    private void PauseTank()
+    {
+        if (_session.Paused || _menu.Visible) return;
+        _session.Paused = true;
+        _menu.ShowPause(Resume, () =>
+        {
+            Resume();
+            _tank.Start();
+        }, () =>
+        {
+            Resume();
+            ShowMenu();
+        });
+    }
+
     /// <summary>ESC / P / the touch pause button: the game freezes under the pause menu.</summary>
     private void Pause()
     {
@@ -387,17 +455,34 @@ public sealed class BpwGame : Game
         var rw = Math.Max(1, (int)(vp.Width * scale));
         var rh = Math.Max(1, (int)(vp.Height * scale));
         _renderer.Post.Resize(rw, rh);
-        var camera = _session.Rig.Camera;
+        var camera = _tankMode ? _tank.Camera : _session.Rig.Camera;
         camera.SetAspect(vp.Width / (float)vp.Height);
         camera.Update();
         _renderer.Time = _session.Time;
         _renderer.BackdropWorld = _session.World.Backdrop;
+        _renderer.Lights = _tankMode ? _tank.Lights : _lights;
+        _renderer.Sky = _tankMode ? null : _sky;
         _queue.Clear();
-        _session.Submit(_queue);
+        if (_tankMode) _tank.Submit(_queue);
+        else _session.Submit(_queue);
         _renderer.Render(_queue, camera, target, vp);
         GraphicsDevice.SetRenderTarget(target);
         GraphicsDevice.Viewport = new Viewport(vp);
-        if (!_poster)
+        if (_tankMode)
+        {
+            DrawTankHud(vp);
+            if (_menu.Visible)
+            {
+                _ui.Begin();
+                _menu.DrawBack(vp);
+                _ui.End();
+                _menu.DrawCards();
+                _ui.Begin();
+                _menu.DrawFront(vp);
+                _ui.End();
+            }
+        }
+        else if (!_poster)
         {
             _hud.Draw(vp, _session, camera, _input.Touch, _input.TouchMode);
             if (!_session.Paused && _cards.Active)
@@ -427,6 +512,24 @@ public sealed class BpwGame : Game
             Console.WriteLine($"captured {_options.CapturePath} ({_capture.Width}x{_capture.Height}), draw calls {_renderer.DrawCalls}");
             Exit();
         }
+    }
+
+    /// <summary>Tank level strip at the bottom: title, key help, reload bar.</summary>
+    private void DrawTankHud(Rectangle vp)
+    {
+        if (_session.Paused) return;
+        var k = _ui.Scale;
+        _ui.Begin();
+        var cx = vp.Width / 2f;
+        var y = vp.Height - 18 * k;
+        var bw = 180 * k;
+        var bar = new RectangleF(cx - bw / 2, y - 7 * k, bw, 7 * k);
+        _ui.Rect(bar, Color.Black * 0.45f);
+        _ui.Rect(new RectangleF(bar.X, bar.Y, bar.Width * Math.Clamp(_tank.ReloadRatio, 0, 1), bar.Height), new Color(0xff, 0xb0, 0x2a));
+        var help = _input.TouchMode ? "STICK drive · TAP aim + fire · II menu" : "W S drive · A D turn · MOUSE aim · CLICK / SPACE fire · ESC menu";
+        _ui.TextCentered(_ui.Ui, help, new Vector2(cx, y - 22 * k), 13 * k, Color.White * 0.9f, 2 * k);
+        _ui.TextCentered(_ui.Hud, "IRON TRACKS · TEST RANGE", new Vector2(cx, y - 48 * k), 22 * k, Color.White, 2 * k);
+        _ui.End();
     }
 
     /// <summary>Scripted stick for automated capture runs (sweeps the board, turns now and then).</summary>

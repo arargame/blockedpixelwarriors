@@ -20,10 +20,10 @@ gri olur; menü renkli kalır. Solda logo ve **OYNA · AYARLAR · OYUNDAN ÇIK**
 satırın kartları sağa-sola kayar (←/→, kaydırma, tekerlek). **ENTER** / dokunma kartı açar, **ESC** geri.
 
 - **OYNA:** senaryo kartları (yükseltme kartı modeli, fiyonksuz). **RAILBREAKER** (heli vs tren) oynanır;
-  yanında kilitli "yakında" kartları. Kartın altında bölüm ışıkları: **DEPO → TERAS → BOSS**, ulaşılan
+  yanında **IRON TRACKS** (tank seviyesi, şimdilik prototip test sahası) ve kilitli "yakında" kartı. Kartın altında bölüm ışıkları: **DEPO → TERAS → BOSS**, ulaşılan
   bölümler yanar (teras kontrol noktasına ulaşınca 2 ışık). Kart açılınca brifing + **YENİ OYUN** /
   **DEVAM ET · BÖLÜM 2**.
-- **AYARLAR:** Ses (genel / müzik / efekt; oyunda henüz ses yok, seviyeler saklanır), Grafik (kalite
+- **AYARLAR:** Ses (genel / müzik / efekt; şimdilik yalnızca toplama sesi çalar: genel x efekt), Grafik (kalite
   yeniden açılışta uygulanır, kamera sarsıntısı, tam ekran), Dil (English / Türkçe; şimdilik menü).
 - **OYUNDAN ÇIK:** onay sorusu. Oyun bitince (GAME OVER / MISSION COMPLETE) bir tuşla menüye dönülür.
 
@@ -38,8 +38,21 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
   beklemesi eskisinin %80'i. Gelmeden 2.5 sn önce "TRAIN INCOMING / IS BACK" yazısı ve girdiği kenarda
   yanıp sönen **TRAIN** işareti çıkar.
 - **Vagondaki kutular:** alttaki kutu vurulunca üstündekiler aşağı düşer.
-- **2. bölüm (teras):** Block Hauler ile zırhlı tren sırayla gelir (her biri hasarını korur). Trenden
-  vurulan kutular terasa sekip düşer ve kırılır; %60 ihtimalle ikmal (silah / tamir) bırakır.
+- **2. bölüm (teras):** Block Hauler ile zırhlı tren sırayla gelir (her biri hasarını korur): Hauler
+  hattın yukarısından, zırhlı tren aşağıdan girer; her tren bir sonraki seferinde ters yönden ve **bir
+  vagon fazlasıyla** döner (en çok `GameConfig.train.maxWagons`). Trenden vurulan kutular terasa sekip
+  düşer ve kırılır; %60 ihtimalle ikmal (silah / tamir) bırakır. Terasta başta rastgele renk kümeleri
+  hâlinde vurulabilir bloklar durur (`GameConfig.stages.terraceBlocks`).
+- **CRT haberleşme cihazları:** teras trenlerine yüklenen her **100 kutudan tam 1'i** CRT telsizdir
+  (Blocked Pixel Panzer'in CRT supply'ı, Blender'da 3D). Vurulunca (ya da tren yıkılınca) hattın
+  yanına düşer, kaybolmaz; helikopter mıknatısla toplar. 2. bölüm için **15 cihaz topla + Block
+  Hauler'ı yok et** gerekir (sıra fark etmez; Hauler önce düşerse yenisi gelir).
+- **Ses:** destek / elmas / CRT toplanınca Blocked Pixel Panzer'in toplama sesi (`PickupSfx`, aynı
+  sentez: C5-E5-G5-C6 arpej) çalar.
+- **Tank seviyesi (IRON TRACKS):** boş bir test sahasında Blender tankı. **W/S** sür, **A/D** gövdeyi
+  çevir, **fare** tareti çevirir, **tık / SPACE** ateş (namlu geri teper, mermi nişan noktasına
+  düşer). Paletler iki yanda kendi hızında döner (yerinde dönerken ters yönde), arka kırmızı lambalar
+  ve taretin sarı lambaları yanıp söner. ESC menü. Kod: `src/tank/`.
 - **Raylardaki kar** eskisinin %10'u kadar birikir (`GameConfig.track.railSnow`).
 
 ### Görev
@@ -270,6 +283,8 @@ URL parametreleri:
 | Geliştirme kartı | `tools/blender/build_card.py` | `assets/models/card.glb / .blend` |
 | BLOCK HAULER treni | `tools/blender/build_hauler.py` | `assets/models/hauler.glb / .blend` |
 | T / D plazma mermileri | `tools/blender/build_plasma.py` | `assets/models/plasma.glb / .blend` (PlasmaBolt, NovaBolt) |
+| CRT haberleşme cihazı | `tools/blender/build_crt.py` | `assets/models/crt.glb / .blend` (CrtRadio) |
+| Oyuncu tankı (Meshy konseptine göre) | `tools/blender/build_tank.py` | `assets/models/tank.glb / .blend`, menü kartı `assets/textures/menu/tank.jpg` |
 
 Oyun `.glb` dosyalarını yükler; yüklenemezse basit yedek modellere döner. Ayrıntılar: `tools/blender/README.md`.
 

@@ -25,7 +25,7 @@ public sealed class GameSession : IRenderable
 {
     private static class Score
     {
-        public const int Block = 10, Cargo = 25, Turret = 100, Crane = 150, Gem = 500, Mine = 50, Supply = 50, Delivery = 100;
+        public const int Block = 10, Cargo = 25, Turret = 100, Crane = 150, Gem = 500, Mine = 50, Supply = 50, Delivery = 100, Crt = 250;
     }
 
     private readonly GraphicsDevice _device;
@@ -77,6 +77,12 @@ public sealed class GameSession : IRenderable
     public Effects Effects { get; }
     public ProjectileSystem Projectiles { get; }
     public BlockField Blocks { get; }
+    /// <summary>Stage 2: random clusters of blocks already on the terrace.</summary>
+    public BlockField TerraceBlocks { get; }
+    /// <summary>One cargo cube in every hundred on the terrace trains is a CRT comm device.</summary>
+    private readonly CrtDevices _crt;
+    public int CrtCollected { get; private set; }
+    private bool _haulerDown;
     public Helicopter Heli { get; }
     public SupplyCrates Supplies { get; }
     public PowerUpSystem PowerUps { get; } = new();
@@ -127,6 +133,11 @@ public sealed class GameSession : IRenderable
 
         Projectiles = new ProjectileSystem(device, models, Effects) { CollisionHandler = ResolveHit };
         Blocks = new BlockField(models, Effects) { OnBlockDestroyed = OnBlockDestroyed };
+        var avoid = (scene.Prefabs.TerraceAvoid ?? new List<float[]>()).Select(a => (a[0], a[1], a[2])).ToArray();
+        TerraceBlocks = new BlockField(models, Effects,
+            (GameConfig.Stages.TerraceMinX, GameConfig.Stages.TerraceMaxX, GameConfig.Stages.TerraceMinZ, GameConfig.Stages.TerraceMaxZ), true, avoid, 4242)
+        { OnBlockDestroyed = OnBlockDestroyed };
+        _crt = new CrtDevices(models.Mesh("crt_device") != null);
         Supplies = new SupplyCrates(device, models, scene.Prefabs.SupplyCrateTextures, Effects) { OnPickup = OnPickup };
         Heli = new Helicopter(models, scene.Prefabs.Heli, World.Board) { Spawn = Rig.HeliAnchor, Position = Rig.HeliAnchor };
         Logistics = new Logistics(models, scene.Prefabs.Forklift, scene.Prefabs.Chinook, Blocks, Effects, lights)
@@ -191,6 +202,11 @@ public sealed class GameSession : IRenderable
         _idleTrain?.Dispose();
         _idleTrain = null;
         _loose.Clear();
+        TerraceBlocks.Reset();
+        Supplies.Clear();
+        _crt.Reset();
+        CrtCollected = 0;
+        _haulerDown = false;
         _trainTimer = 1.5f;
         _trainWarned = false;
         TrainWarnSide = null;
@@ -326,7 +342,10 @@ public sealed class GameSession : IRenderable
         _objectives.Add(new Objective("Reach the checkpoint", true));
         _objectives.Add(new Objective("Wreck the cranes", done || (cranes > 0 && cranesDown >= cranes), t != null ? $"{cranesDown}/{cranes}" : null));
         _objectives.Add(new Objective("Break the turrets", done || (turrets > 0 && turretsDown >= turrets), t != null ? $"{turretsDown}/{turrets}" : null));
-        _objectives.Add(new Objective("Destroy the Block Hauler", done));
+        var crtGoal = GameConfig.Stages.CrtGoal;
+        // Swatch Yellow = the CRT green marker in the HUD list.
+        _objectives.Add(new Objective($"Collect {crtGoal} comm devices", done || CrtCollected >= crtGoal, $"{Math.Min(CrtCollected, crtGoal)}/{crtGoal}", BlockColor.Yellow));
+        _objectives.Add(new Objective("Destroy the Block Hauler", done || _haulerDown));
         return ("STAGE 2 · TERRACE", _objectives);
     }
 
@@ -365,12 +384,17 @@ public sealed class GameSession : IRenderable
         {
             OnFire = FireEnemyShell,
             OnCannonFire = FireCannonShell,
-            // Up on the terrace knocked cubes bounce onto the platform and break open there.
-            OnCargoKnocked = (p, c) => terrace ? DropOnTerrace(p, c) : Blocks.DropFromTrain(p, c),
+            // Up on the terrace knocked cubes bounce onto the platform and break open there; a CRT
+            // radio lands as a pickup.
+            OnCargoKnocked = (p, c, cube) => cube is { Crt: true } ? DropCrt(p) : terrace ? DropOnTerrace(p, c) : Blocks.DropFromTrain(p, c),
             OnShieldDown = () => _hud.Toast("GEM SHIELD DOWN - HIT THE HEAD!"),
             OnTargetDestroyed = OnTrainPartDestroyed,
             OnBallHit = OnBallHit,
         };
+        // Terrace: the armored train runs up the line (comes in from the bottom edge), the hauler
+        // down it; every trip after that each one comes back the other way.
+        if (terrace && kind == "armored") Train.SetDirection(-1);
+        if (terrace) _crt.Load(Train.Cars);
         Train.View = TrainViewRange();
         Train.PlaceAtEntry();
         if (!_trainWarned) _hud.Toast($"WAVE {Wave} - {Train.Title} INCOMING");
@@ -403,7 +427,8 @@ public sealed class GameSession : IRenderable
         if (Stage == Stage.Terrace)
         {
             if (_idleTrain != null) return (_idleTrain, _idleTrain.IsHauler ? "hauler" : "armored", -_idleTrain.Dir);
-            return (null, Train is { IsHauler: true } ? "armored" : "hauler", 1);
+            var next = Train is { IsHauler: true } ? "armored" : "hauler";
+            return (null, next, next == "armored" ? -1 : 1);
         }
         return cur != null ? (cur, "armored", -cur.Dir) : (null, "armored", 1);
     }
@@ -427,6 +452,7 @@ public sealed class GameSession : IRenderable
             parked.Park(false);
             parked.View = TrainViewRange();
             parked.RestartLap();
+            _crt.Load(parked.Cars);
         }
         else SpawnTrain(prev is { IsHauler: true } ? "armored" : "hauler");
     }
@@ -439,17 +465,71 @@ public sealed class GameSession : IRenderable
     {
         if (from.Z < GameConfig.Stages.TerraceMinZ - 2 || from.Z > GameConfig.Stages.TerraceMaxZ + 2) return false;
         var r = Rng.Shared;
-        var side = r.Chance(0.7f) ? -1 : 1;
         var size = 0.88f * 1.6f;
-        var target = new Vector3(
-            Math.Clamp(GameConfig.Track.X + side * r.Range(2.4f, 6), GameConfig.Stages.TerraceMinX + 1.2f, GameConfig.Stages.TerraceMaxX - 1.2f),
-            size / 2,
-            Math.Clamp(from.Z + r.Spread(1.5f), GameConfig.Stages.TerraceMinZ + 1.5f, GameConfig.Stages.TerraceMaxZ - 1.5f));
+        var target = TerraceLanding(from);
+        target.Y = size / 2;
         const float T = 0.75f, g = 22;
         var vel = new Vector3((target.X - from.X) / T, (target.Y - from.Y + 0.5f * g * T * T) / T, (target.Z - from.Z) / T);
         _loose.Add(new LooseCube { Pos = from, Vel = vel, Size = size, Color = color, Spin = new Vector3(r.Spread(6), r.Spread(6), r.Spread(6)) });
         return true;
     }
+
+    /// <summary>A free spot on the terrace beside the line near <paramref name="from"/> (no block there).</summary>
+    private Vector3 TerraceLanding(Vector3 from)
+    {
+        var r = Rng.Shared;
+        var out_ = Vector3.Zero;
+        for (var i = 0; i < 10; i++)
+        {
+            var side = r.Chance(0.7f) ? -1 : 1;
+            out_ = new Vector3(
+                Math.Clamp(GameConfig.Track.X + side * r.Range(2.4f, 6), GameConfig.Stages.TerraceMinX + 1.2f, GameConfig.Stages.TerraceMaxX - 1.2f),
+                0,
+                Math.Clamp(from.Z + r.Spread(1.5f), GameConfig.Stages.TerraceMinZ + 1.5f, GameConfig.Stages.TerraceMaxZ - 1.5f));
+            if (TerraceBlocks.BlockAt(out_.X, 0.5f, out_.Z) == null) break;
+        }
+        return out_;
+    }
+
+    /// <summary>A CRT comm device shot off a train (or thrown clear of a wreck) lands beside the line as a pickup.</summary>
+    private bool DropCrt(Vector3 from)
+    {
+        Supplies.SpawnCrt(from, TerraceLanding(from));
+        Effects.FlashLight(from, 0x6dff8a, 30, 0.35f, 6);
+        if (State == GameState.Playing) _hud.Toast("COMM DEVICE DROPPED - GRAB IT!");
+        return true;
+    }
+
+    private void OnCrtPickup()
+    {
+        var goal = GameConfig.Stages.CrtGoal;
+        CrtCollected++;
+        AddScore(Score.Crt);
+        if (State != GameState.Playing) return;
+        var crtGreen = new Color(0x6d, 0xff, 0x8a);
+        _hud.Kill("HELI", FeedColors.Heli, $"COMM DEVICE {Math.Min(CrtCollected, goal)}/{goal}", crtGreen);
+        _hud.Notice($"COMM DEVICE {Math.Min(CrtCollected, goal)}/{goal}", crtGreen);
+        if (CrtCollected == goal)
+        {
+            if (_haulerDown) _finishTimer = 2.5f;
+            else _hud.Toast("ALL COMM DEVICES SECURED - NOW DESTROY THE BLOCK HAULER!");
+        }
+    }
+
+    /// <summary>Blocked's pickup chime, panned toward where on screen the item was collected.</summary>
+    private void PlayPickup(Vector3 at, float pitch)
+    {
+        var st = Settings?.Settings;
+        var gain = st == null ? 0.64f : st.Master / 10f * (st.Sfx / 10f);
+        var p = Rig.Camera.Project(at);
+        Audio.PickupSfx.Play(gain, Math.Clamp(p.X, -1, 1) * 0.6f, pitch);
+    }
+
+    /// <summary>Capture runs: force which loaded cube becomes the CRT.</summary>
+    public void ForceCrtSlot(int slot) => _crt.ForceSlot(slot);
+
+    /// <summary>Block grid under a world z: the stage-2 terrace or the stage-1 depot board.</summary>
+    public BlockField FieldAt(float z) => z < GameConfig.Stages.TerraceMaxZ + 1 ? TerraceBlocks : Blocks;
 
     private void UpdateLooseCubes(float dt)
     {
@@ -513,7 +593,14 @@ public sealed class GameSession : IRenderable
         {
             _hud.Kill("HELI", FeedColors.Heli, $"{Train.Title} #{Wave}", FeedColors.Train, "☠", FeedColors.Train);
             _hud.Toast(Train.IsHauler ? "BLOCK HAULER DESTROYED! +500" : "TRAIN DESTROYED! +500");
-            if (Train.IsHauler) _finishTimer = 2.5f;
+            if (Train.IsHauler)
+            {
+                // Stage 2 needs the Block Hauler down AND the comm devices; a new hauler comes later.
+                _haulerDown = true;
+                var left = GameConfig.Stages.CrtGoal - CrtCollected;
+                if (left <= 0) _finishTimer = 2.5f;
+                else _hud.Notice($"COLLECT {left} MORE COMM DEVICE{(left > 1 ? "S" : "")}", new Color(0x6d, 0xff, 0x8a));
+            }
             else _cardTimer = GameConfig.Cards.OfferDelay;
         }
     }
@@ -547,6 +634,12 @@ public sealed class GameSession : IRenderable
 
     private void OnPickup(SupplyType type, SupplyCrates.Item item)
     {
+        PlayPickup(item.Pos, type == SupplyType.G ? 0.12f : type == SupplyType.C ? -0.1f : 0);
+        if (type == SupplyType.C)
+        {
+            OnCrtPickup();
+            return;
+        }
         AddScore(Score.Supply);
         var def = SupplyCatalog.Of(type);
         if (State == GameState.Playing)
@@ -656,11 +749,12 @@ public sealed class GameSession : IRenderable
             });
             return true;
         }
-        var block = Blocks.BlockAt(point.X, exact ? point.Y : MathF.Min(point.Y, GameConfig.BlockSize * 0.9f), point.Z);
+        var field = FieldAt(point.Z);
+        var block = field.BlockAt(point.X, exact ? point.Y : MathF.Min(point.Y, GameConfig.BlockSize * 0.9f), point.Z);
         if (block != null && point.Y < 3.6f)
         {
             var at = new Vector3(point.X, GameConfig.BlockSize + 0.05f, point.Z);
-            ApplyPlayerDamage(p, at, () => Blocks.Damage(block, p.Damage, at));
+            ApplyPlayerDamage(p, at, () => field.Damage(block, p.Damage, at));
             GemImpact(p, at, block);
             return true;
         }
@@ -688,8 +782,9 @@ public sealed class GameSession : IRenderable
                 var s = GameConfig.BlockSize;
                 foreach (var (dx, dz) in new[] { (s, 0f), (-s, 0f), (0f, s), (0f, -s) })
                 {
-                    var b = Blocks.BlockAt(point.X + dx, 0.5f, point.Z + dz);
-                    if (b != null && !b.Cargo) Blocks.Damage(b, 1.5f, new Vector3(b.X, s, b.Z));
+                    var f = FieldAt(point.Z + dz);
+                    var b = f.BlockAt(point.X + dx, 0.5f, point.Z + dz);
+                    if (b != null && !b.Cargo) f.Damage(b, 1.5f, new Vector3(b.X, s, b.Z));
                 }
                 break;
             }
@@ -706,7 +801,7 @@ public sealed class GameSession : IRenderable
             Effects.SparkBurst(point, 14, 6, new Vector4(4, 1, 1, 1));
         }
         if (p.Gem == GemKind.Red) Effects.Explosion(point, 0.35f);
-        if (p.Gem == GemKind.Green && block != null) Blocks.ApplyAcid(block);
+        if (p.Gem == GemKind.Green && block != null) FieldAt(block.Z).ApplyAcid(block);
     }
 
     private void OnHeliDestroyed()
@@ -783,7 +878,7 @@ public sealed class GameSession : IRenderable
 
     private Vector3 AimFrom(Vector3 muzzle, float spread)
     {
-        var target = _targeting.Lock(Time, Heli, Blocks, Train);
+        var target = _targeting.Lock(Time, Heli, FieldAt(Heli.Position.Z), Train);
         _lastShotAimed = target.HasValue;
         var dir = target.HasValue ? Vector3.Normalize(target.Value.Position - muzzle) : Vector3.Normalize(Heli.ToWorldDirection(new Vector3(0, -0.045f, -1)));
         if (spread > 0)
@@ -833,7 +928,7 @@ public sealed class GameSession : IRenderable
         }
         if (PowerUps.Has(SupplyType.R) && _tHoming <= 0)
         {
-            var targets = _targeting.Collect(Heli.Position, GameConfig.Heli.HomingRange, Blocks, Train);
+            var targets = _targeting.Collect(Heli.Position, GameConfig.Heli.HomingRange, FieldAt(Heli.Position.Z), Train);
             _tHoming = targets.Count > 0 ? GameConfig.Heli.HomingInterval : 0.2f;
             if (targets.Count > 0)
             {
@@ -853,7 +948,7 @@ public sealed class GameSession : IRenderable
     /// <summary>D power-up: 8 bolts in the heli's frame, each aimed at a target in its 45° sector.</summary>
     private void FireEightWay()
     {
-        var targets = _targeting.Collect(Heli.Position, GameConfig.Heli.BurstRange, Blocks, Train);
+        var targets = _targeting.Collect(Heli.Position, GameConfig.Heli.BurstRange, FieldAt(Heli.Position.Z), Train);
         var origin = Heli.Position - new Vector3(0, 0.3f, 0);
         var sector = MathF.Cos(MathF.PI / 8);
         for (var k = 0; k < 8; k++)
@@ -1051,6 +1146,7 @@ public sealed class GameSession : IRenderable
         RestockFarSide();
 
         Blocks.Update(dt);
+        TerraceBlocks.Update(dt);
         Logistics.Update(dt, playing && Stage == Stage.Depot);
         if (Stage == Stage.Transit && playing && Gate.Update(dt, Heli.Position)) EnterTerrace();
         else if (Stage != Stage.Transit) Gate.Update(dt, Heli.Position);
@@ -1232,7 +1328,7 @@ public sealed class GameSession : IRenderable
     /// <summary>Crosshair brackets on the locked target.</summary>
     private void UpdateReticle(float dt)
     {
-        var target = State == GameState.Playing && Heli.Alive ? _targeting.Lock(Time, Heli, Blocks, Train) : null;
+        var target = State == GameState.Playing && Heli.Alive ? _targeting.Lock(Time, Heli, FieldAt(Heli.Position.Z), Train) : null;
         _reticle.Begin();
         if (target.HasValue)
         {
@@ -1248,6 +1344,7 @@ public sealed class GameSession : IRenderable
     {
         World.Submit(queue);
         Blocks.Submit(queue);
+        TerraceBlocks.Submit(queue);
         Logistics.Submit(queue);
         Mines.Submit(queue);
         Gate.Submit(queue);

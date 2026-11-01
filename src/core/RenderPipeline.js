@@ -85,6 +85,20 @@ export class RenderPipeline {
     this.resize();
   }
 
+  /** Points the passes at another scene / camera (the tank level has its own). */
+  setView(scene, camera) {
+    if (scene === this.scene && camera === this.camera) return;
+    this.scene = scene;
+    this.camera = camera;
+    this.renderPass.scene = scene;
+    this.renderPass.camera = camera;
+    if (this.foregroundPass) {
+      this.foregroundPass.scene = scene;
+      this.foregroundPass.camera = camera;
+    }
+    this.resize();
+  }
+
   getSize() {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;

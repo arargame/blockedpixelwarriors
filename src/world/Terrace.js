@@ -100,9 +100,12 @@ export class Terrace {
     this.group.add(glow);
     // Stone planters with pines in the corners (trees are placed by World).
     this.treePlacements = [];
+    /** Planters and crate stacks (x, z, radius): the stage-2 blocks are scattered clear of them. */
+    this.obstacles = [];
     const planterParts = [];
     const tx = GameConfig.track.x;
     for (const [x, z] of [[spec.minX + 2.4, spec.minZ + 2.4], [spec.maxX - 2.4, spec.minZ + 2.4], [spec.minX + 2.4, spec.maxZ - 2.6], [spec.maxX - 2.4, spec.maxZ - 2.6], [tx - 6.5, (spec.minZ + spec.maxZ) / 2], [tx + 6.5, (spec.minZ + spec.maxZ) / 2]]) {
+      this.obstacles.push({ x, z, r: 2.1 });
       const g = new RoundedBoxGeometry(2.2, 0.8, 2.2, 2, 0.1);
       g.translate(x, 0.4, z);
       planterParts.push(g);
@@ -119,6 +122,7 @@ export class Terrace {
     this.group.add(planters);
     const crateParts = [];
     for (const [x, z, h] of [[-11, -62, 2], [-12.4, -62.4, 1], [17.5, -80, 2], [18.2, -78.5, 1], [-11.6, -80.5, 1], [16.8, -61.5, 1]]) {
+      this.obstacles.push({ x, z, r: 1.6 });
       for (let k = 0; k < h; k++) {
         const g = new RoundedBoxGeometry(1.2, 1.2, 1.2, 2, 0.08);
         g.rotateY(rng.spread(0.3));

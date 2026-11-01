@@ -23,8 +23,11 @@ import { Settings, Progress } from './Settings.js';
 import { fxRandom as rnd } from '../util/Random.js';
 import { Palette, BLOCK_COLOR_KEYS } from '../config/Palette.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
+import { CrtDevices } from '../entities/CrtDevices.js';
+import { PickupSfx } from '../audio/PickupSfx.js';
+import { TankLevel } from '../tank/TankLevel.js';
 
-const SCORE = Object.freeze({ block: 10, cargo: 25, turret: 100, crane: 150, gem: 500, mine: 50, supply: 50, delivery: 100 });
+const SCORE = Object.freeze({ block: 10, cargo: 25, turret: 100, crane: 150, gem: 500, mine: 50, supply: 50, delivery: 100, crt: 250 });
 /** Stage flow: depot (stage 1 board) -> transit (fly up the line) -> terrace (stage 2) -> done. */
 const Stage = Object.freeze({ DEPOT: 'depot', TRANSIT: 'transit', TERRACE: 'terrace', DONE: 'done' });
 // Kill-feed name colours.
@@ -102,7 +105,7 @@ export class Game {
 
     this.blocks = new BlockField(this.materials, this.effects);
     this.scene.add(this.blocks.group);
-    this.blocks.onBlockDestroyed = (block, depth) => {
+    const onBlockDestroyed = (block, depth) => {
       this.addScore(SCORE.block * (1 + depth));
       // Supply blocks always drop a supply (random type).
       if (block.type === 'supply' && this.state !== GameState.OVER) this.supplies.spawnRandom(v1.set(block.x, GameConfig.blockSize * 0.6, block.z), this.supplyPool);
@@ -114,10 +117,22 @@ export class Game {
       }
       if (depth > 0) this.shake = Math.max(this.shake, 0.12);
     };
+    this.blocks.onBlockDestroyed = onBlockDestroyed;
+    // Stage 2: random clusters of blocks already sitting on the terrace.
+    const [gx, gz] = GameConfig.stages.checkpoint;
+    this.terraceBlocks = new BlockField(this.materials, this.effects, {
+      bounds: GameConfig.stages.terrace, layout: 'scatter', seed: 4242,
+      avoid: [...this.world.terrace.obstacles, { x: gx - 5, z: gz - 7, r: 3.2 }],
+    });
+    this.scene.add(this.terraceBlocks.group);
+    this.terraceBlocks.onBlockDestroyed = onBlockDestroyed;
+
     // Power-ups + supply crates (25% drop chance from destroyed board blocks).
     this.powerups = new PowerUpSystem();
     this.supplies = new SupplyCrates(this.scene, this.effects, this.textures, this.materials);
     this.supplies.onPickup = (type, item) => {
+      this.playPickup(item, type === 'G' ? 0.12 : type === 'C' ? -0.1 : 0);
+      if (type === 'C') return this.onCrtPickup();
       this.addScore(SCORE.supply);
       if (this.state === GameState.PLAYING) {
         const gem = type === 'G' ? GEMS[item.gem] : null;
@@ -181,6 +196,10 @@ export class Game {
     this.trainFactory = new TrainModelFactory(this.materials, this.textures);
     // Stage 2 train (Blender model); without the model the armored train runs the terrace too.
     this.haulerFactory = options.haulerGltf ? new HaulerModelFactory(options.haulerGltf, this.trainFactory) : null;
+    // Stage 2: one cargo cube in every hundred is a CRT comm device (crt.glb).
+    this.crt = new CrtDevices(options.crtGltf ? options.crtGltf.scene.getObjectByName('CrtRadio') ?? options.crtGltf.scene : null);
+    this.crtCollected = 0;
+    this.haulerDown = false;
     this.checkpoint = new Checkpoint(this.effects);
     this.scene.add(this.checkpoint.group);
     this.stage = Stage.DEPOT;
@@ -208,7 +227,8 @@ export class Game {
       canContinue: () => !!this.loadCheckpoint(),
       onPlay: (mode) => {
         this.hud.root.classList.remove('menu-mode');
-        if (mode === 'continue') this.continueRun();
+        if (mode === 'tank') this.startTankLevel();
+        else if (mode === 'continue') this.continueRun();
         else this.startRun();
       },
     });
@@ -252,7 +272,8 @@ export class Game {
       resume: () => this.resume(),
       restart: () => {
         this.resume();
-        this.startRun();
+        if (this.tankMode) this.tankLevel.start();
+        else this.startRun();
       },
       mainMenu: () => {
         this.resume();
@@ -269,8 +290,31 @@ export class Game {
     this.menu.hide();
   }
 
+  /** Tank level (menu card IRON TRACKS): its own scene; the heli game and its HUD are put away. */
+  startTankLevel() {
+    if (!this.options.tankGltf) return this.showMenu();
+    this.tankLevel ??= new TankLevel({
+      gltf: this.options.tankGltf, textures: this.textures, renderer: this.pipeline.renderer, input: this.input, quality: this.pipeline.quality,
+    });
+    this.tankMode = true;
+    this.state = GameState.PLAYING;
+    this.cards.cancel();
+    this.hud.root.classList.add('tank-mode');
+    this.pipeline.setView(this.tankLevel.scene, this.tankLevel.camera);
+    this.tankLevel.start();
+  }
+
+  stopTankLevel() {
+    if (!this.tankMode) return;
+    this.tankMode = false;
+    this.tankLevel.stop();
+    this.hud.root.classList.remove('tank-mode');
+    this.pipeline.setView(this.scene, this.camera);
+  }
+
   /** Main menu: the depot plays itself behind it (attract mode), drained to grey. */
   showMenu() {
+    this.stopTankLevel();
     this.startRun();
     this.state = GameState.TITLE;
     this.hud.hideOverlay();
@@ -345,6 +389,11 @@ export class Game {
     this.heli.position.copy(this.heli.spawn);
     this.updateCamera(0, true);
     this.hud.toast('CONTINUE - STAGE 2: THE TERRACE');
+  }
+
+  /** Block grid under a world z: the stage-2 terrace or the stage-1 depot board. */
+  fieldAt(z) {
+    return z < GameConfig.stages.terrace.maxZ + 1 ? this.terraceBlocks : this.blocks;
   }
 
   /** Stage bounds for the heli: board, bridge corridor (union) or the terrace. */
@@ -439,7 +488,8 @@ export class Game {
         { text: 'Reach the checkpoint', done: true },
         { text: 'Wreck the cranes', done: done || (cranes > 0 && cranesDown >= cranes), progress: t ? `${cranesDown}/${cranes}` : '' },
         { text: 'Break the turrets', done: done || (turrets > 0 && turretsDown >= turrets), progress: t ? `${turretsDown}/${turrets}` : '' },
-        { text: 'Destroy the Block Hauler', done },
+        { text: `Collect ${GameConfig.stages.crtGoal} comm devices`, done: done || this.crtCollected >= GameConfig.stages.crtGoal, progress: `${Math.min(this.crtCollected, GameConfig.stages.crtGoal)}/${GameConfig.stages.crtGoal}`, swatch: 'crt' },
+        { text: 'Destroy the Block Hauler', done: done || this.haulerDown },
       ],
     };
   }
@@ -503,6 +553,11 @@ export class Game {
     this.idleTrain?.dispose();
     this.idleTrain = null;
     this.clearLooseCubes();
+    this.terraceBlocks.reset();
+    this.supplies.clear();
+    this.crt.reset();
+    this.crtCollected = 0;
+    this.haulerDown = false;
     this.trainTimer = 1.5;
     this.trainWarned = false;
     this.trainWarnSide = null;
@@ -527,13 +582,20 @@ export class Game {
       path: terrace ? GameConfig.stages.haulerPath : null,
       arena: terrace ? GameConfig.stages.terrace : null,
     });
+    // Terrace: the armored train runs up the line (it comes in from the bottom edge), the
+    // Block Hauler down it; every trip after that each one comes back the other way.
+    if (terrace && kind === 'armored') this.train.setDirection(-1);
     this.train.view = this.trainViewRange();
     this.train.placeAtEntry();
     this.train.onBallHit = (center) => this.onBallHit(center);
     this.train.onFire = (muzzle, target) => this.fireEnemyShell(muzzle, target);
     this.train.onCannonFire = (muzzle, target) => this.fireCannonShell(muzzle, target);
     // Cubes shot off the train fall onto the board as new blocks (terrace: they break open there).
-    this.train.onCargoKnocked = (position, colorKey) => (terrace ? this.dropOnTerrace(position, colorKey) : this.blocks.dropFromTrain(position, colorKey));
+    this.train.onCargoKnocked = (position, colorKey, cube) => {
+      if (cube?.crt) return this.dropCrt(position);
+      return terrace ? this.dropOnTerrace(position, colorKey) : this.blocks.dropFromTrain(position, colorKey);
+    };
+    if (terrace) this.crt.load(this.train.cars);
     this.train.onShieldDown = () => this.hud.toast('GEM SHIELD DOWN - HIT THE HEAD!');
     this.train.onTargetDestroyed = (kind, position) => {
       this.addScore(SCORE[kind] ?? 0);
@@ -543,7 +605,13 @@ export class Game {
       if (kind === 'gem') {
         this.hud.kill('HELI', FEED.heli, `${this.train.title} #${this.wave}`, FEED.train, ['☠', '#ff6b6b']);
         this.hud.toast(`${this.train.title === 'BLOCK HAULER' ? 'BLOCK HAULER' : 'TRAIN'} DESTROYED! +500`);
-        if (this.train.kind === 'hauler') this.finishTimer = 2.5;
+        if (this.train.kind === 'hauler') {
+          // Stage 2 needs the Block Hauler down AND the comm devices; a new hauler comes later.
+          this.haulerDown = true;
+          const left = GameConfig.stages.crtGoal - this.crtCollected;
+          if (left <= 0) this.finishTimer = 2.5;
+          else this.hud.notice(`COLLECT ${left} MORE COMM DEVICE${left > 1 ? 'S' : ''}`, '#6dff8a');
+        }
         else if (!this.options.poster) this.cardTimer = GameConfig.cards.offerDelay;
       }
     };
@@ -581,7 +649,8 @@ export class Game {
     const cur = this.train && !this.train.destroyed ? this.train : null;
     if (this.stage === Stage.TERRACE) {
       if (this.idleTrain) return { back: this.idleTrain, kind: this.idleTrain.kind, dirIn: -this.idleTrain.dir };
-      return { back: null, kind: this.train?.kind === 'hauler' ? 'armored' : 'hauler', dirIn: 1 };
+      const kind = this.train?.kind === 'hauler' ? 'armored' : 'hauler';
+      return { back: null, kind, dirIn: kind === 'armored' ? -1 : 1 };
     }
     return cur ? { back: cur, kind: cur.kind, dirIn: -cur.dir } : { back: null, kind: 'armored', dirIn: 1 };
   }
@@ -601,9 +670,64 @@ export class Game {
       parked.group.visible = true;
       parked.view = this.trainViewRange();
       parked.restartLap();
+      this.crt.load(parked.cars);
     } else {
       this.spawnTrain(prev?.kind === 'hauler' ? 'armored' : 'hauler');
     }
+  }
+
+  /**
+   * A CRT comm device shot off a train (or thrown clear of a wreck) lands on the terrace beside
+   * the line as a pickup that never expires.
+   */
+  dropCrt(from) {
+    const t = GameConfig.stages.terrace;
+    const target = this.terraceLanding(from, t);
+    this.supplies.spawnCrt(this.crt.pickupMesh(), from, target);
+    this.effects.flash(from, 0x6dff8a, 30, 0.35, 6);
+    if (this.state === GameState.PLAYING) this.hud.toast('COMM DEVICE DROPPED - GRAB IT!');
+    return true;
+  }
+
+  /** A free spot on the terrace beside the line near `from` (no block there). */
+  terraceLanding(from, t = GameConfig.stages.terrace) {
+    const tx = this.world.track.x;
+    const out = new THREE.Vector3();
+    for (let i = 0; i < 10; i++) {
+      const side = rnd.chance(0.7) ? -1 : 1;
+      out.set(
+        THREE.MathUtils.clamp(tx + side * rnd.range(2.4, 6), t.minX + 1.2, t.maxX - 1.2),
+        0,
+        THREE.MathUtils.clamp(from.z + rnd.spread(1.5), t.minZ + 1.5, t.maxZ - 1.5),
+      );
+      if (!this.terraceBlocks.blockAt(out.x, 0.5, out.z)) break;
+    }
+    return out;
+  }
+
+  onCrtPickup() {
+    const goal = GameConfig.stages.crtGoal;
+    this.crtCollected += 1;
+    this.addScore(SCORE.crt);
+    if (this.state !== GameState.PLAYING) return;
+    this.hud.kill('HELI', FEED.heli, `COMM DEVICE ${Math.min(this.crtCollected, goal)}/${goal}`, '#6dff8a');
+    this.hud.notice(`COMM DEVICE ${Math.min(this.crtCollected, goal)}/${goal}`, '#6dff8a');
+    if (this.crtCollected === goal) {
+      if (this.haulerDown) this.finishTimer = 2.5;
+      else this.hud.toast('ALL COMM DEVICES SECURED - NOW DESTROY THE BLOCK HAULER!');
+    }
+  }
+
+  /** Blocked's pickup chime, panned toward where on screen the item was collected. */
+  playPickup(item, pitch = 0) {
+    const s = this.settings;
+    const gain = (s.master / 10) * (s.sfx / 10);
+    let pan = 0;
+    if (item?.mesh) {
+      v1.copy(item.mesh.position).project(this.camera);
+      pan = THREE.MathUtils.clamp(v1.x, -1, 1) * 0.6;
+    }
+    PickupSfx.play(gain, pan, pitch);
   }
 
   /**
@@ -614,13 +738,7 @@ export class Game {
   dropOnTerrace(from, colorKey) {
     const t = GameConfig.stages.terrace;
     if (from.z < t.minZ - 2 || from.z > t.maxZ + 2) return false;
-    const tx = this.world.track.x;
-    const side = rnd.chance(0.7) ? -1 : 1;
-    const target = new THREE.Vector3(
-      THREE.MathUtils.clamp(tx + side * rnd.range(2.4, 6), t.minX + 1.2, t.maxX - 1.2),
-      0,
-      THREE.MathUtils.clamp(from.z + rnd.spread(1.5), t.minZ + 1.5, t.maxZ - 1.5),
-    );
+    const target = this.terraceLanding(from, t);
     const size = 0.88 * 1.6;
     const mesh = new THREE.Mesh(this.trainFactory.cargoGeometry, this.materials.block(colorKey));
     mesh.scale.setScalar(size);
@@ -760,10 +878,11 @@ export class Game {
       });
       return true;
     }
-    const block = this.blocks.blockAt(point.x, exact ? point.y : Math.min(point.y, GameConfig.blockSize * 0.9), point.z);
+    const field = this.fieldAt(point.z);
+    const block = field.blockAt(point.x, exact ? point.y : Math.min(point.y, GameConfig.blockSize * 0.9), point.z);
     if (block && point.y < 3.6) {
       v2.set(point.x, GameConfig.blockSize + 0.05, point.z);
-      this.applyPlayerDamage(p, v2, () => this.blocks.damage(block, (p.damage ?? p.def.damage), v2));
+      this.applyPlayerDamage(p, v2, () => field.damage(block, (p.damage ?? p.def.damage), v2));
       this.gemImpact(p, v2, block);
       return true;
     }
@@ -787,8 +906,9 @@ export class Game {
       // Splash damage on neighbouring blocks.
       const s = GameConfig.blockSize;
       for (const [dx, dz] of [[s, 0], [-s, 0], [0, s], [0, -s]]) {
-        const b = this.blocks.blockAt(point.x + dx, 0.5, point.z + dz);
-        if (b && !b.cargo) this.blocks.damage(b, 1.5, v1.set(b.x, s, b.z));
+        const f = this.fieldAt(point.z + dz);
+        const b = f.blockAt(point.x + dx, 0.5, point.z + dz);
+        if (b && !b.cargo) f.damage(b, 1.5, v1.set(b.x, s, b.z));
       }
     }
   }
@@ -955,7 +1075,7 @@ export class Game {
       this.effects.sparkBurst(point, 14, 6, [4, 1, 1, 1]);
     }
     if (p.gem === 'red') this.effects.explosion(point, 0.35);
-    if (p.gem === 'green' && block) this.blocks.applyAcid(block);
+    if (p.gem === 'green' && block) this.fieldAt(block.z).applyAcid(block);
   }
 
   /**
@@ -1004,7 +1124,7 @@ export class Game {
       if (dx * dx + dz * dz <= range * range) out.push({ dx, dz, alive, position, kind });
     };
     const s = GameConfig.blockSize;
-    for (const b of this.blocks.blocks) {
+    for (const b of [...this.blocks.blocks, ...this.terraceBlocks.blocks]) {
       // Train cargo waiting for the engineer is never auto-targeted (lock, rockets, 8-way).
       if (!b.alive || b.drop > 0 || b.cargo) continue;
       push(b.x, b.z, () => b.alive && b.drop <= 0, (o) => o.set(b.x, s * 0.55, b.z));
@@ -1187,6 +1307,14 @@ export class Game {
   step(dt) {
     this.time = (this.time ?? 0) + dt;
     this.input.update();
+    if (this.tankMode) {
+      this.tankLevel.update(dt);
+      // The menu / card grey wash fades out (nothing else drives the grade pass in this level).
+      const grade = this.pipeline.gradePass;
+      if (grade) grade.uniforms.uAsh.value = 0;
+      this.menu.update(dt);
+      return;
+    }
     const playing = this.state === GameState.PLAYING;
     const pilot = this.input.pilot;
     let move;
@@ -1265,6 +1393,7 @@ export class Game {
     this.restockFarSide();
 
     this.blocks.update(dt);
+    this.terraceBlocks.update(dt);
     this.logistics.update(dt, playing && this.stage === Stage.DEPOT);
     if (this.stage === Stage.TRANSIT && playing && this.checkpoint.update(dt, this.heli.position)) this.enterTerrace();
     else if (this.stage !== Stage.TRANSIT) this.checkpoint.update(dt, this.heli.position);

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { HAULER_ORDER } from './HaulerModels.js';
 import { GameConfig } from '../config/GameConfig.js';
 import { TrainModelFactory } from './TrainModels.js';
 
@@ -26,6 +27,9 @@ export class Train {
     this.track = track;
     this.effects = effects;
     this.wave = wave;
+    this.factory = factory;
+    this.haulerFactory = hauler;
+    this.seed = seed;
     /** 'hauler': the stage-2 BLOCK HAULER (Blender model) instead of the armored train. */
     this.kind = hauler ? 'hauler' : 'armored';
     this.title = hauler ? 'BLOCK HAULER' : 'ARMORED TRAIN';
@@ -78,13 +82,7 @@ export class Train {
     this.planTrip();
     // Cargo stacks: remember where every cube rests so they can fall and be reloaded.
     for (const car of cars) {
-      for (const t of car.targets) {
-        if (t.kind !== 'cargo') continue;
-        t.home = t.mesh.position.clone();
-        t.homeBox = t.box.clone();
-        t.size = t.box.max.y - t.box.min.y;
-        t.fallVel = 0;
-      }
+      for (const t of car.targets) if (t.kind === 'cargo') this.initCargo(t);
     }
 
     // Weak point: the armored train's ruby, or the Block Hauler's glowing furnace eye.
@@ -129,12 +127,13 @@ export class Train {
    * The same train comes round again: back to the start of the line, cargo wagons reloaded
    * with fresh cubes, but destroyed turrets and gem damage stay as they were.
    */
-  restartLap() {
+  restartLap(dir = null) {
     this.lap += 1;
     this.finished = false;
-    // Goods train between A and B: every trip goes back the other way.
-    this.dir = -this.dir;
-    this.group.rotation.y = this.dir > 0 ? 0 : Math.PI;
+    // Goods train between A and B: every trip goes back the other way (or the way it is told).
+    this.setDirection(dir ?? -this.dir);
+    // Every trip the train comes back one car longer.
+    this.addWagon();
     this.placeAtEntry();
     this.planTrip();
     for (const car of this.cars) {
@@ -148,6 +147,57 @@ export class Train {
         t.fallVel = 0;
       }
     }
+  }
+
+  /** +1: runs down the line toward the camera (comes in at the top), -1: the way back. */
+  setDirection(dir) {
+    this.dir = dir > 0 ? 1 : -1;
+    this.group.rotation.y = this.dir > 0 ? 0 : Math.PI;
+  }
+
+  /**
+   * One more car at the tail (armored train: the key-art pattern; Block Hauler: its car order),
+   * up to GameConfig.train.maxWagons. Returns the new car or null.
+   */
+  addWagon() {
+    if (this.wagonCount >= GameConfig.train.maxWagons) return null;
+    const i = this.wagonCount;
+    let car;
+    if (this.kind === 'hauler') {
+      const order = HAULER_ORDER.slice(1);
+      car = this.haulerFactory.build(order[i % order.length], Math.random);
+    } else {
+      const pattern = ['armored', 'cargo', 'armored', 'cargo', 'cargo', 'armored', 'cargo'];
+      car = pattern[i % pattern.length] === 'armored' ? this.factory.buildArmoredWagon(this.seed * 31 + i) : this.factory.buildCargoWagon(this.seed * 17 + i, 0.6);
+    }
+    car.cranes ??= [];
+    const offset = this.totalLength / this.scale;
+    car.offsetZ = -offset - car.length / 2;
+    car.group.position.set(0, 0, car.offsetZ);
+    this.group.add(car.group);
+    this.cars.push(car);
+    this.totalLength = (offset + car.length + 0.35) * this.scale;
+    this.wagonCount += 1;
+    for (const t of car.targets) {
+      if (t.kind === 'turret') t.turret.target = t;
+      if (t.kind === 'cargo') this.initCargo(t);
+    }
+    car.group.traverse((o) => {
+      if (o.isMesh) o.castShadow = o.castShadow !== false;
+    });
+    if (this.cranesAttached && car.cranes.length) {
+      this.group.updateMatrixWorld(true);
+      for (const c of car.cranes) this.attachCrane(c);
+    }
+    this.onWagonAdded?.(car);
+    return car;
+  }
+
+  initCargo(t) {
+    t.home = t.mesh.position.clone();
+    t.homeBox = t.box.clone();
+    t.size = t.box.max.y - t.box.min.y;
+    t.fallVel = 0;
   }
 
   /**
@@ -412,15 +462,17 @@ export class Train {
     this.cranesAttached = true;
     this.group.updateMatrixWorld(true);
     for (const car of this.cars) {
-      for (const c of car.cranes) {
-        scene.add(c.chain, c.ball);
-        c.chain.scale.setScalar(this.scale);
-        c.ball.scale.setScalar(this.scale);
-        c.tip.getWorldPosition(tipW);
-        c.pos = tipW.clone().addScaledVector(DOWN, this.chainWorld);
-        c.prev = c.pos.clone();
-      }
+      for (const c of car.cranes) this.attachCrane(c);
     }
+  }
+
+  attachCrane(c) {
+    this.group.parent.add(c.chain, c.ball);
+    c.chain.scale.setScalar(this.scale);
+    c.ball.scale.setScalar(this.scale);
+    c.tip.getWorldPosition(tipW);
+    c.pos = tipW.clone().addScaledVector(DOWN, this.chainWorld);
+    c.prev = c.pos.clone();
   }
 
   get chainWorld() {
@@ -661,7 +713,7 @@ export class Train {
       target.mesh.visible = false;
       this.settleColumn(car, target);
       this.effects.impact(world);
-      if (!this.onCargoKnocked?.(world.clone(), target.colorKey)) {
+      if (!this.onCargoKnocked?.(world.clone(), target.colorKey, target)) {
         this.effects.explosion(world, 0.7, null, 0);
         this.effects.shatter(world, target.color, 14, 1.1, [0.18, 0.42]);
       }
@@ -691,7 +743,9 @@ export class Train {
           t.alive = false;
           t.mesh.visible = false;
           car.group.localToWorld(local.copy(t.box.getCenter(new THREE.Vector3())));
-          this.effects.shatter(local, t.color, 8, 1.4);
+          // A CRT radio survives the wreck (it is thrown clear as a pickup).
+          if (t.crt) this.onCargoKnocked?.(local.clone(), t.colorKey, t);
+          else this.effects.shatter(local, t.color, 8, 1.4);
         }
       }
       for (const turret of car.turrets) turret.alive = false;

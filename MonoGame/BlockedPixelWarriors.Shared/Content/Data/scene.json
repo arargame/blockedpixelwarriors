@@ -3805,6 +3805,127 @@
    "D": "crate_D",
    "R": "crate_R"
   },
+  "terraceAvoid": [
+   [
+    -12.6,
+    -81.6,
+    2.1
+   ],
+   [
+    18.6,
+    -81.6,
+    2.1
+   ],
+   [
+    -12.6,
+    -60.6,
+    2.1
+   ],
+   [
+    18.6,
+    -60.6,
+    2.1
+   ],
+   [
+    -3.5,
+    -71,
+    2.1
+   ],
+   [
+    9.5,
+    -71,
+    2.1
+   ],
+   [
+    -11,
+    -62,
+    1.6
+   ],
+   [
+    -12.4,
+    -62.4,
+    1.6
+   ],
+   [
+    17.5,
+    -80,
+    1.6
+   ],
+   [
+    18.2,
+    -78.5,
+    1.6
+   ],
+   [
+    -11.6,
+    -80.5,
+    1.6
+   ],
+   [
+    16.8,
+    -61.5,
+    1.6
+   ],
+   [
+    -2,
+    -62.5,
+    3.2
+   ]
+  ],
+  "tank": {
+   "turretMatrix": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    1.5499999523162842,
+    -0.25,
+    1
+   ],
+   "barrelMatrix": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    1,
+    1.4500000476837158,
+    1
+   ],
+   "muzzle": [
+    0,
+    1.97178053855896,
+    3.7083795070648193
+   ],
+   "track": {
+    "x": [
+     -1.44,
+     1.44
+    ],
+    "yc": 0.72,
+    "r": 0.66,
+    "zc": 1.72,
+    "count": 41,
+    "perimeter": 11.0269
+   }
+  },
   "forklift": {
    "forksMatrix": [
     0.8,
@@ -4041,6 +4162,10 @@
      "railTitle": "RAILBREAKER",
      "railKind": "SCENARIO 01 · HELI vs TRAIN",
      "railText": "Hold the snowy depot against the armored train, then chase the Block Hauler up the bridge to the terrace.",
+     "tankTitle": "IRON TRACKS",
+     "tankKind": "SCENARIO 02 · TANK",
+     "tankText": "Take the Blocked Pixel Panzer main tank out on the test range. Drive, turn the turret and fire.",
+     "prototype": "TEST RANGE · PROTOTYPE",
      "lockedTitle": "CLASSIFIED",
      "locked2Kind": "SCENARIO 02 · COMING SOON",
      "locked3Kind": "SCENARIO 03 · COMING SOON",
@@ -4071,7 +4196,7 @@
      "master": "MASTER VOLUME",
      "music": "MUSIC",
      "sfx": "EFFECTS",
-     "soundNote": "Sounds are on the way · levels are saved",
+     "soundNote": "Pickup chime is in · more sounds on the way · levels are saved",
      "quality": "QUALITY",
      "high": "HIGH",
      "medium": "MEDIUM",
@@ -4110,6 +4235,10 @@
      "railTitle": "RAILBREAKER",
      "railKind": "SENARYO 01 · HELİ vs TREN",
      "railText": "Karlı depoyu zırhlı trene karşı savun, sonra köprüden terasa çık ve Block Hauler'ı durdur.",
+     "tankTitle": "IRON TRACKS",
+     "tankKind": "SENARYO 02 · TANK",
+     "tankText": "Blocked Pixel Panzer ana tankını test sahasına çıkar. Sür, tareti çevir ve ateş et.",
+     "prototype": "TEST SAHASI · PROTOTİP",
      "lockedTitle": "GİZLİ",
      "locked2Kind": "SENARYO 02 · YAKINDA",
      "locked3Kind": "SENARYO 03 · YAKINDA",
@@ -4140,7 +4269,7 @@
      "master": "GENEL SES",
      "music": "MÜZİK",
      "sfx": "EFEKTLER",
-     "soundNote": "Sesler yolda · seviyeler kaydedilir",
+     "soundNote": "Toplama sesi eklendi · diğer sesler yolda · seviyeler kaydedilir",
      "quality": "KALİTE",
      "high": "YÜKSEK",
      "medium": "ORTA",
@@ -4179,6 +4308,7 @@
        "scenario": true,
        "locked": false,
        "panel": null,
+       "level": null,
        "jewel": [
         1,
         0.06847816983662762,
@@ -4193,28 +4323,30 @@
        "title": "railTitle"
       },
       {
-       "id": "locked2",
+       "id": "tank",
        "scenario": false,
-       "locked": true,
+       "locked": false,
        "panel": null,
+       "level": "tank",
        "jewel": [
-        0.20507873637973145,
-        0.24228112245478564,
-        0.3049873140591091
+        0.19806931954941637,
+        0.8069522576650873,
+        0.14412847084818123
        ],
        "glow": [
-        0.21223075740342198,
-        0.3915724777393922,
-        1
+        1,
+        0.43415363616478553,
+        0.08021982030622662
        ],
-       "glowHex": 8366335,
-       "title": "lockedTitle"
+       "glowHex": 16756816,
+       "title": "tankTitle"
       },
       {
        "id": "locked3",
        "scenario": false,
        "locked": true,
        "panel": null,
+       "level": null,
        "jewel": [
         0.20507873637973145,
         0.24228112245478564,
@@ -4241,6 +4373,7 @@
        "scenario": false,
        "locked": false,
        "panel": "sound",
+       "level": null,
        "jewel": [
         0.06301001764564068,
         0.5775804404214573,
@@ -4259,6 +4392,7 @@
        "scenario": false,
        "locked": false,
        "panel": "graphics",
+       "level": null,
        "jewel": [
         1,
         0.43415363616478553,
@@ -4277,6 +4411,7 @@
        "scenario": false,
        "locked": false,
        "panel": "language",
+       "level": null,
        "jewel": [
         0.19806931954941637,
         0.8069522576650873,
@@ -4303,6 +4438,7 @@
        "scenario": false,
        "locked": false,
        "panel": "exit",
+       "level": null,
        "jewel": [
         1,
         0.08021982030622662,
@@ -4330,7 +4466,18 @@
    "world_static_inst4",
    "world_static_inst5",
    "world_static_inst6",
-   "world_static_inst7"
+   "world_static_inst7",
+   "world_static_inst8",
+   "world_static_inst9",
+   "world_static_inst10",
+   "world_static_inst11",
+   "world_static_inst12",
+   "world_static_inst13",
+   "world_static_inst14",
+   "world_static_inst15",
+   "world_static_inst16",
+   "world_static_inst17",
+   "world_static_inst18"
   ],
   "world_backdrop": [
    "world_backdrop_inst0",
@@ -4372,8 +4519,8 @@
   "card_glow": "linear",
   "card_menu_rail_en": "srgb",
   "card_menu_rail_tr": "srgb",
-  "card_menu_locked2_en": "srgb",
-  "card_menu_locked2_tr": "srgb",
+  "card_menu_tank_en": "srgb",
+  "card_menu_tank_tr": "srgb",
   "card_menu_locked3_en": "srgb",
   "card_menu_locked3_tr": "srgb",
   "card_menu_sound_en": "srgb",
@@ -4407,6 +4554,9 @@
   "banner": "srgb",
   "world_static_map": "srgb",
   "world_static_map_": "srgb",
+  "world_static_inst12_map": "srgb",
+  "world_static_inst13_map": "srgb",
+  "world_static_inst17_map": "srgb",
   "HazardStripes": "srgb",
   "block_armor_map": "srgb",
   "block_supply_map": "srgb",
@@ -4414,6 +4564,12 @@
   "supply_crate_map": "srgb",
   "crate_D": "srgb",
   "crate_R": "srgb",
+  "crt_olive": "srgb",
+  "crt_khaki": "srgb",
+  "crt_screen": "srgb",
+  "crt_hazard": "srgb",
+  "TankCamo": "srgb",
+  "tank_ground_map": "srgb",
   "dock_marking_map": "srgb",
   "fx_comet": "linear",
   "ui_reticle": "srgb"
@@ -4454,6 +4610,50 @@
   "world_static_inst7": {
    "instances": 49,
    "templateVertices": 5940
+  },
+  "world_static_inst8": {
+   "instances": 6,
+   "templateVertices": 1764
+  },
+  "world_static_inst9": {
+   "instances": 13,
+   "templateVertices": 1764
+  },
+  "world_static_inst10": {
+   "instances": 19,
+   "templateVertices": 1764
+  },
+  "world_static_inst11": {
+   "instances": 0,
+   "templateVertices": 1764
+  },
+  "world_static_inst12": {
+   "instances": 5,
+   "templateVertices": 24
+  },
+  "world_static_inst13": {
+   "instances": 8,
+   "templateVertices": 24
+  },
+  "world_static_inst14": {
+   "instances": 6,
+   "templateVertices": 5688
+  },
+  "world_static_inst15": {
+   "instances": 10,
+   "templateVertices": 10296
+  },
+  "world_static_inst16": {
+   "instances": 6,
+   "templateVertices": 7992
+  },
+  "world_static_inst17": {
+   "instances": 0,
+   "templateVertices": 24
+  },
+  "world_static_inst18": {
+   "instances": 0,
+   "templateVertices": 900
   },
   "world_backdrop": {
    "vertices": 36,
@@ -4627,6 +4827,33 @@
   },
   "spike_ball": {
    "vertices": 294
+  },
+  "crt_device": {
+   "vertices": 15035,
+   "parts": 14
+  },
+  "tank_hull": {
+   "vertices": 28898,
+   "parts": 7
+  },
+  "tank_turret": {
+   "vertices": 11248,
+   "parts": 7
+  },
+  "tank_barrel": {
+   "vertices": 1584,
+   "parts": 3
+  },
+  "tank_link": {
+   "vertices": 648,
+   "parts": 3
+  },
+  "tank_ground": {
+   "vertices": 4,
+   "parts": 1
+  },
+  "tank_shell": {
+   "vertices": 162
   },
   "forklift_body": {
    "vertices": 12544,

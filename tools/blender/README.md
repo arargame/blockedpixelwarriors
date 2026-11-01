@@ -87,3 +87,38 @@ Oyun mermiyi uçuş ekseni etrafında döndürür; kanatlar ve halkalar üstten 
 python tools/blender/build_plasma.py                         # plasma.glb + plasma.blend
 python tools/blender/build_plasma.py --render captures/p.png  # + önizleme
 ```
+
+# CRT haberleşme cihazı (2. bölüm)
+
+`build_crt.py`, Blocked Pixel Panzer'in CRT supply turntable atlasından (`ref/crt_atlas.png`, 16 açı)
+3D telsizi kurar: eskimiş zeytin yeşili gövde (yan profili önden eğimli), kenarlarda vida olan haki
+ön çerçeve, koyu lastik çerçeve içinde **bombeli tüp ekran** (tarama çizgili, parlayan piksel "CRT"),
+altta yeşil LED, iki düğme ve turuncu-siyah tehlike şeritleri, yanlarda iki turuncu yarık lamba ve
+havalandırma paneli, arkada kablo oluğu, üstte taşıma kolu, cıvatalı braket ve kırmızı uçlu çanak
+anten, sol yanda kırmızı / mavi / turuncu kablolar. Dokular (eskimiş boya, ekran, şerit) betikte
+numpy / PIL ile boyanır ve `.glb` içine gömülür.
+
+```bash
+python tools/blender/build_crt.py                          # crt.glb + crt.blend
+python tools/blender/build_crt.py --views captures/crt     # + atlasla aynı 16 açıdan render
+```
+
+# Oyuncu tankı (tank seviyesi)
+
+`build_tank.py`, tankı Meshy konseptinin 10 açısına (`ref/tank/meshy_01..10.png`) bakarak parça parça
+kurar: büyük yuvarlak uçlu paletler (iki pedli bağlantılar), koyu zemin üzerinde kademeli bölünmüş
+etek panelleri ve menteşe, palet üstünde dört büyük karo ve arada turuncu yarık, arkada çift kırmızı
+lamba, ön plakada yarık + turuncu lambalar, kama profilli taret (yanlarda büyük + küçük sekizgen disk,
+eğik turuncu şerit, arka köşelerde üst üste sarı lambalar, mavi lens), kare kesitli uzun namlu ve
+delikli kare namlu ağzı. Piksel kamuflaj + her pahta açık yeşil kenar vurgusu.
+
+Hiyerarşi: `Tank` (kök) → `TankHull`, `TankLink` (tek palet bağlantısı; oyun iki halka boyunca
+çoğaltıp döndürür, döngü ölçüleri kökün `extras.track` alanında), `TankTurret` → `TankBarrel` →
+`TankMuzzle`. Yanıp sönen lambaların kendi malzemeleri var: `TankRed`, `TankAmber`.
+
+```bash
+python tools/blender/build_tank.py                         # tank.glb + tank.blend
+python tools/blender/build_tank.py --render captures/tank  # + Meshy'nin 10 açısından render
+python tools/blender/build_tank.py --card captures/card.png # menü kartı resmi
+```
+
