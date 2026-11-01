@@ -96,10 +96,15 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
   yönden ve bir vagon fazlasıyla gelir (`Train.RestartLap`, `AddWagon`). Yüklenen her 100 kutudan
   tam biri CRT haberleşme cihazı (`CrtDevices`, model `crt_device`); vurulunca ikmal gibi toplanır
   (`SupplyType.C`, kaybolmaz). Görev: 15 cihaz + Block Hauler.
-- **Tank seviyesi (IRON TRACKS kartı):** `Gameplay/TankLevel.cs` kendi kamerası, ışıkları ve
-  efektleriyle; tank `tank_hull / tank_turret / tank_barrel / tank_link` modelleri (Blender), palet
-  bağlantıları instancing ile iki halka boyunca döner, namlu geri teper, lambalar yanıp söner.
-  Klavye W/S/A/D + fare / tık / SPACE; telefonda sol joystick sürer, dokunma nişan + ateş.
+- **Tank seviyesi (IRON TRACKS kartı, faz 1 — kanal):** `Gameplay/TankLevel.cs` kendi kamerası,
+  ışıkları ve efektleriyle; `Gameplay/TankArena.cs` web'deki `BlockFlow` (şeritlerde kayan / iten /
+  zincirleme patlayan bloklar), `DrainPile` (gider fiziği, aynı konum tabanlı çözücü) ve
+  `ArenaTrain` (lokomotif + yük vagonları, şeride blok bırakır) birebir. Sahne `tank_arena` modeli
+  + `tank_arena_inst*` (çam / travers / kaya) — su malzemeleri dışa aktarımda `scrollV` taşır, doku
+  zamanla akar. Tank `tank_hull / tank_turret / tank_barrel / tank_link` (Blender), paletler
+  instancing ile döner, namlu geri teper, lambalar yanıp söner. HUD: KIRILAN / GİDER (dolum çubuğu)
+  / GELEN sayaçları, aktif güçler, bitiş afişi. Klavye W/S/A/D + fare / tık / SPACE, ENTER yeniden;
+  telefonda sol joystick sürer, dokunma nişan + ateş.
 - Kartlar sahnenin post zincirinden sonra tam çözünürlükte çizilir (`Card.glfx`: key + rim ışık,
   RoomEnvironment, clearcoat, fragment başına ACES + sRGB — web'deki ayrı kart canvas'ı gibi).
 
@@ -110,4 +115,6 @@ BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|menu|
 # menü: tuş betiği ve dil (save = 2. bölüm kaydı + ilerleme)
 BlockedPixelWarriors --capture menu.png --frames 3 --scenario menu --lang tr --menu down,right,enter
 node tools/staticshot.mjs web.png   # aynı "static" kareyi web sürümünden alır (karşılaştırma)
+# tank: 20 sn tren + --extra sn (varsayılan 45) en alttaki bloğa nişan alan otomatik nişancı
+BlockedPixelWarriors --capture tank.png --frames 3 --scenario tank --extra 45
 ```

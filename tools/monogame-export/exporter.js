@@ -19,7 +19,7 @@
 import * as THREE from 'three';
 import { createVoxelLogo } from '/src/ui/VoxelLogo.js';
 import { Palette } from '/src/config/Palette.js';
-import { buildGround as buildTankGround } from '/src/tank/TankLevel.js';
+import { TankArena } from '/src/tank/TankArena.js';
 
 const tmpV = new THREE.Vector3();
 const tmpN = new THREE.Vector3();
@@ -287,9 +287,19 @@ class Exporter {
         muzzle: muzzle.position.toArray(),
         track: JSON.parse(root.userData.track),
       };
-      const ground = buildTankGround();
-      ground.updateMatrixWorld(true);
-      await this.writeModel('tank_ground', [ground], null);
+      // Arena scenery (channel, water, dam, drain basin, rail, grass): plain meshes in one model,
+      // the instanced ones (pines, sleepers, rocks) as instance sets like the heli world.
+      const arena = new TankArena(g.materials, g.textures);
+      arena.group.updateMatrixWorld(true);
+      const arenaMeshes = collect(arena.group);
+      await this.writeModel('tank_arena', arenaMeshes.filter((m) => !m.isInstancedMesh), null);
+      this.instanceSets.tank_arena = [];
+      let k = 0;
+      for (const inst of arenaMeshes.filter((m) => m.isInstancedMesh)) {
+        const file = `tank_arena_inst${k++}`;
+        await this.writeInstances(file, inst);
+        this.instanceSets.tank_arena.push(file);
+      }
       await this.writeGeometryList('tank_shell', [{ geometry: new THREE.CapsuleGeometry(0.13, 0.5, 4, 8).rotateX(Math.PI / 2), material: new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffa040, emissiveIntensity: 2.2, roughness: 0.3 }) }]);
     }
 
@@ -789,7 +799,8 @@ class Exporter {
         crop: tile.uCrop.value, imageAspect: tile.uImageAspect.value,
       } : null,
       // Waterfalls scroll their texture down (FloatingIslands.update: offset.y += dt * 0.9).
-      scrollV: this.isWaterfall(m) ? 0.9 : 0,
+      // Tank arena water: its own rate in userData.scrollV.
+      scrollV: m.userData?.scrollV ?? (this.isWaterfall(m) ? 0.9 : 0),
     };
     // MonoGame samples textures with v = 0 at the top: flipY maps need their scroll inverted.
     if (out.scrollV && (m.map?.flipY ?? true)) out.scrollV = -out.scrollV;

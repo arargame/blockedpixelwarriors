@@ -95,7 +95,7 @@ public sealed class BpwGame : Game
             Sky = new SkyDome(device, _assets.Effect("Sky"), scene.Sky),
         };
         _sky = _renderer.Sky;
-        _tank = new TankLevel(_models, scene, _lights.EnvMap, _quality);
+        _tank = new TankLevel(_models, scene, _lights.EnvMap, _quality, () => _store.Settings);
         _renderer.Post.LensK = scene.Camera.LensK;
         Console.WriteLine($"[bpw] {device.Adapter.Description} profile={device.GraphicsProfile} hdr={_renderer.Post.HdrSupported} quality={_quality.Name}");
         // Phones: one graded sample without the colour fringe (the MOBILE shader variant).
@@ -260,13 +260,20 @@ public sealed class BpwGame : Game
         if (_options.Touch) _input.TouchMode = true;
         if (_options.Scenario == "tank")
         {
-            // Tank level: drive a curve, turret toward a point, fire, capture mid-shell.
+            // Tank arena: 20 s of trains dropping blocks, then --extra seconds (default 45) of an
+            // auto gunner aiming at the lowest block (same script as the web test).
             StartTank();
-            for (float t = 0; t < 2.5f; t += 1 / 30f) _tank.Step(1 / 30f, 1, -1, _tank.Position + new Vector3(10, 0, 6), false);
-            for (float t = 0; t < 0.6f; t += 1 / 30f) _tank.Step(1 / 30f, 0, 0, null, false);
-            _tank.Step(1 / 30f, 0, 0, null, true);
-            for (float t = 0; t < (_options.Extra > 0 ? _options.Extra : 0.3f); t += 1 / 30f) _tank.Step(1 / 30f, 0, 0, null, false);
-            Console.WriteLine($"[tank] pos {_tank.Position} heading {_tank.Heading} turret {_tank.TurretYaw}");
+            for (float t = 0; t < 20; t += 1 / 30f) _tank.Step(1 / 30f, 0, 0, null, false);
+            var fight = _options.Extra > 0 ? _options.Extra : 45;
+            for (float t = 0; t < fight; t += 1 / 30f)
+            {
+                TankBlock best = null;
+                foreach (var lane in _tank.Blocks.Lanes)
+                foreach (var b in lane)
+                    if (best == null || b.Z < best.Z) best = b;
+                _tank.Step(1 / 30f, 0, 0, best != null ? new Vector3(best.X, 0, best.Z) : null, best != null);
+            }
+            Console.WriteLine($"[tank] dropped {_tank.Dropped} broken {_tank.Broken} drain {_tank.Pile.Count} onLanes {_tank.Blocks.Count} train {_tank.TrainActive} pos {_tank.Position}");
         }
         if (_options.Scenario == "poster") _session.StagePoster();
         if (_options.Scenario == "static") _session.StageStatic();
@@ -458,7 +465,7 @@ public sealed class BpwGame : Game
         var camera = _tankMode ? _tank.Camera : _session.Rig.Camera;
         camera.SetAspect(vp.Width / (float)vp.Height);
         camera.Update();
-        _renderer.Time = _session.Time;
+        _renderer.Time = _tankMode ? _tank.Time : _session.Time;
         _renderer.BackdropWorld = _session.World.Backdrop;
         _renderer.Lights = _tankMode ? _tank.Lights : _lights;
         _renderer.Sky = _tankMode ? null : _sky;
@@ -514,21 +521,105 @@ public sealed class BpwGame : Game
         }
     }
 
-    /// <summary>Tank level strip at the bottom: title, key help, reload bar.</summary>
+    /// <summary>
+    /// Tank level HUD (hud.css .tank-hud): counters on top (BROKEN / DRAIN with its fill bar /
+    /// INCOMING), active power-ups under them, the centre banner, and the title, key help and
+    /// reload bar at the bottom.
+    /// </summary>
     private void DrawTankHud(Rectangle vp)
     {
         if (_session.Paused) return;
         var k = _ui.Scale;
+        var t = _tank;
         _ui.Begin();
         var cx = vp.Width / 2f;
+        var panel = new Color(15, 22, 30) * 0.6f;
+        var edge = Color.White * 0.25f;
+
+        // ---- Counters ----
+        var stats = new (string label, string value, string tail, Color color, float bar)[]
+        {
+            ("BROKEN", t.Broken.ToString(), $"/ {GameConfig.TankArena.BreakGoal}", Color.White, -1),
+            ("DRAIN", t.Pile.Count.ToString(), $"/ {GameConfig.TankArena.DrainLimit}", new Color(0x7f, 0xd8, 0xff), Math.Min(1, t.Pile.Count / (float)GameConfig.TankArena.DrainLimit)),
+            ("INCOMING", Math.Max(0, GameConfig.TankArena.PhaseBlocks - t.Dropped).ToString(), "", Color.White, -1),
+        };
+        float LabelW(string s) => _ui.Ui.Measure(s, 11 * k, 0.14f);
+        var widths = stats.Select(st => 28 * k + LabelW(st.label) + 6 * k + _ui.Hud.Measure(st.value, 24 * k)
+            + (st.tail.Length > 0 ? 6 * k + _ui.Ui.Measure(st.tail, 13 * k) : 0)).ToArray();
+        var total = widths.Sum() + 10 * k * (stats.Length - 1);
+        var x = cx - total / 2;
+        var top = 14 * k;
+        var h = 42 * k;
+        for (var i = 0; i < stats.Length; i++)
+        {
+            var st = stats[i];
+            var r = new RectangleF(x, top, widths[i], h);
+            _ui.Panel(r, 10 * k, panel);
+            _ui.Outline(r, 10 * k, edge);
+            var mid = top + h / 2;
+            var tx = x + 14 * k;
+            _ui.Text(_ui.Ui, st.label, new Vector2(tx, mid - 3.5f * k), 11 * k, Color.White * 0.75f, 0, 0.14f);
+            tx += LabelW(st.label) + 6 * k;
+            _ui.Text(_ui.Hud, st.value, new Vector2(tx, mid - 13 * k), 24 * k, st.color, 1.5f * k);
+            tx += _ui.Hud.Measure(st.value, 24 * k) + 6 * k;
+            if (st.tail.Length > 0) _ui.Text(_ui.Ui, st.tail, new Vector2(tx, mid - 4.5f * k), 13 * k, Color.White * 0.7f);
+            if (st.bar >= 0)
+            {
+                var bar = new RectangleF(x + 8 * k, top + h - 6 * k, widths[i] - 16 * k, 3 * k);
+                _ui.Rect(bar, Color.White * 0.15f);
+                var fill = Color.Lerp(new Color(0x5a, 0xd0, 0xff), new Color(0xff, 0x5a, 0x4a), st.bar);
+                _ui.Rect(new RectangleF(bar.X, bar.Y, bar.Width * st.bar, bar.Height), fill);
+            }
+            x += widths[i] + 10 * k;
+        }
+
+        // ---- Active power-ups ----
+        var names = new Dictionary<SupplyType, string> { [SupplyType.T] = "TRIPLE SHELLS", [SupplyType.D] = "RAPID FIRE", [SupplyType.R] = "HEAVY SHELLS" };
+        var powers = t.Powers.Where(p => p.Value > 0).Select(p => $"{names[p.Key]} {MathF.Ceiling(p.Value)}s").ToList();
+        if (powers.Count > 0)
+        {
+            var pw = powers.Select(p => _ui.Ui.Measure(p, 12 * k) + 20 * k).ToArray();
+            var px = cx - (pw.Sum() + 8 * k * (pw.Length - 1)) / 2;
+            for (var i = 0; i < powers.Count; i++)
+            {
+                var r = new RectangleF(px, 70 * k, pw[i], 20 * k);
+                _ui.Panel(r, 8 * k, new Color(255, 180, 40) * 0.85f);
+                _ui.TextCentered(_ui.Ui, powers[i], r.Center, 12 * k, new Color(0x2a, 0x1a, 0x00));
+                px += pw[i] + 8 * k;
+            }
+        }
+
+        // ---- Banner ----
+        if (t.Banner is { } bn)
+        {
+            var c = new Vector2(cx, vp.Height * 0.38f);
+            var power = bn.kind == "power";
+            var color = bn.kind == "won" ? new Color(0xff, 0xd3, 0x4a) : bn.kind == "lost" ? new Color(0xff, 0x6b, 0x5a) : new Color(0xff, 0xb0, 0x30);
+            _ui.TextCentered(_ui.Hud, bn.title, c, (power ? 30 : 46) * k, color, 3 * k, 0.065f);
+            if (bn.sub != null)
+            {
+                var sub = _input.TouchMode ? bn.sub.Replace("ENTER", "TAP") : bn.sub;
+                _ui.TextCentered(_ui.Ui, sub, c + new Vector2(0, 40 * k), 16 * k, Color.White * 0.9f, 2 * k);
+            }
+        }
+
+        // ---- Bottom strip ----
         var y = vp.Height - 18 * k;
         var bw = 180 * k;
-        var bar = new RectangleF(cx - bw / 2, y - 7 * k, bw, 7 * k);
-        _ui.Rect(bar, Color.Black * 0.45f);
-        _ui.Rect(new RectangleF(bar.X, bar.Y, bar.Width * Math.Clamp(_tank.ReloadRatio, 0, 1), bar.Height), new Color(0xff, 0xb0, 0x2a));
+        var reload = new RectangleF(cx - bw / 2, y - 7 * k, bw, 7 * k);
+        _ui.Rect(reload, Color.Black * 0.45f);
+        _ui.Rect(new RectangleF(reload.X, reload.Y, reload.Width * Math.Clamp(t.ReloadRatio, 0, 1), reload.Height), new Color(0xff, 0xb0, 0x2a));
         var help = _input.TouchMode ? "STICK drive · TAP aim + fire · II menu" : "W S drive · A D turn · MOUSE aim · CLICK / SPACE fire · ESC menu";
-        _ui.TextCentered(_ui.Ui, help, new Vector2(cx, y - 22 * k), 13 * k, Color.White * 0.9f, 2 * k);
-        _ui.TextCentered(_ui.Hud, "IRON TRACKS · TEST RANGE", new Vector2(cx, y - 48 * k), 22 * k, Color.White, 2 * k);
+        var hw = _ui.Ui.Measure(help, 13 * k) + 24 * k;
+        _ui.Panel(new RectangleF(cx - hw / 2, y - 34 * k, hw, 22 * k), 8 * k, new Color(15, 22, 30) * 0.55f);
+        _ui.TextCentered(_ui.Ui, help, new Vector2(cx, y - 23 * k), 13 * k, Color.White * 0.92f);
+        // "IRON TRACKS" + the small phase caption on one line (th-title / small).
+        const string title = "IRON TRACKS", phase = "PHASE 1 · THE CHANNEL";
+        var tw = _ui.Hud.Measure(title, 22 * k, 0.09f);
+        var sw = _ui.Ui.Measure(phase, 12 * k, 0.08f);
+        var lx = cx - (tw + 8 * k + sw) / 2;
+        _ui.Text(_ui.Hud, title, new Vector2(lx, y - 62 * k), 22 * k, Color.White, 2 * k, 0.09f);
+        _ui.Text(_ui.Ui, phase, new Vector2(lx + tw + 8 * k, y - 57 * k), 12 * k, Color.White * 0.8f, 1 * k, 0.08f);
         _ui.End();
     }
 

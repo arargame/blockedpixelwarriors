@@ -4164,8 +4164,8 @@
      "railText": "Hold the snowy depot against the armored train, then chase the Block Hauler up the bridge to the terrace.",
      "tankTitle": "IRON TRACKS",
      "tankKind": "SCENARIO 02 · TANK",
-     "tankText": "Take the Blocked Pixel Panzer main tank out on the test range. Drive, turn the turret and fire.",
-     "prototype": "TEST RANGE · PROTOTYPE",
+     "tankText": "Trains drop 1000 blocks into the channel. Break 900 before 100 of them pile up in the drain.",
+     "prototype": "PHASE 1 · THE CHANNEL",
      "lockedTitle": "CLASSIFIED",
      "locked2Kind": "SCENARIO 02 · COMING SOON",
      "locked3Kind": "SCENARIO 03 · COMING SOON",
@@ -4237,8 +4237,8 @@
      "railText": "Karlı depoyu zırhlı trene karşı savun, sonra köprüden terasa çık ve Block Hauler'ı durdur.",
      "tankTitle": "IRON TRACKS",
      "tankKind": "SENARYO 02 · TANK",
-     "tankText": "Blocked Pixel Panzer ana tankını test sahasına çıkar. Sür, tareti çevir ve ateş et.",
-     "prototype": "TEST SAHASI · PROTOTİP",
+     "tankText": "Trenler kanala 1000 blok döküyor. 100 tanesi gidere dolmadan 900 blok kır.",
+     "prototype": "FAZ 1 · KANAL",
      "lockedTitle": "GİZLİ",
      "locked2Kind": "SENARYO 02 · YAKINDA",
      "locked3Kind": "SENARYO 03 · YAKINDA",
@@ -4487,6 +4487,13 @@
   ],
   "world_foreground": [
    "world_foreground_inst0"
+  ],
+  "tank_arena": [
+   "tank_arena_inst0",
+   "tank_arena_inst1",
+   "tank_arena_inst2",
+   "tank_arena_inst3",
+   "tank_arena_inst4"
   ]
  },
  "textures": {
@@ -4569,7 +4576,12 @@
   "crt_screen": "srgb",
   "crt_hazard": "srgb",
   "TankCamo": "srgb",
-  "tank_ground_map": "srgb",
+  "tank_arena_map": "srgb",
+  "tank_arena_map_": "srgb",
+  "tank_arena_map__": "srgb",
+  "tank_arena_map___": "srgb",
+  "tank_arena_map____": "srgb",
+  "tank_arena_map_____": "srgb",
   "dock_marking_map": "srgb",
   "fx_comet": "linear",
   "ui_reticle": "srgb"
@@ -4628,11 +4640,11 @@
    "templateVertices": 1764
   },
   "world_static_inst12": {
-   "instances": 5,
+   "instances": 8,
    "templateVertices": 24
   },
   "world_static_inst13": {
-   "instances": 8,
+   "instances": 10,
    "templateVertices": 24
   },
   "world_static_inst14": {
@@ -4848,9 +4860,29 @@
    "vertices": 648,
    "parts": 3
   },
-  "tank_ground": {
-   "vertices": 4,
-   "parts": 1
+  "tank_arena": {
+   "vertices": 9939,
+   "parts": 11
+  },
+  "tank_arena_inst0": {
+   "instances": 300,
+   "templateVertices": 24
+  },
+  "tank_arena_inst1": {
+   "instances": 53,
+   "templateVertices": 6768
+  },
+  "tank_arena_inst2": {
+   "instances": 82,
+   "templateVertices": 7884
+  },
+  "tank_arena_inst3": {
+   "instances": 55,
+   "templateVertices": 5940
+  },
+  "tank_arena_inst4": {
+   "instances": 24,
+   "templateVertices": 108
   },
   "tank_shell": {
    "vertices": 162

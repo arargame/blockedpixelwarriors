@@ -135,7 +135,8 @@ public sealed class TrainFactory
 
     public static Vector3 BlockLinear(BlockColor c) => Palette.ToLinear(Palette.Block(c)) * 1.12f;
 
-    public TrainCar Build(CarKind kind, uint seed)
+    /// <param name="stackChance">cargo flatcars: chance of each extra cube layer (buildCargoWagon).</param>
+    public TrainCar Build(CarKind kind, uint seed, float stackChance = 0.6f)
     {
         var (name, data) = kind switch
         {
@@ -175,7 +176,7 @@ public sealed class TrainFactory
                 target.Turret = car.Turrets[turretIndex++];
                 target.Turret.Target = target;
             }
-            if (kind == CarKind.Cargo && target.Kind == TargetKind.Hull) BuildCargoStacks(car, seed, 0.6f);
+            if (kind == CarKind.Cargo && target.Kind == TargetKind.Hull) BuildCargoStacks(car, seed, stackChance);
             car.Targets.Add(target);
         }
         return car;

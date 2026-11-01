@@ -514,7 +514,7 @@ export class BlockField {
 }
 
 /** Steel cage overlay for armored blocks: thick riveted frame + diagonal brace, transparent centre. */
-function armorTexture() {
+export function armorTexture() {
   const S = 128;
   const canvas = createCanvas(S, S);
   const ctx = canvas.getContext('2d');
@@ -547,7 +547,7 @@ function armorTexture() {
 }
 
 /** Supply overlay: glowing golden frame with a star badge in the middle of each face. */
-function supplyTexture() {
+export function supplyTexture() {
   const S = 128;
   const canvas = createCanvas(S, S);
   const ctx = canvas.getContext('2d');

@@ -113,13 +113,38 @@ public static class GameConfig
         public const int CrtEvery = 100, CrtGoal = 15;
     }
 
-    /// <summary>Tank level (TankLevel.cs): the player's Blender tank on an empty test range.</summary>
+    /// <summary>Tank level (TankLevel.cs): the player's Blender tank (GameConfig.tank).</summary>
     public static class Tank
     {
         public const float Speed = 7, ReverseMul = 0.6f, Accel = 9, Brake = 14, TurnSpeed = 1.6f, TurretSpeed = 2.4f;
-        public const float Reload = 0.85f, RecoilKick = 7.5f, RecoilSpring = 140, RecoilDamping = 15;
-        public const float ShellSpeed = 46, ShellRange = 60, BlinkHz = 1.4f, Bounds = 90;
-        public const float CameraHeight = 17, CameraBack = 14, CameraFov = 42;
+        public const float Reload = 0.5f, RecoilKick = 7.5f, RecoilSpring = 140, RecoilDamping = 15;
+        public const float ShellSpeed = 46, ShellRange = 60, BlinkHz = 1.4f, Bounds = 90, ShellDamage = 1;
+        /// <summary>Follow camera: z = tank z * follow - back, looking `ahead` up the channel.</summary>
+        public const float CameraHeight = 40, CameraBack = 28, CameraFollow = 0.5f, CameraAhead = 44, CameraFov = 46;
+    }
+
+    /// <summary>
+    /// Tank arena (GameConfig.tankArena): a sloped concrete channel with shallow flowing water.
+    /// Trains cross the rail at the far end and drop blocks into its lanes; the blocks slide down
+    /// at a constant speed and whatever passes the dam lip piles up in the oval drain.
+    /// </summary>
+    public static class TankArena
+    {
+        public const float Block = 2.0f;
+        public const int Lanes = 13;
+        public const float TopZ = 64, Slope = 0.03f, SlideSpeed = 1.15f, RailZ = 69;
+        public const float TrainSpeed = 9, TrainGap = 2.5f;
+        public const int TrainCarsMin = 4, TrainCarsMax = 6;
+        public const float DropChance = 0.45f, DoubleChance = 0.25f;
+        public const int PhaseBlocks = 1000, BreakGoal = 900, DrainLimit = 100;
+        public const float HpWeak = 1, HpNormal = 2, HpStrong = 4, HpSupply = 2;
+        public const float OddsWeak = 0.3f, OddsStrong = 0.18f, OddsSupply = 0.08f;
+        public const float ChainDelay = 0.09f;
+        public const float DrainZ = -6.2f, DrainRx = 14, DrainRz = 5.2f, DrainDepth = 5, DrainWater = 1.2f;
+        public const float PowerTime = 12;
+        public static float Width => Block * Lanes;
+        public static float RailY => Slope * TopZ + 3.0f;
+        public static float FloorHeight(float z) => Slope * Math.Clamp(z, 0, TopZ);
     }
 
     /// <summary>Upgrade cards (GameConfig.cards).</summary>

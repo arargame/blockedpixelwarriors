@@ -167,7 +167,7 @@ export const GameConfig = Object.freeze({
     saveKey: 'bpw.checkpoint',
   }),
 
-  /** Tank level (src/tank/): the player's Blender tank on an empty test range. */
+  /** Tank level (src/tank/): the player's Blender tank (driving, turret, shells, follow camera). */
   tank: Object.freeze({
     speed: 7,              // forward top speed (units / s)
     reverseMul: 0.6,
@@ -175,7 +175,7 @@ export const GameConfig = Object.freeze({
     brake: 14,
     turnSpeed: 1.6,        // hull turn rate (rad / s)
     turretSpeed: 2.4,      // turret traverse (rad / s)
-    reload: 0.85,          // seconds between shots
+    reload: 0.5,           // seconds between shots
     recoilKick: 7.5,       // barrel kick-back speed on a shot (units / s)
     recoilSpring: 140,
     recoilDamping: 15,
@@ -183,7 +183,39 @@ export const GameConfig = Object.freeze({
     shellRange: 60,
     blinkHz: 1.4,          // tail / amber lamp blink rate
     bounds: 90,            // half size of the drivable range
-    camera: Object.freeze({ height: 17, back: 14, fov: 42 }),
+    // Follow camera: z = tank z * follow - back, looking `ahead` up the channel (the drain stays in view).
+    camera: Object.freeze({ height: 40, back: 28, follow: 0.5, ahead: 44, fov: 46 }),
+    shellDamage: 1,
+  }),
+
+  /**
+   * Tank level arena (src/tank/): a sloped concrete channel with shallow flowing water. Trains
+   * cross the rail at the far end and drop blocks into its lanes; the blocks slide down at a
+   * constant speed (pushing each other) and fall over the dam lip into the oval drain basin.
+   * Phase 1: 1000 blocks come, break 900 of them; 100 in the drain loses.
+   */
+  tankArena: Object.freeze({
+    block: 2.0,            // lane / block size
+    lanes: 13,             // channel width = lanes * block
+    topZ: 64,              // far end of the channel (blocks land just below it)
+    slope: 0.03,           // floor rise per unit of z
+    slideSpeed: 1.15,      // constant downhill speed of the blocks
+    railZ: 69,             // rail across the far end
+    trainSpeed: 9,
+    trainGap: 2.5,         // seconds between trains
+    trainCars: [4, 6],     // cargo wagons per train
+    dropChance: 0.45,      // a wagon drops a block over a lane with this chance (gaps otherwise)
+    doubleChance: 0.25,    // ... two blocks back to back
+    phaseBlocks: 1000,
+    breakGoal: 900,
+    drainLimit: 100,
+    // Block types: weak (1 hit), normal, strong (steel cage), supply (star, drops a power-up).
+    hp: Object.freeze({ weak: 1, normal: 2, strong: 4, supply: 2 }),
+    odds: Object.freeze({ weak: 0.3, strong: 0.18, supply: 0.08 }),
+    chainDelay: 0.09,
+    // Drain basin: an oval pit below the dam lip.
+    drain: Object.freeze({ z: -6.2, rx: 14, rz: 5.2, depth: 5, water: 1.2 }),
+    powerTime: 12,         // seconds a T / D / R power-up lasts
   }),
 
   /** Upgrade cards (src/ui/UpgradeCards.js). */

@@ -294,7 +294,9 @@ export class Game {
   startTankLevel() {
     if (!this.options.tankGltf) return this.showMenu();
     this.tankLevel ??= new TankLevel({
-      gltf: this.options.tankGltf, textures: this.textures, renderer: this.pipeline.renderer, input: this.input, quality: this.pipeline.quality,
+      gltf: this.options.tankGltf, textures: this.textures, materials: this.materials, trainFactory: this.trainFactory,
+      renderer: this.pipeline.renderer, input: this.input, quality: this.pipeline.quality, settings: this.settings,
+      environment: this.scene.environment,
     });
     this.tankMode = true;
     this.state = GameState.PLAYING;

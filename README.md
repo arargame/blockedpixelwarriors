@@ -20,7 +20,7 @@ gri olur; menü renkli kalır. Solda logo ve **OYNA · AYARLAR · OYUNDAN ÇIK**
 satırın kartları sağa-sola kayar (←/→, kaydırma, tekerlek). **ENTER** / dokunma kartı açar, **ESC** geri.
 
 - **OYNA:** senaryo kartları (yükseltme kartı modeli, fiyonksuz). **RAILBREAKER** (heli vs tren) oynanır;
-  yanında **IRON TRACKS** (tank seviyesi, şimdilik prototip test sahası) ve kilitli "yakında" kartı. Kartın altında bölüm ışıkları: **DEPO → TERAS → BOSS**, ulaşılan
+  yanında **IRON TRACKS** (tank seviyesi, faz 1: kanal) ve kilitli "yakında" kartı. Kartın altında bölüm ışıkları: **DEPO → TERAS → BOSS**, ulaşılan
   bölümler yanar (teras kontrol noktasına ulaşınca 2 ışık). Kart açılınca brifing + **YENİ OYUN** /
   **DEVAM ET · BÖLÜM 2**.
 - **AYARLAR:** Ses (genel / müzik / efekt; şimdilik yalnızca toplama sesi çalar: genel x efekt), Grafik (kalite
@@ -49,10 +49,21 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
   Hauler'ı yok et** gerekir (sıra fark etmez; Hauler önce düşerse yenisi gelir).
 - **Ses:** destek / elmas / CRT toplanınca Blocked Pixel Panzer'in toplama sesi (`PickupSfx`, aynı
   sentez: C5-E5-G5-C6 arpej) çalar.
-- **Tank seviyesi (IRON TRACKS):** boş bir test sahasında Blender tankı. **W/S** sür, **A/D** gövdeyi
-  çevir, **fare** tareti çevirir, **tık / SPACE** ateş (namlu geri teper, mermi nişan noktasına
-  düşer). Paletler iki yanda kendi hızında döner (yerinde dönerken ters yönde), arka kırmızı lambalar
-  ve taretin sarı lambaları yanıp söner. ESC menü. Kod: `src/tank/`.
+- **Tank seviyesi (IRON TRACKS) · Faz 1 — Kanal:** kamera kanala yukarıdan, arkadan bakar. En üstte
+  kanalı enlemesine kesen rayda trenler sırayla sağdan / soldan geçer; her vagon geçtiği şeride
+  bazen blok bırakır, bazen boşluk, bazen üst üste iki tane. Kanal beton, tabanında akan sığ su var
+  ve hafif eğimli: bloklar şeritlerde sabit hızla aşağı kayar, yeni düşen blok altındakileri iter,
+  bloklar tankı da iter (tank kenara / baraja sıkışırsa sırayı tutar). En altta baraj ağzından su
+  oval büyük bir gidere dökülür; kaçan bloklar oraya düşer ve fizikle (küçük konum tabanlı çözücü:
+  yerçekimi, zemin, oval duvar, blok-blok temas, sürtünme, suda sıçrama) üst üste yığılır.
+  **1000 blok gelir, 900'ünü kır; giderde 100 blok olursa kaybedersin.** Aynı renkte yan yana / arka
+  arkaya bloklar zincirleme patlar (Blocked Pixel Panzer gibi). Bloklar: zayıf (1 vuruş, açık
+  renk), normal, güçlü (çelik kafes), ikmal (yıldız; heli bölümündeki kasalar): **T** üçlü mermi,
+  **D** seri atış, **R** ağır mermi (çevresine de vurur), **H** gider pompası (-10 blok).
+  Etraf çimen, çam ve kaya; kanalın içinde ağaç yok. **W/S** sür, **A/D** gövdeyi çevir, **fare**
+  nişan, **tık / SPACE** ateş (mermi nişan noktasına kavisle düşer), bitince **ENTER** yeniden, ESC
+  menü. Paletler döner, lambalar yanıp söner. Ayarlar `GameConfig.tankArena`, kod `src/tank/`
+  (`TankArena` sahne, `BlockFlow` şeritler, `DrainPile` gider fiziği, `ArenaTrain` trenler).
 - **Raylardaki kar** eskisinin %10'u kadar birikir (`GameConfig.track.railSnow`).
 
 ### Görev

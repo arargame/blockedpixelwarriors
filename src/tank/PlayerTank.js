@@ -81,6 +81,9 @@ export class PlayerTank {
     this.cooldown = 0;
     this.time = 0;
     this.maxSpeed = cfg.speed;
+    /** Drivable area and ground height (set by the level). */
+    this.bounds = { minX: -cfg.bounds, maxX: cfg.bounds, minZ: -cfg.bounds, maxZ: cfg.bounds };
+    this.heightAt = null;
     this.updateTracks(0, 0, 0);
   }
 
@@ -110,9 +113,8 @@ export class PlayerTank {
     this.heading += this.turnRate * dt;
     this.root.position.x += Math.sin(this.heading) * this.speed * dt;
     this.root.position.z += Math.cos(this.heading) * this.speed * dt;
-    const b = cfg.bounds;
-    this.root.position.x = THREE.MathUtils.clamp(this.root.position.x, -b, b);
-    this.root.position.z = THREE.MathUtils.clamp(this.root.position.z, -b, b);
+    this.clampToBounds();
+    if (this.heightAt) this.root.position.y = this.heightAt(this.root.position.z);
     this.root.rotation.y = this.heading;
     // Slight pitch with acceleration (nose lifts pulling away, dips braking).
     this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, -THREE.MathUtils.clamp((target - this.speed) * 0.012, -0.04, 0.04), 1 - Math.exp(-6 * dt));
@@ -141,6 +143,19 @@ export class PlayerTank {
     const reversing = this.speed < -0.2;
     for (const m of this.lamps.red) m.emissiveIntensity = m.userData.baseIntensity * (reversing ? 1.4 : blink(0));
     this.lamps.amber.forEach((m) => { m.emissiveIntensity = m.userData.baseIntensity * blink(Math.PI); });
+  }
+
+  /** Keeps the hull inside `bounds` ({minX, maxX, minZ, maxZ}); true if it had to be moved. */
+  clampToBounds() {
+    const b = this.bounds;
+    if (!b) return false;
+    const p = this.root.position;
+    const x = THREE.MathUtils.clamp(p.x, b.minX, b.maxX);
+    const z = THREE.MathUtils.clamp(p.z, b.minZ, b.maxZ);
+    const moved = x !== p.x || z !== p.z;
+    p.x = x;
+    p.z = z;
+    return moved;
   }
 
   /** Places every link round both loops; left / right offsets advance by their own speeds. */
@@ -184,10 +199,11 @@ export class PlayerTank {
   }
 
   /** Fires if the gun is ready: kicks the barrel back. Returns the shot (muzzle + direction) or null. */
-  fire() {
+  fire(reloadMul = 1) {
     if (this.cooldown > 0) return null;
     const cfg = GameConfig.tank;
-    this.cooldown = cfg.reload;
+    this.reloadTime = cfg.reload * reloadMul;
+    this.cooldown = this.reloadTime;
     this.recoilVel = cfg.recoilKick;
     this.root.updateMatrixWorld(true);
     const muzzle = this.muzzle.getWorldPosition(new THREE.Vector3());
