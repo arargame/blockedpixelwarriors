@@ -760,30 +760,41 @@ body {
 .hud.paused .hud-toast, .hud.paused .hud-notice, .hud.paused .train-warn, .hud.paused .hud-pause { opacity: 0; }
 .hud.menu-mode .hud-pause { opacity: 0 !important; pointer-events: none; }
 
-/* Tank level: the heli HUD is put away (only the pause button stays); the level's own strip. */
-.hud.tank-mode > *:not(.hud-top), .hud.tank-mode .hud-score, .hud.tank-mode .hud-center, .hud.tank-mode .hud-wave { display: none !important; }
-.hud.tank-mode .hud-top { justify-content: flex-end; }
+/* Tank level: the same HUD as the heli game (score, phase, HP + log + objectives bottom left,
+   power-up feed bottom right, toasts); the train panel gives way to the channel panel and the
+   heli-only parts (mission, chopper, train warning) are put away. */
+.tank-panel { display: none; }
+.hud.tank-mode .tank-panel { display: block; }
+.hud.tank-mode .train-panel, .hud.tank-mode .mission, .hud.tank-mode .chopper, .hud.tank-mode .train-warn { display: none !important; }
+.tank-panel {
+  padding: 5px 10px 7px;
+  border-radius: 8px;
+  background: rgba(14, 20, 30, 0.42);
+  backdrop-filter: blur(4px);
+  min-width: min(340px, 56vw);
+}
+.tp-rows { display: flex; flex-direction: column; gap: 4px; }
+.tp-row { display: flex; align-items: center; gap: 8px; }
+.tp-label { width: 52px; font-size: 9px; letter-spacing: 2px; color: rgba(255, 255, 255, 0.8); }
+.tp-num { min-width: 58px; text-align: right; font-size: 10px; letter-spacing: 1px; color: #fff; font-variant-numeric: tabular-nums; }
+.tp-bar { flex: 1; height: 9px; padding: 2px; border: 1.5px solid rgba(255, 255, 255, 0.9); border-radius: 3px; }
+.tp-bar i { display: block; height: 100%; transform-origin: left center; transform: scaleX(0); border-radius: 1px; transition: transform 0.2s; }
+.tp-bar.broken i { background: #6ee05a; box-shadow: 0 0 4px rgba(110, 224, 90, 0.6); }
+.tp-bar.drain i { background: #38c8ff; box-shadow: 0 0 4px rgba(56, 200, 255, 0.6); }
+.tank-panel.danger .tp-bar.drain i { background: #ff4d4d; box-shadow: 0 0 5px rgba(255, 77, 77, 0.8); animation: hp-pulse 0.6s ease-in-out infinite alternate; }
+@media (pointer: coarse) {
+  .hud.tank-mode .skill-feed { bottom: 280px; }
+}
 .tank-hud {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; padding-bottom: 18px;
   font-family: var(--hud-font, 'Arial Black', Impact, sans-serif); color: #fff; pointer-events: none;
   text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55); z-index: 5;
 }
-.tank-hud .th-title { font-size: 22px; letter-spacing: 2px; }
-.tank-hud .th-title small { font-size: 12px; opacity: 0.75; margin-left: 8px; letter-spacing: 1px; }
-.tank-hud .th-keys { font-family: system-ui, sans-serif; font-size: 13px; background: rgba(15, 22, 30, 0.55); padding: 5px 12px; border-radius: 8px; }
+.tank-hud .th-keys { transition: opacity 1s; font-family: system-ui, sans-serif; font-size: 13px; background: rgba(15, 22, 30, 0.55); padding: 5px 12px; border-radius: 8px; }
 .tank-hud .th-keys b { color: #ffd34a; }
 .tank-hud .th-reload { width: 180px; height: 7px; border-radius: 4px; background: rgba(0, 0, 0, 0.45); overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.35); }
 .tank-hud .th-reload i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #ff9a2a, #ffd34a); }
-.tank-hud .th-stats { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
-.tank-hud .th-stat { display: flex; align-items: baseline; gap: 6px; padding: 6px 14px; border-radius: 10px; background: rgba(15, 22, 30, 0.6); border: 2px solid rgba(255, 255, 255, 0.25); position: relative; }
-.tank-hud .th-stat span { font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: 1.5px; opacity: 0.75; }
-.tank-hud .th-stat b { font-size: 24px; }
-.tank-hud .th-stat em { font-style: normal; font-size: 13px; opacity: 0.7; }
-.tank-hud .th-stat.drain b { color: #7fd8ff; }
-.tank-hud .th-stat.armor b { color: #9be36a; min-width: 2.2em; }
-.tank-hud .th-stat.armor.low b { color: #ff6b5a; }
-.tank-hud .th-stat.armor .th-bar i { background: linear-gradient(90deg, #ff5a4a, #9be36a); }
 .tank-hud .th-touch { display: none; }
 @media (pointer: coarse) {
   .tank-hud .th-touch { display: block; }
@@ -793,11 +804,6 @@ body {
   .tank-hud .th-touch .fire { right: 75px; bottom: 180px; font-size: 15px; font-weight: 800; background: rgba(200, 60, 30, 0.7); }
   .tank-hud .th-keys { display: none; }
 }
-.tank-hud .th-hit { position: absolute; inset: 0; pointer-events: none; opacity: 0; box-shadow: inset 0 0 140px 30px rgba(255, 40, 20, 0.75); }
-.tank-hud .th-bar { position: absolute; left: 8px; right: 8px; bottom: 3px; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.15); overflow: hidden; }
-.tank-hud .th-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #5ad0ff, #ff5a4a); }
-.tank-hud .th-powers { position: absolute; top: 70px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; font-family: system-ui, sans-serif; font-size: 12px; }
-.tank-hud .th-powers span { padding: 3px 10px; border-radius: 8px; background: rgba(255, 180, 40, 0.85); color: #2a1a00; font-weight: 800; }
 .tank-hud .th-banner { position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%) scale(0.9); opacity: 0; transition: opacity 0.25s, transform 0.25s; text-align: center; display: flex; flex-direction: column; gap: 8px; }
 .tank-hud .th-banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 .tank-hud .th-banner b { font-size: 46px; letter-spacing: 3px; }
@@ -805,3 +811,4 @@ body {
 .tank-hud .th-banner.won b { color: #ffd34a; }
 .tank-hud .th-banner.lost b { color: #ff6b5a; }
 .tank-hud .th-banner.power b { font-size: 30px; color: #ffb030; }
+.tank-hud .th-keys.faded { opacity: 0; }

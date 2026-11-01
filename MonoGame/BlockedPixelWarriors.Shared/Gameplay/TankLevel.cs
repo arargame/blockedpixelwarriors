@@ -29,14 +29,19 @@ public enum TankLevelState { Playing, Won, Lost, Phase2 }
 /// Enemies (Enemy.cs): channel blocks (targets only), trains, the fighter. Projectiles
 /// (TankCombat.cs): TankShell, HomingMissile, JetBullet, AerialBomb - pooled, instanced per class.
 /// The tank is solid: blocks sliding into it stop in front of it (holding up their lane) and it
-/// cannot drive through them. Smart aim (like the heli): the mouse turns the turret; within a narrow
-/// cone around that direction the best block is locked (reticle), the turret settles on it and the
-/// barrel depresses toward it; shells fly straight and hit the first block in their path.
-/// W/S drive, A/D turn, the mouse aims the turret, click / SPACE fires, ENTER restarts a finished
-/// phase. Phones: the left stick drives, a tap aims and fires. Own camera, lights and effects.
+/// cannot drive through them. Auto aim (like the heli's gunner): the turret locks onto the best block
+/// by itself (reticle), swings onto it, depresses the barrel and fires when on target; Q / E (arrows,
+/// the touch buttons) turn it onto another block - when let go, the block nearest the gun is the new
+/// lock. Shells fly straight and hit the first block in their path. The mouse does not aim.
+/// W/S drive, A/D turn, SPACE / click / tap fires, ENTER restarts a finished phase. Phones: the left
+/// stick drives, the turret buttons pick targets. Own camera, lights and effects.
 /// </summary>
-public sealed class TankLevel : ICombatWorld
+public sealed class TankLevel : ICombatWorld, UI.IHudModel
 {
+    /// <summary>Score: per broken block, per fighter shot down.</summary>
+    private const int BlockScore = 10, FighterScore = 500;
+    private static Color Rgb(uint c) => new((int)(c >> 16) & 255, (int)(c >> 8) & 255, (int)c & 255);
+
     private static readonly Dictionary<SupplyType, string> PowerNames = new()
     {
         [SupplyType.T] = "TRIPLE SHELLS", [SupplyType.D] = "RAPID FIRE", [SupplyType.R] = "HOMING MISSILES", [SupplyType.H] = "REPAIR · DRAIN PUMP", [SupplyType.G] = "RAPID FIRE",
@@ -62,7 +67,8 @@ public sealed class TankLevel : ICombatWorld
     private readonly List<(RenderMaterial mat, Vector3 baseEmissive, bool red)> _lamps = new();
     private readonly BillboardBatch _reticle;
     private float _reticleSpin, _elevation0;
-    private (TankBlock block, int serial, float at)? _lock;
+    private (TankBlock block, int serial, float at, bool auto)? _lock;
+    private float _manualAim;
     private readonly float[] _trackOffset = new float[2];
     private readonly TrainFactory _trainFactory;
     private readonly Microsoft.Xna.Framework.Graphics.GraphicsDevice _device;
@@ -96,6 +102,60 @@ public sealed class TankLevel : ICombatWorld
     public TankLevelState State { get; private set; }
     public int Dropped { get; private set; }
     public int Broken { get; private set; }
+    /// <summary>The shared HUD's events (toasts, kill feed, notices, the damage vignette).</summary>
+    public IHudEvents Hud;
+    private float _drainWarned;
+    private readonly List<ActivePower> _activePowers = new();
+
+    // ---- IHudModel (the heli game's HUD, tank panels) ----
+    public bool HudPlaying => State is TankLevelState.Playing or TankLevelState.Won;
+    public bool Paused { get; set; }
+    public int ScoreValue { get; private set; }
+    public string WaveLabel => "PHASE";
+    public int Wave => 1;
+    public Train Train => null;
+    public UI.ChannelPanel? Channel => new UI.ChannelPanel(
+        State is TankLevelState.Won or TankLevelState.Phase2 ? "THE CHANNEL · CLEAR" : "THE CHANNEL",
+        Broken, GameConfig.TankArena.BreakGoal, Pile.Count, GameConfig.TankArena.DrainLimit, Math.Max(0, GameConfig.TankArena.PhaseBlocks - Dropped));
+    public int Lives => 0;
+    public float HealthRatio => Hp / GameConfig.Tank.Hp;
+    public Logistics Logistics => null;
+    public Vector3? TrainWarnPoint => null;
+    public string TrainWarnSide => null;
+
+    /// <summary>Objective checklist (bottom left, like the heli stages).</summary>
+    public (string title, IReadOnlyList<Objective> items) Objectives()
+    {
+        var A = GameConfig.TankArena.BreakGoal;
+        var won = State is TankLevelState.Won or TankLevelState.Phase2;
+        return ("PHASE 1 · THE CHANNEL", new[]
+        {
+            new Objective($"Break {A} blocks", Broken >= A, $"{Math.Min(Broken, A)}/{A}"),
+            new Objective($"Keep the drain under {GameConfig.TankArena.DrainLimit}", won, $"{Pile.Count}/{GameConfig.TankArena.DrainLimit}", BlockColor.Teal),
+            new Objective("Survive the fighter", won),
+            new Objective("Drive out through the gate", State == TankLevelState.Phase2),
+        });
+    }
+
+    /// <summary>T / D / R with time left, named and coloured as the tank's supplies.</summary>
+    public IReadOnlyList<ActivePower> ActivePowers
+    {
+        get
+        {
+            foreach (var (k, v) in Powers)
+            {
+                var i = _activePowers.FindIndex(p => p.Type == k);
+                if (v <= 0)
+                {
+                    if (i >= 0) _activePowers.RemoveAt(i);
+                    continue;
+                }
+                if (i < 0) _activePowers.Add(new ActivePower { Type = k, Duration = GameConfig.TankArena.PowerTime, Name = PowerNames[k], Color = Rgb(TankSupplies.Color(k)) });
+                _activePowers[i < 0 ? ^1 : i].Remaining = v;
+            }
+            return _activePowers;
+        }
+    }
     public bool TrainActive => _train != null;
     /// <summary>Seconds left on T / D / R.</summary>
     public readonly Dictionary<SupplyType, float> Powers = new() { [SupplyType.T] = 0, [SupplyType.D] = 0, [SupplyType.R] = 0 };
@@ -199,7 +259,12 @@ public sealed class TankLevel : ICombatWorld
         _fighterCtx = new FighterContext
         {
             Projectiles = _projectiles, Effects = Effects, FloorAt = FloorAt,
-            CrashAt = p => BombBlast(p, GameConfig.Fighter.BombRadius * 0.8f, GameConfig.Fighter.BombDamage * 0.5f),
+            CrashAt = p =>
+            {
+                BombBlast(p, GameConfig.Fighter.BombRadius * 0.8f, GameConfig.Fighter.BombDamage * 0.5f);
+                ScoreValue += FighterScore;
+                Hud?.Kill("TANK", FeedColors.Heli, "FIGHTER", FeedColors.Train, $"+{FighterScore}", FeedColors.Gold);
+            },
         };
 
         if (!Available) return;
@@ -230,6 +295,7 @@ public sealed class TankLevel : ICombatWorld
         Heading = -MathF.Sign(GameConfig.TankArena.BaseX) * MathF.PI / 2;
         Elevation = AimElevation = -0.12f;
         _lock = null;
+        _manualAim = 0;
         ReloadTime = GameConfig.Tank.Reload;
         _projectiles.Clear();
         Hp = GameConfig.Tank.Hp;
@@ -258,6 +324,11 @@ public sealed class TankLevel : ICombatWorld
         foreach (var k in Powers.Keys.ToList()) Powers[k] = 0;
         State = TankLevelState.Playing;
         Banner = null;
+        ScoreValue = 0;
+        _drainWarned = 0;
+        _activePowers.Clear();
+        Hud?.ClearLog();
+        Hud?.Toast($"PHASE 1 - BREAK {GameConfig.TankArena.BreakGoal} BLOCKS");
         _aim = new Vector3(GameConfig.TankArena.BaseX - MathF.Sign(GameConfig.TankArena.BaseX) * 20, 0, GameConfig.TankArena.BaseZ + 4);
         UpdateCamera(0, true);
     }
@@ -295,15 +366,24 @@ public sealed class TankLevel : ICombatWorld
     public void Step(float dt, float throttle, float turn, Vector3? aim, bool fire, float turret = 0)
     {
         Time += dt;
-        // Smart aim (like the heli): the player points the turret; the best block in a narrow cone
-        // round the gun is locked, the barrel depresses toward it and the shells correct onto it.
-        Drive(dt, throttle, turn, aim, turret);
-        _aim = Position + new Vector3(MathF.Sin(GunYaw), 0, MathF.Cos(GunYaw)) * 20;
+        // Auto aim (like the heli's gunner): the turret swings onto the best block by itself, the
+        // barrel depresses toward it and the gun fires whenever it is on target. Q / E (arrows,
+        // touch buttons) take the turret over; the block nearest the gun when they are let go is
+        // the new lock.
         var aiming = State == TankLevelState.Playing || State == TankLevelState.Won;
-        var lockBlock = aiming ? LockedTarget() : null;
-        var target = lockBlock != null ? BlockCenter(lockBlock) : FreeAimPoint();
+        _manualAim = turret != 0 ? GameConfig.Tank.ManualHold : MathF.Max(0, _manualAim - dt);
+        var auto = _manualAim <= 0;
+        _aim = Position + new Vector3(MathF.Sin(GunYaw), 0, MathF.Cos(GunYaw)) * 20;
+        var lockBlock = aiming ? LockedTarget(auto) : null;
+        Vector3? lockPoint = lockBlock != null ? BlockCenter(lockBlock) : null;
+        Drive(dt, throttle, turn, aim ?? (auto ? lockPoint : null), turret);
+        _aim = Position + new Vector3(MathF.Sin(GunYaw), 0, MathF.Cos(GunYaw)) * 20;
+        var target = lockPoint ?? FreeAimPoint();
         AimBarrel(target);
         UpdateReticle(dt, lockBlock != null, target);
+        // On target: the gunner fires by himself (SPACE / taps still fire at will).
+        if (lockPoint is { } lp && auto && aiming
+            && MathF.Abs(Wrap(MathF.Atan2(lp.X - Position.X, lp.Z - Position.Z) - GunYaw)) < GameConfig.Tank.AutoFireAngle) fire = true;
         foreach (var k in Powers.Keys.ToList()) Powers[k] = MathF.Max(0, Powers[k] - dt);
         if (fire) Fire();
         if (State == TankLevelState.Playing)
@@ -322,6 +402,15 @@ public sealed class TankLevel : ICombatWorld
         Effects.Update(dt);
         UpdateCamera(dt);
         CheckEnd();
+        // Drain warnings at 50 / 75 / 90 %.
+        foreach (var f in new[] { 0.5f, 0.75f, 0.9f })
+        {
+            if (State == TankLevelState.Playing && Pile.Count >= GameConfig.TankArena.DrainLimit * f && _drainWarned < f)
+            {
+                _drainWarned = f;
+                Hud?.Notice($"DRAIN {Pile.Count}/{GameConfig.TankArena.DrainLimit}!", FeedColors.Train);
+            }
+        }
         if (_bannerTimer > 0)
         {
             _bannerTimer -= dt;
@@ -546,6 +635,8 @@ public sealed class TankLevel : ICombatWorld
     private void OnBlockDestroyed(TankBlock b, int depth, Vector3 at)
     {
         Broken++;
+        ScoreValue += BlockScore;
+        if (Broken % 100 == 0) Hud?.Kill("TANK", FeedColors.Heli, $"{Broken} BLOCKS", FeedColors.Grey, $"/ {GameConfig.TankArena.BreakGoal}", FeedColors.Gold);
         _shake = MathF.Max(_shake, depth > 0 ? 0.12f : 0.18f);
         if (b.Type == TankBlockType.Supply && State == TankLevelState.Playing)
         {
@@ -575,7 +666,7 @@ public sealed class TankLevel : ICombatWorld
     {
         Skills.Add(def.Id);
         if (def.Id == "tankChain") Blocks.ChainEnabled = true;
-        FlashBanner(def.Title, 1.6f);
+        Hud?.Toast(def.Id == "tankHoming" ? "HOMING ROCKETS UNLOCKED - LOOK FOR R SUPPLIES" : "CHAIN REACTION - SAME COLOURS GO TOGETHER");
     }
 
     private void OnPickup(SupplyType type, TankSupplies.Item item)
@@ -589,7 +680,8 @@ public sealed class TankLevel : ICombatWorld
             Hp = MathF.Min(GameConfig.Tank.Hp, Hp + 25);
         }
         else Powers[type == SupplyType.G ? SupplyType.D : type] = GameConfig.TankArena.PowerTime;
-        FlashBanner(PowerNames.TryGetValue(type, out var n) ? n : type.ToString(), 1.4f);
+        Hud?.Kill("TANK", FeedColors.Heli, PowerNames.TryGetValue(type, out var n) ? n : type.ToString(), Rgb(TankSupplies.Color(type)));
+        if (type == SupplyType.H) Hud?.Notice("+25 ARMOR · DRAIN -10", FeedColors.Heli);
     }
 
     private void CheckEnd()
@@ -611,7 +703,11 @@ public sealed class TankLevel : ICombatWorld
             var won = Broken >= GameConfig.TankArena.BreakGoal;
             State = won ? TankLevelState.Won : TankLevelState.Lost;
             // Won: the gate in the right wall opens; the road behind it leads on to phase 2.
-            if (won) _gateOpen = true;
+            if (won)
+            {
+                _gateOpen = true;
+                Hud?.Toast("PHASE 1 CLEAR - THE GATE IS OPEN", FeedColors.Gold);
+            }
             Banner = won
                 ? ("PHASE 1 CLEAR!", $"{Broken} blocks broken · the gate on the right is open - drive out", "won")
                 : ("NOT ENOUGH", $"Only {Broken} / {GameConfig.TankArena.BreakGoal} broken · ENTER to try again", "lost");
@@ -628,12 +724,16 @@ public sealed class TankLevel : ICombatWorld
     // ---- Aiming (smart aim) ---------------------------------------------------------------------
 
     /// <summary>
-    /// The locked block (refreshed every LockRefresh s): within AimCone around the direction the
-    /// player aims the turret, the best block by angle and distance (nearer and more centred wins).
+    /// The locked block (refreshed every LockRefresh s), or null.
+    ///   auto   (the gunner): any block in range, scored by how far the turret has to swing and the
+    ///          distance; the current lock is kept while it lives (no hopping between neighbours).
+    ///   manual (Q / E held): only within AimCone around the gun, so the player sees what the turret
+    ///          will settle on when the keys are let go.
     /// </summary>
-    private TankBlock LockedTarget()
+    private TankBlock LockedTarget(bool auto)
     {
-        if (_lock is { } l && Time - l.at < GameConfig.Tank.LockRefresh && l.block.Serial == l.serial && l.block.Alive) return l.block;
+        var held = _lock is { } l && l.block.Serial == l.serial && l.block.Alive;
+        if (held && _lock.Value.auto == auto && Time - _lock.Value.at < GameConfig.Tank.LockRefresh) return _lock.Value.block;
         var yaw = MathF.Atan2(_aim.X - Position.X, _aim.Z - Position.Z);
         TankBlock best = null;
         var bestScore = float.PositiveInfinity;
@@ -645,16 +745,18 @@ public sealed class TankLevel : ICombatWorld
             var d = MathF.Sqrt(dx * dx + dz * dz);
             if (d < 2.6f || d > GameConfig.Tank.ShellRange) continue;
             var ang = MathF.Abs(Wrap(MathF.Atan2(dx, dz) - yaw));
-            if (ang > GameConfig.Tank.AimCone) continue;
-            // Keep the current lock unless something is clearly better (no flicker between neighbours).
-            var score = ang * 12 + d * 0.35f - (_lock is { } cur && cur.block == b && cur.serial == b.Serial ? 0.6f : 0);
+            if (!auto && ang > GameConfig.Tank.AimCone) continue;
+            var mine = held && _lock.Value.block == b;
+            var score = auto
+                ? ang * GameConfig.Tank.AutoSwingWeight + d * 0.3f - (mine ? GameConfig.Tank.AutoKeep : 0)
+                : ang * 12 + d * 0.35f - (mine ? 0.6f : 0);
             if (score < bestScore)
             {
                 bestScore = score;
                 best = b;
             }
         }
-        _lock = best != null ? (best, best.Serial, Time) : null;
+        _lock = best != null ? (best, best.Serial, Time, auto) : null;
         return best;
     }
 
@@ -785,6 +887,7 @@ public sealed class TankLevel : ICombatWorld
         if (State != TankLevelState.Playing && State != TankLevelState.Won) return;
         Hp = MathF.Max(0, Hp - amount);
         HitFlash = MathF.Min(1, HitFlash + amount / 25);
+        Hud?.DamageFlash(MathF.Min(1, 0.35f + amount / 20));
         _shake = MathF.Max(_shake, MathF.Min(0.5f, 0.08f + amount / 60));
         if (Hp <= 0 && State == TankLevelState.Playing)
         {
@@ -793,6 +896,7 @@ public sealed class TankLevel : ICombatWorld
             Effects.Explosion(p, 2.4f, 0x3c4a2au, 22);
             Effects.FlashLight(p, 0xff8040, 120, 0.5f, 18);
             Banner = ("TANK DESTROYED", "The fighter got you - keep moving under fire · ENTER to try again", "lost");
+            Hud?.Kill("FIGHTER", FeedColors.Train, "TANK", FeedColors.Heli, "☠", FeedColors.Train);
         }
     }
 
@@ -951,6 +1055,7 @@ public sealed class TankLevel : ICombatWorld
         _fighter.Start(Position, _fighterSide);
         _fighterSide = -_fighterSide;
         _fighterActive = true;
+        Hud?.Log("▲ ENEMY FIGHTER INBOUND - KEEP MOVING", new Color(0xff, 0x8a, 0x7a));
     }
 
     /// <summary>R: homing missiles off the turret sides, up and out, curving onto blocks / the fighter.</summary>

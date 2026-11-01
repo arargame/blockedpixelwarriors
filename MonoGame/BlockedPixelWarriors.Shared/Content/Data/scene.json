@@ -5281,11 +5281,11 @@
    "templateVertices": 1764
   },
   "world_static_inst12": {
-   "instances": 5,
+   "instances": 9,
    "templateVertices": 24
   },
   "world_static_inst13": {
-   "instances": 10,
+   "instances": 6,
    "templateVertices": 24
   },
   "world_static_inst14": {
@@ -5514,7 +5514,7 @@
    "parts": 19
   },
   "tank_arena_inst0": {
-   "instances": 220,
+   "instances": 439,
    "templateVertices": 108
   },
   "tank_arena_inst1": {
@@ -5526,19 +5526,19 @@
    "templateVertices": 24
   },
   "tank_arena_inst3": {
-   "instances": 87,
+   "instances": 264,
    "templateVertices": 6768
   },
   "tank_arena_inst4": {
-   "instances": 87,
+   "instances": 252,
    "templateVertices": 7884
   },
   "tank_arena_inst5": {
-   "instances": 106,
+   "instances": 274,
    "templateVertices": 5940
   },
   "tank_arena_inst6": {
-   "instances": 103,
+   "instances": 216,
    "templateVertices": 108
   },
   "fighter_body": {

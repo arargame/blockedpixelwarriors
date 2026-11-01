@@ -290,14 +290,14 @@ export class Game {
     this.menu.hide();
   }
 
-  /** Tank level (menu card IRON TRACKS): its own scene; the heli game and its HUD are put away. */
+  /** Tank level (menu card IRON TRACKS): its own scene, the heli game's HUD (tank-mode panels). */
   startTankLevel() {
     if (!this.options.tankGltf) return this.showMenu();
     this.tankLevel ??= new TankLevel({
       gltf: this.options.tankGltf, textures: this.textures, materials: this.materials, trainFactory: this.trainFactory,
       renderer: this.pipeline.renderer, input: this.input, quality: this.pipeline.quality, settings: this.settings,
       environment: this.scene.environment, rocketGltf: this.options.rocketGltf, fighterGltf: this.options.fighterGltf,
-      supplyGltf: this.options.supplyGltf, cards: this.cards,
+      supplyGltf: this.options.supplyGltf, cards: this.cards, hud: this.hud,
     });
     this.tankMode = true;
     this.state = GameState.PLAYING;
@@ -312,6 +312,14 @@ export class Game {
     this.tankMode = false;
     this.tankLevel.stop();
     this.hud.root.classList.remove('tank-mode');
+    // Hand the shared HUD back to the heli game.
+    this.hud.setWaveLabel('WAVE');
+    this.hud.setWave(this.wave);
+    this.hud.setLives(this.lives);
+    this.hud.setScore(this.score);
+    this.hud.setSkills(new Map());
+    this.hud.clearLog();
+    this.hud.objectivesKey = null;
     this.pipeline.setView(this.scene, this.camera);
   }
 

@@ -212,17 +212,33 @@ export class TankArena {
 
     // ---- Trees and rocks around (never on the channel, the rail bed or the drain) ----------
     const trees = [];
-    for (let i = 0; i < 420 && trees.length < 230; i++) {
-      const side = rng.chance(0.5) ? -1 : 1;
-      const x = side * rng.range(W / 2 + 4, W / 2 + 46);
-      const z = rng.range(-30, A.railZ + 40);
-      if (Math.abs(z - A.railZ) < 5) continue;
-      if (Math.abs(x) < D.rx + 4 && z < 4 && z > D.z - D.rz - 4) continue;
-      if (this.nearRoad(x, z, 3.2)) continue;
-      trees.push({ x, y: GY - 0.05, z, scale: rng.range(1.1, 1.9), rot: rng.next() * 6, variant: Math.floor(rng.next() * 3) });
+    const treeOk = (x, z) => {
+      if (Math.abs(x) < W / 2 + 2.6) return false;
+      if (Math.abs(z - A.railZ) < 5) return false;
+      if (Math.abs(x) < D.rx + 4 && z < 4 && z > D.z - D.rz - 4) return false;
+      return !this.nearRoad(x, z, 2.6);
+    };
+    const addTree = (x, z, s0 = 1.1, s1 = 1.9) => {
+      if (treeOk(x, z)) trees.push({ x, y: GY - 0.05, z, scale: rng.range(s0, s1), rot: rng.next() * 6, variant: Math.floor(rng.next() * 3) });
+    };
+    // Forest clumps (dense groves with clearings between them), then single trees everywhere.
+    for (let c = 0; c < 46; c++) {
+      const side = c % 2 ? -1 : 1;
+      const cx = side * rng.range(W / 2 + 5, W / 2 + 48);
+      const cz = rng.range(-28, A.railZ + 38);
+      const n = 6 + Math.floor(rng.next() * 9);
+      for (let k = 0; k < n; k++) {
+        const a = rng.next() * Math.PI * 2;
+        const d = Math.sqrt(rng.next()) * rng.range(3, 6.5);
+        addTree(cx + Math.cos(a) * d, cz + Math.sin(a) * d, 1.0, 2.0);
+      }
     }
-    for (let i = 0; i < 50; i++) {
-      const x = rng.range(-60, 60);
+    for (let i = 0; i < 700 && trees.length < 720; i++) {
+      const side = rng.chance(0.5) ? -1 : 1;
+      addTree(side * rng.range(W / 2 + 3, W / 2 + 50), rng.range(-30, A.railZ + 40));
+    }
+    for (let i = 0; i < 70; i++) {
+      const x = rng.range(-62, 62);
       const z = rng.range(A.railZ + 6, A.railZ + 45);
       trees.push({ x, y: GY - 0.05, z, scale: rng.range(1.2, 2), rot: rng.next() * 6, variant: Math.floor(rng.next() * 3) });
     }
@@ -232,23 +248,26 @@ export class TankArena {
     const rockGeo = new THREE.DodecahedronGeometry(1, 0);
     // Rocks: scattered along the walls, plus rocky outcrops (a big boulder ringed by smaller ones).
     const rockList = [];
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 120; i++) {
       const side = i % 2 ? -1 : 1;
-      let rz = rng.range(-8, A.railZ - 6);
-      const rx = side * rng.range(W / 2 + 2.2, W / 2 + 12);
-      if (this.nearRoad(rx, rz, 1.5)) rz += 16;
-      rockList.push([rx, rz, rng.range(0.6, 1.5), rng.range(0.4, 0.9), rng.range(0.6, 1.4)]);
+      // Half of them hug the channel walls, the rest lie about the fields.
+      const near = i < 60;
+      const rx = side * (near ? rng.range(W / 2 + 2.2, W / 2 + 10) : rng.range(W / 2 + 8, W / 2 + 48));
+      const rz = rng.range(-26, A.railZ - 6);
+      if (this.nearRoad(rx, rz, 1.5) || Math.abs(rz - A.railZ) < 5) continue;
+      if (Math.abs(rx) < D.rx + 3 && rz < 3 && rz > D.z - D.rz - 3) continue;
+      rockList.push([rx, rz, rng.range(0.6, 1.6), rng.range(0.4, 0.95), rng.range(0.6, 1.5)]);
     }
-    for (let c = 0; c < 9; c++) {
+    for (let c = 0; c < 18; c++) {
       const side = c % 2 ? -1 : 1;
-      const cx = side * rng.range(W / 2 + 8, W / 2 + 40);
-      const cz = rng.range(14, A.railZ - 4);
-      if (this.nearRoad(cx, cz, 4)) continue;
-      const big = rng.range(1.6, 2.6);
+      const cx = side * rng.range(W / 2 + 7, W / 2 + 44);
+      const cz = rng.range(-20, A.railZ - 4);
+      if (this.nearRoad(cx, cz, 4) || (Math.abs(cx) < D.rx + 5 && cz < 4 && cz > D.z - D.rz - 5)) continue;
+      const big = rng.range(1.6, 2.8);
       rockList.push([cx, cz, big, big * rng.range(0.6, 0.9), big * rng.range(0.8, 1.1)]);
-      for (let k = 0; k < 6; k++) {
+      for (let k = 0; k < 7; k++) {
         const a = rng.next() * Math.PI * 2;
-        const d = big + rng.range(0.4, 2.2);
+        const d = big + rng.range(0.4, 2.4);
         rockList.push([cx + Math.cos(a) * d, cz + Math.sin(a) * d, rng.range(0.4, 1.1), rng.range(0.3, 0.8), rng.range(0.4, 1.0)]);
       }
     }
@@ -357,18 +376,27 @@ export class TankArena {
     const B = A.base;
     const list = [];
     for (const pts of Object.values(this.roadLines())) {
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[Math.max(0, i - 1)];
-        const b = pts[Math.min(pts.length - 1, i + 1)];
+      // Walk each edge at ~0.75 m steps (the centre line is sampled every ~1.2 m).
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
         const l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
         const nx = -(b.z - a.z) / l;
         const nz = (b.x - a.x) / l;
-        for (const side of [-1, 1]) {
-          const off = A.roadWidth / 2 + 0.3 + rng.spread(0.12);
-          const x = pts[i].x + nx * off * side;
-          const z = pts[i].z + nz * off * side;
-          if (Math.abs(x) < this.rampEnd + 0.6 || Math.hypot(x - B.x, z - B.z) < B.r + 0.4) continue;
-          list.push([x, z, rng.range(0.22, 0.5)]);
+        const steps = Math.max(1, Math.round(l / 0.75));
+        for (let s = 0; s < steps; s++) {
+          const t = s / steps;
+          const cx = a.x + (b.x - a.x) * t;
+          const cz = a.z + (b.z - a.z) * t;
+          for (const side of [-1, 1]) {
+            const off = A.roadWidth / 2 + 0.55 + rng.spread(0.15);
+            const x = cx + nx * off * side;
+            const z = cz + nz * off * side;
+            if (Math.abs(x) < this.rampEnd + 0.6 || Math.hypot(x - B.x, z - B.z) < B.r + 0.4) continue;
+            // Mostly mid-size stones with the odd big one and small fillers.
+            const r = rng.next();
+            list.push([x, z, r < 0.15 ? rng.range(0.6, 0.85) : r < 0.4 ? rng.range(0.25, 0.38) : rng.range(0.4, 0.6)]);
+          }
         }
       }
     }
@@ -377,7 +405,7 @@ export class TankArena {
     const stones = new THREE.InstancedMesh(geo, mat, list.length);
     const d = new THREE.Object3D();
     list.forEach(([x, z, s], i) => {
-      d.position.set(x, A.groundY + s * 0.25, z);
+      d.position.set(x, A.groundY + s * 0.28, z);
       d.rotation.set(rng.next() * 3, rng.next() * 3, rng.next() * 3);
       d.scale.set(s * rng.range(0.9, 1.3), s * rng.range(0.55, 0.8), s * rng.range(0.9, 1.2));
       d.updateMatrix();

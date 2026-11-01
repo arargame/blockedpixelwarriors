@@ -194,6 +194,14 @@ export const GameConfig = Object.freeze({
     // block is locked (reticle) and the shell flies straight at its centre.
     aimCone: 0.32,
     lockRefresh: 0.12,
+    // Auto aim: the turret swings onto the best block by itself (swing angle weighs autoSwingWeight
+    // per rad against 0.3 per unit of distance; the current lock gets an autoKeep bonus) and fires
+    // once within autoFireAngle of it. Q / E take over; manualHold s after release the auto lock
+    // resumes from where the gun points.
+    autoSwingWeight: 5,
+    autoKeep: 4,
+    autoFireAngle: 0.07,
+    manualHold: 0.35,
     // Armour (the fighter's guns and bombs are the only things that hurt the tank).
     hp: 100,
     // R power-up: homing missiles (like the heli's), launched off the turret at this interval.

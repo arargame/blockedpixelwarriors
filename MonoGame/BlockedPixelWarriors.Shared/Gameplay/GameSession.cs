@@ -21,7 +21,7 @@ public readonly record struct Objective(string Text, bool Done, string Progress 
 /// Composition root of one game (Game.js): wires the systems, runs the simulation step and acts
 /// as the collision Mediator between projectiles and entities.
 /// </summary>
-public sealed class GameSession : IRenderable
+public sealed class GameSession : IRenderable, UI.IHudModel
 {
     private static class Score
     {
@@ -108,6 +108,11 @@ public sealed class GameSession : IRenderable
     public bool Paused { get; set; }
     /// <summary>Raised when the score, lives or HP change (HUD refresh).</summary>
     public float HealthRatio => Heli.Hp / GameConfig.Heli.MaxHp;
+    // ---- IHudModel (the shared HUD) ----
+    public bool HudPlaying => State is GameState.Playing or GameState.Dead;
+    public string WaveLabel => "WAVE";
+    public UI.ChannelPanel? Channel => null;
+    public IReadOnlyList<ActivePower> ActivePowers => PowerUps.Active;
 
     public GameSession(GraphicsDevice device, ModelLibrary models, SceneData scene, LightRig lights, RenderQuality quality, IHudEvents hud)
     {

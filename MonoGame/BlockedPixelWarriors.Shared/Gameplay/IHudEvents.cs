@@ -12,6 +12,8 @@ public interface IHudEvents
     void Notice(string text, Color color);
     /// <summary>Kill-feed line "who ➜ what [extra]".</summary>
     void Kill(string who, Color whoColor, string what, Color whatColor, string extra = null, Color? extraColor = null);
+    /// <summary>Terminal-style event line ($ prompt) in the log feed.</summary>
+    void Log(string text, Color color);
     void DamageFlash(float strength);
     void FloatText(string text, Vector3 world, Color color);
     void ShowTitle();

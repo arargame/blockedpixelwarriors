@@ -123,6 +123,11 @@ public static class GameConfig
         public const float ElevationMin = -0.36f, ElevationMax = 0.12f, ElevationSpeed = 1.4f;
         /// <summary>Smart aim: cone around the turret's aim direction in which a block is locked.</summary>
         public const float AimCone = 0.32f, LockRefresh = 0.12f;
+        // Auto aim: the turret swings onto the best block by itself (swing angle weighs
+        // AutoSwingWeight per rad against 0.3 per unit of distance; the current lock gets an AutoKeep
+        // bonus) and fires once within AutoFireAngle of it. Q / E take over; ManualHold s after
+        // release the auto lock resumes from where the gun points.
+        public const float AutoSwingWeight = 5, AutoKeep = 4, AutoFireAngle = 0.07f, ManualHold = 0.35f;
         /// <summary>Collision footprint half size of the hull (tank space).</summary>
         public const float HalfX = 2.0f, HalfZ = 2.25f;
         /// <summary>Armour: the fighter's guns and bombs are the only things that hurt the tank.</summary>

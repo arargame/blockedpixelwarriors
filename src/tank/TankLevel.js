@@ -6,7 +6,7 @@ import { TankArena } from './TankArena.js';
 import { BlockFlow } from './BlockFlow.js';
 import { DrainPile } from './DrainPile.js';
 import { ArenaTrain } from './ArenaTrain.js';
-import { TankSupplies } from './TankSupplies.js';
+import { TankSupplies, SUPPLY_COLORS } from './TankSupplies.js';
 import { CARD_DEFS } from '../ui/UpgradeCards.js';
 import { PickupSfx } from '../audio/PickupSfx.js';
 import { fxRandom as rnd } from '../util/Random.js';
@@ -21,6 +21,11 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 /** Tank power-ups from supply blocks (the heli game's crates, tank meanings). */
 const POWER_NAMES = Object.freeze({ T: 'TRIPLE SHELLS', D: 'RAPID FIRE', R: 'HOMING MISSILES', H: 'REPAIR · DRAIN PUMP', G: 'RAPID FIRE' });
+const css = (hex) => `#${hex.toString(16).padStart(6, '0')}`;
+/** Kill-feed colours (as in the heli game's log). */
+const FEED = Object.freeze({ tank: '#7be86a', enemy: '#ff6b6b', grey: '#c9ced6', gold: '#ffd34a' });
+/** Score: per broken block, per fighter shot down. */
+const SCORE = Object.freeze({ block: 10, fighter: 500 });
 
 /**
  * Tank level (menu card IRON TRACKS), phase 1. The tank drives in a sloped concrete channel with
@@ -40,9 +45,11 @@ const POWER_NAMES = Object.freeze({ T: 'TRIPLE SHELLS', D: 'RAPID FIRE', R: 'HOM
  * AerialBomb - pooled, one InstancedMesh set per class.
  * The tank is solid: blocks sliding into it stop in front of it (and hold up their lane), and it
  * cannot drive through them.
- * Aiming (smart aim, like the heli): the player turns the turret (Q / E, left / right arrows, the
- * touch buttons); within a narrow cone round the gun the best block is locked (reticle) and the
- * barrel depresses toward it. Shells fly straight and hit the first block in their path.
+ * Aiming (auto aim, like the heli's gunner): the turret locks onto the best block by itself
+ * (reticle), swings onto it, depresses the barrel and fires when on target. Not the block you
+ * want? Q / E (left / right arrows, the touch buttons) turn the turret; when let go, the block
+ * nearest the gun is the new lock. The mouse does not aim. Shells fly straight and hit the first
+ * block in their path.
  * Skill cards every 200 broken blocks: HOMING ROCKETS (R crates drop), CHAIN REACTION.
  * Controls: W/S drive, A/D turn the hull, Q/E or arrows turn the turret, SPACE / click fires,
  * ENTER restarts a finished phase, ESC pause menu. Own scene and camera.
@@ -51,8 +58,10 @@ export class TankLevel {
   /**
    * @param {{ gltf:any, textures:any, materials:any, trainFactory:any, renderer:THREE.WebGLRenderer, input:any, quality:any, settings:any }} deps
    */
-  constructor({ gltf, textures, materials, trainFactory, renderer, input, quality, settings, environment, rocketGltf, fighterGltf, supplyGltf, cards }) {
+  constructor({ gltf, textures, materials, trainFactory, renderer, input, quality, settings, environment, rocketGltf, fighterGltf, supplyGltf, cards, hud }) {
     this.cards = cards ?? null;
+    /** The heli game's HUD (src/ui/Hud.js), shared: score, phase, HP, log, objectives, power-ups. */
+    this.ui = hud ?? null;
     this.input = input;
     this.settings = settings;
     this.trainFactory = trainFactory;
@@ -104,6 +113,7 @@ export class TankLevel {
     this.blocks.onDestroyed = (b, depth, at) => this.onBlockDestroyed(b, depth, at);
 
     this.lock = null;
+    this.manualAim = 0;
     this.time = 0;
     this.reticle = new THREE.Sprite(new THREE.SpriteMaterial({ map: reticleTexture(), depthTest: false, transparent: true }));
     this.reticle.renderOrder = 30;
@@ -156,17 +166,8 @@ export class TankLevel {
     const el = document.createElement('div');
     el.className = 'tank-hud';
     el.innerHTML = `
-      <div class="th-stats">
-        <div class="th-stat"><span>BROKEN</span><b data-broken>0</b><em>/ ${GameConfig.tankArena.breakGoal}</em></div>
-        <div class="th-stat drain"><span>DRAIN</span><b data-drain>0</b><em>/ ${GameConfig.tankArena.drainLimit}</em><i class="th-bar"><i data-drainbar></i></i></div>
-        <div class="th-stat"><span>INCOMING</span><b data-left>${GameConfig.tankArena.phaseBlocks}</b></div>
-        <div class="th-stat armor"><span>ARMOR</span><b data-hp>100</b><i class="th-bar"><i data-hpbar></i></i></div>
-      </div>
-      <div class="th-hit" data-hit></div>
-      <div class="th-powers" data-powers></div>
       <div class="th-banner" data-banner></div>
-      <div class="th-title">IRON TRACKS <small>PHASE 1 · THE CHANNEL</small></div>
-      <div class="th-keys"><b>W S</b> drive · <b>A D</b> turn · <b>Q E / ← →</b> turret · <b>SPACE / CLICK</b> fire · <b>ESC</b> menu</div>
+      <div class="th-keys"><b>W S</b> drive · <b>A D</b> turn · turret <b>auto-aims</b> · <b>Q E / ← →</b> pick another target · <b>SPACE</b> fire · <b>ESC</b> menu</div>
       <div class="th-touch">
         <button class="th-btn" data-tl aria-label="turret left">&#9664;</button>
         <button class="th-btn" data-tr aria-label="turret right">&#9654;</button>
@@ -176,11 +177,7 @@ export class TankLevel {
     Object.assign(el.style, { display: 'none' });
     this.hud = el;
     this.reloadBar = el.querySelector('.th-reload i');
-    this.hudEl = {
-      broken: el.querySelector('[data-broken]'), drain: el.querySelector('[data-drain]'), drainBar: el.querySelector('[data-drainbar]'),
-      left: el.querySelector('[data-left]'), powers: el.querySelector('[data-powers]'), banner: el.querySelector('[data-banner]'),
-      hp: el.querySelector('[data-hp]'), hpBar: el.querySelector('[data-hpbar]'), hit: el.querySelector('[data-hit]'),
-    };
+    this.hudEl = { banner: el.querySelector('[data-banner]'), keys: el.querySelector('.th-keys') };
     (this.element.parentElement ?? document.body).appendChild(el);
     // Phones: turret left / right and FIRE buttons (like the heli's turn buttons); the drag
     // joystick drives the hull.
@@ -216,6 +213,7 @@ export class TankLevel {
     t.heading = -Math.sign(B.x) * Math.PI / 2;
     t.elevation = t.aimElevation = -0.12;
     this.lock = null;
+    this.manualAim = 0;
     t.speed = 0;
     t.turnRate = 0;
     t.turretYaw = 0;
@@ -224,6 +222,7 @@ export class TankLevel {
     t.cooldown = 0;
     this.projectiles.clear();
     this.lock = null;
+    this.manualAim = 0;
     this.time = 0;
     this.hp = GameConfig.tank.hp;
     this.homingTimer = 0;
@@ -252,7 +251,19 @@ export class TankLevel {
     this.broken = 0;
     this.powers = { T: 0, D: 0, R: 0 };
     this.state = 'playing';
+    this.score = 0;
+    this.drainWarned = 0;
     this.hudEl.banner.className = 'th-banner';
+    this.hudEl.keys.classList.remove('faded');
+    const ui = this.ui;
+    if (ui) {
+      ui.clearLog();
+      ui.setLives(0);
+      ui.setWaveLabel('PHASE');
+      ui.setWave(1);
+      ui.setSkills(new Map());
+      ui.toast(`PHASE 1 - BREAK ${GameConfig.tankArena.breakGoal} BLOCKS`);
+    }
     this.aim.set(B.x - Math.sign(B.x) * 20, 0, B.z + 4);
     this.updateCamera(0, true);
     this.element.addEventListener('pointermove', this.onPointerMove);
@@ -303,14 +314,26 @@ export class TankLevel {
   step(dt, drive, fire) {
     const t = this.tank;
     this.time += dt;
-    // Smart aim (like the heli): the player points the turret; the best block in a narrow cone
-    // round the gun is locked, the barrel depresses toward it and the shells correct onto it.
-    t.update(dt, drive, drive.aim ?? null);
+    // Auto aim (like the heli's gunner): the turret swings onto the best block by itself, the
+    // barrel depresses toward it and the gun fires whenever it is on target. Q / E (arrows, touch
+    // buttons) take the turret over; the block nearest the gun when they are let go is the new lock.
+    const engaged = this.state === 'playing' || this.state === 'won';
+    const manual = !!drive.turret;
+    this.manualAim = manual ? GameConfig.tank.manualHold : Math.max(0, this.manualAim - dt);
     this.aim.set(t.position.x + Math.sin(t.gunYaw) * 20, 0, t.position.z + Math.cos(t.gunYaw) * 20);
-    const lock = this.state === 'playing' || this.state === 'won' ? this.lockedTarget() : null;
-    const target = lock ? this.blockCenter(lock, v3) : this.freeAimPoint(v3);
+    const auto = this.manualAim <= 0;
+    const lock = engaged ? this.lockedTarget(auto) : null;
+    const lockPoint = lock ? this.blockCenter(lock, v3) : null;
+    t.update(dt, drive, drive.aim ?? (auto ? lockPoint : null));
+    this.aim.set(t.position.x + Math.sin(t.gunYaw) * 20, 0, t.position.z + Math.cos(t.gunYaw) * 20);
+    const target = lockPoint ?? this.freeAimPoint(v3);
     this.aimBarrel(target);
     this.updateReticle(dt, lock, target);
+    // On target: the gunner fires by himself (SPACE / click / FIRE still fire at will).
+    if (lock && auto && engaged) {
+      const off = Math.abs(wrap(Math.atan2(lockPoint.x - t.position.x, lockPoint.z - t.position.z) - t.gunYaw));
+      if (off < GameConfig.tank.autoFireAngle) fire = true;
+    }
     for (const key of Object.keys(this.powers)) this.powers[key] = Math.max(0, this.powers[key] - dt);
     if (fire) this.fire();
     if (this.state === 'playing') {
@@ -372,6 +395,7 @@ export class TankLevel {
     if (this.state !== 'playing' && this.state !== 'won') return;
     this.hp = Math.max(0, this.hp - amount);
     this.hitFlash = Math.min(1, this.hitFlash + amount / 25);
+    this.ui?.damageFlash(Math.min(1, 0.35 + amount / 20));
     this.shake = Math.max(this.shake, Math.min(0.5, 0.08 + amount / 60));
     if (this.hp <= 0 && this.state === 'playing') {
       this.state = 'lost';
@@ -379,6 +403,7 @@ export class TankLevel {
       this.effects.explosion(v1.set(p.x, p.y + 1.5, p.z), 2.4, 0x3c4a2a, 22);
       this.effects.flash(v1, 0xff8040, 120, 0.5, 18);
       this.showBanner('TANK DESTROYED', 'The fighter got you - keep moving under fire · ENTER to try again', 'lost');
+      this.ui?.kill('FIGHTER', FEED.enemy, 'TANK', FEED.tank, ['☠', '#ff6b6b']);
     }
   }
 
@@ -444,7 +469,11 @@ export class TankLevel {
       f.update(dt, {
         projectiles: this.projectiles, effects: this.effects, tankPosition: this.tank.position,
         floorAt: (x, z) => this.arena.floorAt(x, z), armed: this.state === 'playing',
-        crashAt: (p) => this.bombBlast(p, F.bombRadius * 0.8, F.bombDamage * 0.5),
+        crashAt: (p) => {
+          this.bombBlast(p, F.bombRadius * 0.8, F.bombDamage * 0.5);
+          this.score += SCORE.fighter;
+          this.ui?.kill('TANK', FEED.tank, 'FIGHTER', FEED.enemy, [`+${SCORE.fighter}`, FEED.gold]);
+        },
       });
       if (f.done) {
         this.fighterActive = false;
@@ -460,6 +489,7 @@ export class TankLevel {
     this.fighterSide = -this.fighterSide;
     this.scene.add(f.root);
     this.fighterActive = true;
+    this.ui?.log([['▲ ENEMY FIGHTER INBOUND - KEEP MOVING', '#ff8a7a']], { kind: 'event' });
   }
 
   // ---- R: homing missiles ------------------------------------------------------------------------
@@ -613,6 +643,8 @@ export class TankLevel {
 
   onBlockDestroyed(b, depth, at) {
     this.broken += 1;
+    this.score += SCORE.block;
+    if (this.broken % 100 === 0) this.ui?.kill('TANK', FEED.tank, `${this.broken} BLOCKS`, FEED.grey, [`/ ${GameConfig.tankArena.breakGoal}`, FEED.gold]);
     this.shake = Math.max(this.shake, depth > 0 ? 0.12 : 0.18);
     if (b.type === 'supply' && this.state === 'playing') {
       // T triple, D rapid, H repair; R (homing rockets) only after its skill card.
@@ -636,7 +668,7 @@ export class TankLevel {
   applySkill(def) {
     this.skills.add(def.id);
     if (def.id === 'tankChain') this.blocks.chainEnabled = true;
-    this.flashBanner(def.title, 1.6);
+    this.ui?.toast(def.id === 'tankHoming' ? 'HOMING ROCKETS UNLOCKED - LOOK FOR R SUPPLIES' : 'CHAIN REACTION - SAME COLOURS GO TOGETHER');
   }
 
   onPickup(type, item) {
@@ -649,7 +681,8 @@ export class TankLevel {
       const key = type === 'G' ? 'D' : type;
       this.powers[key] = GameConfig.tankArena.powerTime;
     }
-    this.flashBanner(POWER_NAMES[type] ?? type, 1.4);
+    this.ui?.kill('TANK', FEED.tank, POWER_NAMES[type] ?? type, css(SUPPLY_COLORS[type] ?? 0xffffff));
+    if (type === 'H') this.ui?.notice('+25 ARMOR · DRAIN -10', '#7be86a');
     this.effects.sparkBurst(item.obj.position, 26, 6, [3, 3, 3, 1]);
   }
 
@@ -670,6 +703,7 @@ export class TankLevel {
       if (won) {
         // The gate in the right wall opens: the road behind it leads on to phase 2.
         this.arena.setGateOpen(true);
+        this.ui?.toast('PHASE 1 CLEAR - THE GATE IS OPEN', '#ffd34a');
         this.showBanner('PHASE 1 CLEAR!', `${this.broken} blocks broken · the gate on the right is open - drive out`, 'won');
       }
       else this.showBanner('NOT ENOUGH', `Only ${this.broken} / ${A.breakGoal} broken · ENTER to try again`, 'lost');
@@ -691,42 +725,67 @@ export class TankLevel {
     }, seconds * 1000);
   }
 
+  /** The shared HUD: score, phase, HP (armour), the channel panel, objectives and power-ups. */
   updateHud(dt = 0) {
     const A = GameConfig.tankArena;
-    const e = this.hudEl;
     const t = this.tank;
-    const hp = Math.ceil(this.hp);
-    if (hp !== this.hpShown) {
-      this.hpShown = hp;
-      e.hp.textContent = hp;
-      e.hpBar.style.width = `${(this.hp / GameConfig.tank.hp) * 100}%`;
-      e.hp.parentElement.classList.toggle('low', this.hp < 30);
-    }
     this.hitFlash = Math.max(0, (this.hitFlash ?? 0) - dt * 1.8);
-    e.hit.style.opacity = this.hitFlash.toFixed(3);
-    e.broken.textContent = this.broken;
-    e.drain.textContent = this.pile.count;
-    e.drainBar.style.width = `${Math.min(100, (this.pile.count / A.drainLimit) * 100)}%`;
-    e.left.textContent = Math.max(0, A.phaseBlocks - this.dropped);
-    const pw = Object.entries(this.powers).filter(([, v]) => v > 0).map(([k, v]) => `<span>${POWER_NAMES[k]} ${Math.ceil(v)}s</span>`).join('');
-    if (pw !== this.powersHtml) {
-      this.powersHtml = pw;
-      e.powers.innerHTML = pw;
-    }
+    // Key help fades after the first seconds.
+    if (this.time > 12) this.hudEl.keys.classList.add('faded');
     this.reloadBar.style.width = `${Math.round((1 - t.cooldown / (t.reloadTime || GameConfig.tank.reload)) * 100)}%`;
+    const ui = this.ui;
+    if (!ui) return;
+    ui.setScore(this.score);
+    ui.setHealth(this.hp / GameConfig.tank.hp);
+    const drain = this.pile.count;
+    ui.setTankPanel({
+      title: this.state === 'won' || this.state === 'phase2' ? 'THE CHANNEL · CLEAR' : 'THE CHANNEL',
+      broken: this.broken, goal: A.breakGoal, drain, drainLimit: A.drainLimit, incoming: Math.max(0, A.phaseBlocks - this.dropped),
+    });
+    // Drain warnings at 50 / 75 / 90 %.
+    for (const f of [0.5, 0.75, 0.9]) {
+      if (drain >= A.drainLimit * f && this.drainWarned < f && this.state === 'playing') {
+        this.drainWarned = f;
+        ui.notice(`DRAIN ${drain}/${A.drainLimit}!`, '#ff6b6b');
+      }
+    }
+    ui.setObjectives(this.objectives());
+    const active = new Map();
+    for (const [k, v] of Object.entries(this.powers)) {
+      if (v > 0) active.set(k, { remaining: v, duration: A.powerTime, name: POWER_NAMES[k], css: css(SUPPLY_COLORS[k] ?? 0xffffff) });
+    }
+    ui.setSkills(active);
+  }
+
+  /** Objective checklist (bottom left, like the heli stages). */
+  objectives() {
+    const A = GameConfig.tankArena;
+    const won = this.state === 'won' || this.state === 'phase2';
+    return {
+      title: 'PHASE 1 · THE CHANNEL',
+      items: [
+        { text: `Break ${A.breakGoal} blocks`, done: this.broken >= A.breakGoal, progress: `${Math.min(this.broken, A.breakGoal)}/${A.breakGoal}` },
+        { text: `Keep the drain under ${A.drainLimit}`, done: won, progress: `${this.pile.count}/${A.drainLimit}`, swatch: 'blue' },
+        { text: 'Survive the fighter', done: won },
+        { text: 'Drive out through the gate', done: this.state === 'phase2' },
+      ],
+    };
   }
 
   // ---- Aiming (smart aim) ---------------------------------------------------------------------
 
   /**
-   * The locked block (refreshed every lockRefresh s): within aimCone around the direction the
-   * player aims the turret, the best block by angle and distance (nearer and more centred wins),
-   * or null.
+   * The locked block (refreshed every lockRefresh s), or null.
+   *   auto   (the gunner): any block in range, scored by how far the turret has to swing and the
+   *          distance; the current lock is kept while it lives (no hopping between neighbours).
+   *   manual (Q / E held): only within aimCone around the gun, so the player sees what the turret
+   *          will settle on when the keys are let go.
    */
-  lockedTarget() {
+  lockedTarget(auto = true) {
     const cfg = GameConfig.tank;
     const L = this.lock;
-    if (L && this.time - L.at < cfg.lockRefresh && L.block.serial === L.serial && L.block.alive) return L.block;
+    const held = L && L.block.serial === L.serial && L.block.alive;
+    if (held && L.auto === auto && this.time - L.at < cfg.lockRefresh) return L.block;
     const p = this.tank.position;
     const yaw = Math.atan2(this.aim.x - p.x, this.aim.z - p.z);
     let best = null;
@@ -738,16 +797,18 @@ export class TankLevel {
         const d = Math.hypot(dx, dz);
         if (d < 2.6 || d > cfg.shellRange) continue;
         const ang = Math.abs(wrap(Math.atan2(dx, dz) - yaw));
-        if (ang > cfg.aimCone) continue;
-        // Keep the current lock unless something is clearly better (no flicker between neighbours).
-        const score = ang * 12 + d * 0.35 - (L && L.block === b && L.serial === b.serial ? 0.6 : 0);
+        if (!auto && ang > cfg.aimCone) continue;
+        const mine = held && L.block === b;
+        const score = auto
+          ? ang * cfg.autoSwingWeight + d * 0.3 - (mine ? cfg.autoKeep : 0)
+          : ang * 12 + d * 0.35 - (mine ? 0.6 : 0);
         if (score < bestScore) {
           bestScore = score;
           best = b;
         }
       }
     }
-    this.lock = best ? { block: best, serial: best.serial, at: this.time } : null;
+    this.lock = best ? { block: best, serial: best.serial, at: this.time, auto } : null;
     return best;
   }
 

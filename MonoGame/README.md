@@ -107,12 +107,16 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
   instancing ile döner, namlu geri teper, lambalar yanıp söner. Üs + yollar sahnenin parçası;
   yol orta çizgileri ve kapı menteşeleri `Prefabs.TankArena` ile gelir (yürünebilir alan testi),
   kapı kanatları `tank_gate_leaf0/1`; arazi `GroundY` yüksekliğinde, rampalar `RampHeight` ile
-  (zemin yüksekliği + gövde eğimi). İkmal sandığı `supply_body` (türe göre `BaseColor`) +
-  `supply_trim` + `supply_letter_X`. Yetenek kartları heli'nin `CardPicker`'ıyla (`Level == "tank"`
-  kartlar, her 200 blokta). HUD: KIRILAN / GİDER (dolum çubuğu) / GELEN / ZIRH sayaçları, aktif
-  güçler, isabette kırmızı kenar, bitiş afişi. Klavye W/S sür, A/D gövde, Q/E veya ←/→ taret,
-  SPACE / tık ateş, ENTER yeniden; telefonda sol joystick sürer, sol / sağ butonlar tareti
-  çevirir, dokunma ateş eder.
+  (zemin yüksekliği + gövde eğimi). İkmal sandığı `supply_body` (türe göre `ColorMul` ile boyanır)
+  + `supply_trim` + `supply_letter_X`. Yetenek kartları heli'nin `CardPicker`'ıyla (`Level == "tank"`
+  kartlar, her 200 blokta). **HUD helikopterle aynı `UI/Hud.cs`:** `GameSession` ve `TankLevel`
+  ikisi de `UI/IHudModel`'i uygular (skor, WAVE / PHASE, tren paneli ya da tankın kanal paneli
+  `ChannelPanel`, HP, görevler, log, aktif güçler); tank olayları `IHudEvents` ile toast / kill /
+  log / notice / hasar kenarlığı basar. `BpwGame.DrawTankHud` sadece bitiş afişi, dolum çubuğu ve
+  12 sn sonra kaybolan tuş yardımını ekler. **Otomatik nişan:** taret en iyi bloğa kendisi kilitlenir,
+  döner ve hedefteyken ateş eder; Q/E veya ←/→ (telefonda sol / sağ butonlar) elle çevirir, bırakınca
+  namluya en yakın blok yeni kilit olur. W/S sür, A/D gövde, SPACE / tık da ateş, ENTER yeniden;
+  telefonda sol joystick sürer.
 - **Düşman / mermi sınıfları (web'deki `src/combat/` ile aynı):** `Gameplay/Enemy.cs` soyut taban
   (`IsAlive`, `AimPoint`, `TakeDamage`, `OnDeath`, `HarmsPlayer`) — `Train`, heli tahtasının
   `Block`'u, kanalın `TankBlock`'u (havuzdan, `Serial` ile) ve `JetFighter` türer.

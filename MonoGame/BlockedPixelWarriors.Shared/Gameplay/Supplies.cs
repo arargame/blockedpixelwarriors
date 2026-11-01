@@ -49,6 +49,9 @@ public sealed class ActivePower
     public SupplyType Type;
     public float Remaining, Duration;
     public GemKind? Gem;
+    /// <summary>Tank level: its own name / colour for the type (else the catalog's).</summary>
+    public string Name;
+    public Microsoft.Xna.Framework.Color? Color;
 }
 
 /// <summary>Active timed power-ups (8-15 s each; picking the same again restarts it).</summary>

@@ -108,6 +108,7 @@ public sealed class BpwGame : Game
         _cards = new CardPicker(device, _assets, _models, _renderer.Post, _ui, _lights);
         _session.Cards = _cards;
         _tank.Cards = _cards;
+        _tank.Hud = _hud;
         _session.Settings = _store;
         _session.Rig.ShakeScale = _store.Settings.Shake ? 1 : 0;
         _menu = new MainMenu(device, _assets, _ui, _cards, _renderer.Post, scene.Prefabs.Menu, _store, _assets.UiTexture("ui_logo"))
@@ -365,6 +366,9 @@ public sealed class BpwGame : Game
             if (!_session.Paused) _cards.Update(dt, _input, vp);
             else _renderer.Post.Ash = 0;
             _menu.Update(dt, _input, vp);
+            _tank.Paused = _session.Paused;
+            _hud.CardsOpen = _cards.Open;
+            _hud.Update(dt, _tank.ActivePowers);
             base.Update(gameTime);
             return;
         }
@@ -461,7 +465,10 @@ public sealed class BpwGame : Game
         }
         _tankMode = true;
         _session.ShowAttract();
-        _hud.MenuMode = true;
+        // The heli game's HUD, fed by the tank level (score, phase, channel panel, HP, objectives,
+        // log, power-ups).
+        _hud.MenuMode = false;
+        _hud.HideOverlay();
         _tank.Start();
     }
 
@@ -470,6 +477,7 @@ public sealed class BpwGame : Game
         if (!_tankMode) return;
         _tankMode = false;
         _hud.MenuMode = false;
+        _hud.ClearLog();
     }
 
     private void PauseTank()
@@ -542,6 +550,7 @@ public sealed class BpwGame : Game
         GraphicsDevice.Viewport = new Viewport(vp);
         if (_tankMode)
         {
+            _hud.Draw(vp, _tank, camera, _input.Touch, _input.TouchMode);
             DrawTankHud(vp);
             if (!_session.Paused && _cards.Active)
             {
@@ -594,9 +603,8 @@ public sealed class BpwGame : Game
     }
 
     /// <summary>
-    /// Tank level HUD (hud.css .tank-hud): counters on top (BROKEN / DRAIN with its fill bar /
-    /// INCOMING), active power-ups under them, the centre banner, and the title, key help and
-    /// reload bar at the bottom.
+    /// Tank level extras on top of the shared HUD (hud.css .tank-hud): the centre banner (phase
+    /// clear / lost), the reload bar and the key help, which fades after the first seconds.
     /// </summary>
     private void DrawTankHud(Rectangle vp)
     {
@@ -604,68 +612,7 @@ public sealed class BpwGame : Game
         var k = _ui.Scale;
         var t = _tank;
         _ui.Begin();
-        // Hit: red screen edges (the web HUD's .th-hit inset shadow).
-        if (t.HitFlash > 0.01f) _ui.DamageVignette(vp, t.HitFlash);
         var cx = vp.Width / 2f;
-        var panel = new Color(15, 22, 30) * 0.6f;
-        var edge = Color.White * 0.25f;
-
-        // ---- Counters ----
-        var stats = new (string label, string value, string tail, Color color, float bar)[]
-        {
-            ("BROKEN", t.Broken.ToString(), $"/ {GameConfig.TankArena.BreakGoal}", Color.White, -1),
-            ("DRAIN", t.Pile.Count.ToString(), $"/ {GameConfig.TankArena.DrainLimit}", new Color(0x7f, 0xd8, 0xff), Math.Min(1, t.Pile.Count / (float)GameConfig.TankArena.DrainLimit)),
-            ("INCOMING", Math.Max(0, GameConfig.TankArena.PhaseBlocks - t.Dropped).ToString(), "", Color.White, -1),
-            ("ARMOR", MathF.Ceiling(t.Hp).ToString(), "", t.Hp < 30 ? new Color(0xff, 0x6b, 0x5a) : new Color(0x9b, 0xe3, 0x6a), Math.Clamp(t.Hp / GameConfig.Tank.Hp, 0, 1) + 2),
-        };
-        float LabelW(string s) => _ui.Ui.Measure(s, 11 * k, 0.14f);
-        var widths = stats.Select(st => 28 * k + LabelW(st.label) + 6 * k + _ui.Hud.Measure(st.value, 24 * k)
-            + (st.tail.Length > 0 ? 6 * k + _ui.Ui.Measure(st.tail, 13 * k) : 0)).ToArray();
-        var total = widths.Sum() + 10 * k * (stats.Length - 1);
-        var x = cx - total / 2;
-        var top = 14 * k;
-        var h = 42 * k;
-        for (var i = 0; i < stats.Length; i++)
-        {
-            var st = stats[i];
-            var r = new RectangleF(x, top, widths[i], h);
-            _ui.Panel(r, 10 * k, panel);
-            _ui.Outline(r, 10 * k, edge);
-            var mid = top + h / 2;
-            var tx = x + 14 * k;
-            _ui.Text(_ui.Ui, st.label, new Vector2(tx, mid - 3.5f * k), 11 * k, Color.White * 0.75f, 0, 0.14f);
-            tx += LabelW(st.label) + 6 * k;
-            _ui.Text(_ui.Hud, st.value, new Vector2(tx, mid - 13 * k), 24 * k, st.color, 1.5f * k);
-            tx += _ui.Hud.Measure(st.value, 24 * k) + 6 * k;
-            if (st.tail.Length > 0) _ui.Text(_ui.Ui, st.tail, new Vector2(tx, mid - 4.5f * k), 13 * k, Color.White * 0.7f);
-            if (st.bar >= 0)
-            {
-                // bar >= 2: armour (green -> red as it drops), else the drain fill (blue -> red).
-                var armour = st.bar >= 2;
-                var f = armour ? st.bar - 2 : st.bar;
-                var bar = new RectangleF(x + 8 * k, top + h - 6 * k, widths[i] - 16 * k, 3 * k);
-                _ui.Rect(bar, Color.White * 0.15f);
-                var fill = armour ? Color.Lerp(new Color(0xff, 0x5a, 0x4a), new Color(0x9b, 0xe3, 0x6a), f) : Color.Lerp(new Color(0x5a, 0xd0, 0xff), new Color(0xff, 0x5a, 0x4a), f);
-                _ui.Rect(new RectangleF(bar.X, bar.Y, bar.Width * f, bar.Height), fill);
-            }
-            x += widths[i] + 10 * k;
-        }
-
-        // ---- Active power-ups ----
-        var names = new Dictionary<SupplyType, string> { [SupplyType.T] = "TRIPLE SHELLS", [SupplyType.D] = "RAPID FIRE", [SupplyType.R] = "HOMING MISSILES" };
-        var powers = t.Powers.Where(p => p.Value > 0).Select(p => $"{names[p.Key]} {MathF.Ceiling(p.Value)}s").ToList();
-        if (powers.Count > 0)
-        {
-            var pw = powers.Select(p => _ui.Ui.Measure(p, 12 * k) + 20 * k).ToArray();
-            var px = cx - (pw.Sum() + 8 * k * (pw.Length - 1)) / 2;
-            for (var i = 0; i < powers.Count; i++)
-            {
-                var r = new RectangleF(px, 70 * k, pw[i], 20 * k);
-                _ui.Panel(r, 8 * k, new Color(255, 180, 40) * 0.85f);
-                _ui.TextCentered(_ui.Ui, powers[i], r.Center, 12 * k, new Color(0x2a, 0x1a, 0x00));
-                px += pw[i] + 8 * k;
-            }
-        }
 
         // ---- Banner ----
         if (t.Banner is { } bn)
@@ -681,25 +628,20 @@ public sealed class BpwGame : Game
             }
         }
 
-        // ---- Bottom strip ----
+        // ---- Bottom centre: reload bar, key help (fades out after 12 s) ----
         var y = vp.Height - 18 * k;
         var bw = 180 * k;
         var reload = new RectangleF(cx - bw / 2, y - 7 * k, bw, 7 * k);
         _ui.Rect(reload, Color.Black * 0.45f);
         _ui.Rect(new RectangleF(reload.X, reload.Y, reload.Width * Math.Clamp(t.ReloadRatio, 0, 1), reload.Height), new Color(0xff, 0xb0, 0x2a));
-        var help = _input.TouchMode ? "STICK drive · ◀ ▶ turret · TAP fire · II menu" : "W S drive · A D turn · Q E / ← → turret · SPACE / CLICK fire · ESC menu";
-        // Phones: the stick, the left / right buttons (turret) and pause, as in the heli game.
-        if (_input.TouchMode) _hud.DrawTouchControls(_input.Touch);
-        var hw = _ui.Ui.Measure(help, 13 * k) + 24 * k;
-        _ui.Panel(new RectangleF(cx - hw / 2, y - 34 * k, hw, 22 * k), 8 * k, new Color(15, 22, 30) * 0.55f);
-        _ui.TextCentered(_ui.Ui, help, new Vector2(cx, y - 23 * k), 13 * k, Color.White * 0.92f);
-        // "IRON TRACKS" + the small phase caption on one line (th-title / small).
-        const string title = "IRON TRACKS", phase = "PHASE 1 · THE CHANNEL";
-        var tw = _ui.Hud.Measure(title, 22 * k, 0.09f);
-        var sw = _ui.Ui.Measure(phase, 12 * k, 0.08f);
-        var lx = cx - (tw + 8 * k + sw) / 2;
-        _ui.Text(_ui.Hud, title, new Vector2(lx, y - 62 * k), 22 * k, Color.White, 2 * k, 0.09f);
-        _ui.Text(_ui.Ui, phase, new Vector2(lx + tw + 8 * k, y - 57 * k), 12 * k, Color.White * 0.8f, 1 * k, 0.08f);
+        var helpAlpha = Math.Clamp(13 - t.Time, 0, 1);
+        if (helpAlpha > 0 && !_input.TouchMode)
+        {
+            const string help = "W S drive · A D turn · turret auto-aims · Q E / ← → pick another target · SPACE fire · ESC menu";
+            var hw = _ui.Ui.Measure(help, 13 * k) + 24 * k;
+            _ui.Panel(new RectangleF(cx - hw / 2, y - 34 * k, hw, 22 * k), 8 * k, new Color(15, 22, 30) * 0.55f * helpAlpha);
+            _ui.TextCentered(_ui.Ui, help, new Vector2(cx, y - 23 * k), 13 * k, Color.White * 0.92f * helpAlpha);
+        }
         _ui.End();
     }
 

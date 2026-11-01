@@ -13,13 +13,20 @@ export class Hud {
       <div class="hud-top">
         <div class="hud-panel hud-score"><span class="label">SCORE</span><span class="value" data-score>0</span></div>
         <div class="hud-center">
+          <div class="tank-panel" data-tankpanel>
+            <div class="train-head"><span data-tp-title>THE CHANNEL</span><span class="train-pct" data-tp-pct></span></div>
+            <div class="tp-rows">
+              <div class="tp-row"><span class="tp-label">BROKEN</span><div class="tp-bar broken"><i data-tp-broken></i></div><span class="tp-num" data-tp-broken-num>0</span></div>
+              <div class="tp-row"><span class="tp-label">DRAIN</span><div class="tp-bar drain"><i data-tp-drain></i></div><span class="tp-num" data-tp-drain-num>0</span></div>
+            </div>
+          </div>
           <div class="train-panel" data-train>
             <div class="train-head"><span data-train-title>ARMORED TRAIN</span><span class="train-pct" data-train-pct></span></div>
             <div class="train-cars" data-cars></div>
           </div>
         </div>
         <div class="hud-right">
-          <div class="hud-panel hud-wave"><span class="label">WAVE</span><span class="value" data-wave>1</span></div>
+          <div class="hud-panel hud-wave"><span class="label" data-wave-label>WAVE</span><span class="value" data-wave>1</span></div>
           <button class="hud-pause" data-pause aria-label="Pause"><i></i><i></i></button>
         </div>
       </div>
@@ -215,6 +222,37 @@ export class Hud {
 
   setWave(wave) {
     this.waveEl.textContent = String(wave);
+  }
+
+  /** Top-right panel label: WAVE in the heli game, PHASE in the tank level. */
+  setWaveLabel(text) {
+    this.root.querySelector('[data-wave-label]').textContent = text;
+  }
+
+  /**
+   * Tank level, top centre (where the heli game shows the train): blocks broken toward the goal
+   * and the drain filling toward its limit, plus the blocks still to come.
+   * @param {{title:string, broken:number, goal:number, drain:number, drainLimit:number, incoming:number}} t
+   */
+  setTankPanel(t) {
+    const key = `${t.title}|${t.broken}|${t.drain}|${t.incoming}`;
+    if (key === this.tankPanelKey) return;
+    this.tankPanelKey = key;
+    this.tankPanelEls ??= {
+      title: this.root.querySelector('[data-tp-title]'), pct: this.root.querySelector('[data-tp-pct]'),
+      broken: this.root.querySelector('[data-tp-broken]'), brokenNum: this.root.querySelector('[data-tp-broken-num]'),
+      drain: this.root.querySelector('[data-tp-drain]'), drainNum: this.root.querySelector('[data-tp-drain-num]'),
+      row: this.root.querySelector('[data-tankpanel]'),
+    };
+    const e = this.tankPanelEls;
+    e.title.textContent = t.title;
+    e.pct.textContent = `INCOMING ${t.incoming}`;
+    e.broken.style.transform = `scaleX(${Math.min(1, t.broken / t.goal)})`;
+    e.brokenNum.textContent = `${t.broken}/${t.goal}`;
+    const d = Math.min(1, t.drain / t.drainLimit);
+    e.drain.style.transform = `scaleX(${d})`;
+    e.drainNum.textContent = `${t.drain}/${t.drainLimit}`;
+    e.row.classList.toggle('danger', d >= 0.7);
   }
 
   setLives(lives) {

@@ -85,6 +85,8 @@ public sealed class Hud : IHudEvents
         AddLine(parts.ToArray(), false);
     }
 
+    public void Log(string text, Color color) => AddLine(new[] { (text, color) }, true);
+
     public void DamageFlash(float strength) => _vignette = MathF.Max(_vignette, MathF.Min(1, strength));
 
     public void FloatText(string text, Vector3 world, Color color)
@@ -204,7 +206,7 @@ public sealed class Hud : IHudEvents
     private static readonly Color PanelFill = Color.FromNonPremultiplied(14, 20, 30, 107);
     private static readonly Color Dark = new(0x1b, 0x1d, 0x21);
 
-    public void Draw(Rectangle vp, GameSession s, Camera3D camera, TouchControls touch, bool showTouch)
+    public void Draw(Rectangle vp, IHudModel s, Camera3D camera, TouchControls touch, bool showTouch)
     {
         var k = _ui.Scale;
         _ui.Begin();
@@ -214,7 +216,7 @@ public sealed class Hud : IHudEvents
             _ui.End();
             return;
         }
-        var playing = s.State is GameState.Playing or GameState.Dead;
+        var playing = s.HudPlaying;
         var hudAlpha = 1 - _overlayAlpha * (Overlay == Overlay.Pause ? 0.4f : 1);
         if (hudAlpha > 0.01f && Overlay != Overlay.Title)
         {
@@ -231,7 +233,7 @@ public sealed class Hud : IHudEvents
         _ui.End();
     }
 
-    private RectangleF DrawTop(Rectangle vp, GameSession s, float k, float alpha)
+    private RectangleF DrawTop(Rectangle vp, IHudModel s, float k, float alpha)
     {
         var pad = new Vector2(16 * k, 12 * k);
         var valuePx = Math.Clamp(vp.Width * 0.032f / k, 18, 30) * k;
@@ -249,9 +251,47 @@ public sealed class Hud : IHudEvents
             return r;
         }
         var score = Panel("SCORE", s.ScoreValue.ToString("000000"), vp.X + pad.X, false);
-        var wave = Panel("WAVE", Math.Max(1, s.Wave).ToString(), vp.Right - pad.X, true);
-        DrawTrainPanel(vp, s.Train, k, alpha, score.Right + 12 * k, wave.X - 12 * k);
+        var wave = Panel(s.WaveLabel, Math.Max(1, s.Wave).ToString(), vp.Right - pad.X, true);
+        if (s.Channel is { } ch) DrawChannelPanel(vp, ch, k, alpha, score.Right + 12 * k, wave.X - 12 * k);
+        else DrawTrainPanel(vp, s.Train, k, alpha, score.Right + 12 * k, wave.X - 12 * k);
         return score;
+    }
+
+    /// <summary>
+    /// Tank level channel panel (hud.css .tank-panel): title and INCOMING count, then BROKEN (green)
+    /// and DRAIN (blue, red and pulsing from 70%) bars with their numbers.
+    /// </summary>
+    private void DrawChannelPanel(Rectangle vp, ChannelPanel c, float k, float alpha, float left, float right)
+    {
+        var headPx = (vp.Width / k < 700 ? 8 : 9) * k;
+        var w = MathF.Min(MathF.Max(340 * k, 0), MathF.Min(vp.Width * 0.56f, right - left));
+        var rowH = 13 * k;
+        var h = 5 * k + headPx * 1.2f + 4 * k + rowH * 2 + 4 * k + 7 * k;
+        var cx = (left + right) / 2;
+        var r = new RectangleF(cx - w / 2, 12 * k, w, h);
+        _ui.Panel(r, 8 * k, PanelFill * alpha);
+        _ui.Text(_ui.Hud, c.Title, new Vector2(r.X + 10 * k, r.Y + 5 * k), headPx, Color.White * 0.85f * alpha, 0, 0.22f);
+        var inc = $"INCOMING {c.Incoming}";
+        _ui.Text(_ui.Hud, inc, new Vector2(r.Right - 10 * k - _ui.Hud.Measure(inc, headPx, 0.22f), r.Y + 5 * k), headPx, Color.White * 0.85f * alpha, 0, 0.22f);
+        var y = r.Y + 5 * k + headPx * 1.2f + 4 * k;
+        var danger = c.Drain >= c.DrainLimit * 0.7f;
+        var pulse = danger ? 0.725f + 0.275f * MathF.Cos(_time * MathF.PI / 0.6f) : 1;
+        var rows = new (string label, float f, string num, Color col)[]
+        {
+            ("BROKEN", Math.Clamp(c.Broken / (float)c.Goal, 0, 1), $"{c.Broken}/{c.Goal}", new Color(0x6e, 0xe0, 0x5a)),
+            ("DRAIN", Math.Clamp(c.Drain / (float)c.DrainLimit, 0, 1), $"{c.Drain}/{c.DrainLimit}", danger ? new Color(0xff, 0x4d, 0x4d) * pulse : new Color(0x38, 0xc8, 0xff)),
+        };
+        var px = 9 * k;
+        var numW = MathF.Max(58 * k, _ui.Hud.Measure("1000/1000", 10 * k, 0.1f));
+        foreach (var (label, f, num, col) in rows)
+        {
+            _ui.Text(_ui.Hud, label, new Vector2(r.X + 10 * k, y + (rowH - px) / 2), px, Color.White * 0.8f * alpha, 0, 0.22f);
+            var bar = new RectangleF(r.X + 10 * k + 52 * k + 8 * k, y, r.Width - 20 * k - 60 * k - 8 * k - numW, rowH - 2 * k);
+            _ui.Outline(bar, 3 * k, Color.White * 0.9f * alpha);
+            _ui.Rect(new RectangleF(bar.X + 3.5f * k, bar.Y + 3.5f * k, (bar.Width - 7 * k) * f, bar.Height - 7 * k), col * alpha);
+            _ui.Text(_ui.Hud, num, new Vector2(r.Right - 10 * k - _ui.Hud.Measure(num, 10 * k, 0.1f), y + (rowH - 10 * k) / 2), 10 * k, Color.White * alpha, 0, 0.1f);
+            y += rowH + 4 * k;
+        }
     }
 
     /// <summary>Train damage panel: one card per car, one tick per destructible part.</summary>
@@ -355,7 +395,7 @@ public sealed class Hud : IHudEvents
         }
     }
 
-    private void DrawBottomLeft(Rectangle vp, GameSession s, float k, float alpha, float? topAnchor)
+    private void DrawBottomLeft(Rectangle vp, IHudModel s, float k, float alpha, float? topAnchor)
     {
         var x = vp.X + 16 * k;
         var bottom = vp.Bottom - 14 * k;
@@ -394,7 +434,7 @@ public sealed class Hud : IHudEvents
         var anchorTop = hpRect.Y;
         var anchorBottom = hpRect.Bottom;
         var L = s.Logistics;
-        if (L.Enabled)
+        if (L is { Enabled: true })
         {
             var narrow = vp.Width / k < 700;
             if (L.CountdownActive)
@@ -585,7 +625,7 @@ public sealed class Hud : IHudEvents
     }
 
     /// <summary>Cargo chopper countdown (2:00 -> 0:00, the last 10 s pulse), or its loading progress.</summary>
-    private RectangleF DrawChopper(Vector2 pos, float h, GameSession s, float k, float alpha, bool narrow)
+    private RectangleF DrawChopper(Vector2 pos, float h, IHudModel s, float k, float alpha, bool narrow)
     {
         var l = s.Logistics;
         var ch = l.Chinook;
@@ -655,9 +695,9 @@ public sealed class Hud : IHudEvents
         b.Draw(_ui.White, c, null, new Color(0xff, 0x3b, 0x3b) * alpha, MathF.PI / 4, new Vector2(0.5f), r * 1.5f - 3 * _ui.Scale, SpriteEffects.None, 0);
     }
 
-    private void DrawSkills(Rectangle vp, GameSession s, float k, float alpha, bool touch)
+    private void DrawSkills(Rectangle vp, IHudModel s, float k, float alpha, bool touch)
     {
-        var active = s.PowerUps.Active;
+        var active = s.ActivePowers;
         var w = MathF.Min(250 * k, vp.Width * 0.46f);
         var h = 41 * k;
         var right = vp.Right - 16 * k;
@@ -670,8 +710,8 @@ public sealed class Hud : IHudEvents
             var slide = MathF.Min(1, age / 0.35f);
             var a = alpha * slide;
             var def = SupplyCatalog.Of(p.Type);
-            var color = p.Gem.HasValue ? SupplyCatalog.Of(p.Gem.Value).Css : def.Css;
-            var name = p.Gem.HasValue ? SupplyCatalog.Of(p.Gem.Value).Name : def.Name;
+            var color = p.Color ?? (p.Gem.HasValue ? SupplyCatalog.Of(p.Gem.Value).Css : def.Css);
+            var name = p.Name ?? (p.Gem.HasValue ? SupplyCatalog.Of(p.Gem.Value).Name : def.Name);
             var r = new RectangleF(right - w + (1 - slide) * 28 * k, y, w, h);
             _ui.Panel(r, 8 * k, Color.FromNonPremultiplied(14, 20, 30, 107) * a);
             var key = new RectangleF(r.X + 8 * k, r.Y + (h - 26 * k) / 2, 26 * k, 26 * k);

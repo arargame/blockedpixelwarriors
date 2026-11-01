@@ -72,16 +72,22 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
   farklı boyda beyaz taşlarla dizili toprak yoldan gelip sol duvardaki açıklıktan **beton rampayla**
   sığ suya iner. Sağdaki açıklıkta da bir rampa yukarı çıkar; tepesinde ahşap çitli kapı var: faz 1
   kazanılınca kanatları dışa açılır, arkasındaki yol 2. bölüme gider (şimdilik "PHASE 2 ·
-  yakında"). Etraf çimen, bol çam ve kayalıklar; kanalda, rampalarda ve yollarda ağaç yok. **Avcı uçak:** Blocked Pixel Panzer'in FighterJet düşmanı (Blender), 7-20 saniyede bir
+  yakında"). Etraf çimen, sık çam koruları ve kayalıklar; kanalda, rampalarda ve yollarda ağaç yok. **Avcı uçak:** Blocked Pixel Panzer'in FighterJet düşmanı (Blender), 7-20 saniyede bir
   ekranın bir yanından girip tankın üstünden geçer; 3-4 saniye kanat makineli tüfekleriyle tarar
   (her mermi o anki tank konumuna nişanlı, hareket edersen ıskalar) ve bombasını tankın o anki
   yerine düşecek şekilde bırakır — **yerinde durursan bomba vurur**. Tankın 100 zırhı var (sadece
   uçak hasar verir, bloklar asla); zırh biterse kaybedersin. Güdümlü füzeler uçağı düşürebilir
-  (yanarak düşer, yere çakılınca patlar). **W/S** sür, **A/D** gövdeyi çevir, **Q/E** ya da **←/→**
-  tareti çevirir (telefonda ekrandaki sol / sağ butonlar; fare hedef değiştirmez): helikopterdeki
-  akıllı nişan gibi taretin baktığı dar konideki en iyi blok kilitlenir (dönen köşe işareti), namlu
-  ona doğru eğilir. **SPACE / tık** (telefonda FIRE) ateş: mermi düz gider ve yolundaki ilk bloğa
-  çarpar. Rampada tank eğime göre burnunu kaldırır / indirir. Bitince **ENTER** yeniden, ESC menü.
+  (yanarak düşer, yere çakılınca patlar). **W/S** sür, **A/D** gövdeyi çevir. **Otomatik nişan**
+  (helikopterdeki gibi): taret en iyi bloğa kendisi kilitlenir (dönen köşe işareti), ona döner, namlu
+  eğilir ve hedefin üstündeyken kendisi ateş eder. Kilit beğenilmezse **Q/E** ya da **←/→**
+  (telefonda ekrandaki sol / sağ butonlar) tareti elle çevirir; bırakınca namluya en yakın blok yeni
+  kilit olur. Fare nişan almaz. **SPACE / tık** (telefonda FIRE) ayrıca ateş eder: mermi düz gider ve
+  yolundaki ilk bloğa çarpar. Rampada tank eğime göre burnunu kaldırır / indirir. Bitince **ENTER**
+  yeniden, ESC menü. **HUD helikopter bölümüyle aynı:** solda üstte SCORE, sağda PHASE, ortada kanal
+  paneli (KIRILAN / GİDER çubukları, GELEN blok), sol altta zırh çubuğu, görev listesi (900 blok kır,
+  gideri 100'ün altında tut, uçaktan sağ çık, kapıdan çık) ve log (ikmaller, her 100 blok, uçak
+  geliyor / düşürüldü +500), sağ altta aktif güçlendirmeler, ortada toast'lar, hasarda kırmızı
+  kenarlık.
   Paletler döner, lambalar yanıp söner. Ayarlar `GameConfig.tankArena` / `.tank` / `.fighter`, kod
   `src/tank/` (`TankArena` sahne + rampalar + yollar + kapı, `BlockFlow` şeritler, `DrainPile`
   gider fiziği, `ArenaTrain` trenler, `TankSupplies` sandıklar) ve `src/combat/`:
