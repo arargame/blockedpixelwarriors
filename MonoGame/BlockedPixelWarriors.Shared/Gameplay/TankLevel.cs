@@ -20,12 +20,16 @@ public enum TankLevelState { Playing, Won, Lost }
 ///   1000 blocks come in phase 1: break 900. 100 blocks in the drain loses.
 ///   Same-coloured neighbours chain-explode; weak / normal / strong (caged) / supply (star) blocks.
 ///   Supplies: T triple shells, D rapid fire, R heavy shells (splash), H drain pump (-10 blocks).
+/// The tank is solid: blocks sliding into it stop in front of it (holding up their lane) and it
+/// cannot drive through them. Smart aim (like the heli): the mouse turns the turret; within a narrow
+/// cone around that direction the best block is locked (reticle), the turret settles on it and the
+/// barrel depresses toward it; shells fly straight and hit the first block in their path.
 /// W/S drive, A/D turn, the mouse aims the turret, click / SPACE fires, ENTER restarts a finished
 /// phase. Phones: the left stick drives, a tap aims and fires. Own camera, lights and effects.
 /// </summary>
 public sealed class TankLevel
 {
-    private const float Gravity = 18, TankR = 2.25f;
+    
     private static readonly Dictionary<SupplyType, string> PowerNames = new()
     {
         [SupplyType.T] = "TRIPLE SHELLS", [SupplyType.D] = "RAPID FIRE", [SupplyType.R] = "HEAVY SHELLS", [SupplyType.H] = "DRAIN PUMP -10", [SupplyType.G] = "RAPID FIRE",
@@ -38,7 +42,10 @@ public sealed class TankLevel
     private readonly TankTrackData _track;
     private readonly InstanceBuffer _links;
     private readonly List<(RenderMaterial mat, Vector3 baseEmissive, bool red)> _lamps = new();
-    private readonly List<(Vector3 pos, Vector3 vel, float t, float T, bool heavy)> _shells = new();
+    private readonly List<(Vector3 pos, Vector3 vel, float dist, bool heavy)> _shells = new();
+    private readonly BillboardBatch _reticle;
+    private float _reticleSpin, _elevation0;
+    private (TankBlock block, float at)? _lock;
     private readonly float[] _trackOffset = new float[2];
     private readonly TrainFactory _trainFactory;
     private readonly Microsoft.Xna.Framework.Graphics.GraphicsDevice _device;
@@ -57,6 +64,9 @@ public sealed class TankLevel
     public SupplyCrates Supplies { get; }
     public Vector3 Position;
     public float Heading, Speed, TurnRate, TurretYaw, Recoil, RecoilVel, Cooldown, Pitch, ReloadTime = GameConfig.Tank.Reload;
+    /// <summary>Barrel elevation (rad, + up) and where it is heading.</summary>
+    public float Elevation = -0.12f, AimElevation = -0.12f;
+    public bool Locked => _lock != null;
     public float Time { get; private set; }
     public bool Available => _hull != null && _track != null;
     public float ReloadRatio => 1 - Cooldown / ReloadTime;
@@ -117,13 +127,15 @@ public sealed class TankLevel
 
         Blocks = new BlockFlow(models, Effects)
         {
-            ResolveTank = PushTank,
+            ResolveTank = HoldBlock,
             OnDrain = OnDrain,
             OnDestroyed = OnBlockDestroyed,
         };
         Pile = new DrainPile(models, Effects);
         Supplies = new SupplyCrates(models.Device, models, scene.Prefabs.SupplyCrateTextures, Effects) { OnPickup = OnPickup };
         _trainFactory = new TrainFactory(models, scene.Prefabs);
+        var (ret, retSrgb) = models.Texture("ui_reticle");
+        _reticle = new BillboardBatch(models.Device, ret, retSrgb, 1, false, 30) { DepthTest = false };
 
         if (!Available) return;
         _turretBase = MathX.FromThree(data.TurretMatrix);
@@ -131,6 +143,7 @@ public sealed class TankLevel
         _muzzleLocal = MathX.V3(data.Muzzle);
         // The barrel's pitch is baked into its mesh: its axis is the direction to the muzzle.
         _barrelAxis = Vector3.Normalize(Vector3.TransformNormal(_muzzleLocal, _barrelBase));
+        _elevation0 = MathF.Asin(Math.Clamp(_barrelAxis.Y, -1, 1));
         _links = new InstanceBuffer(models.Device, _track.Count * 2, true);
         // Blinking lamps: TankRed (tail lamps) and TankAmber (turret rear lamps).
         foreach (var mesh in new[] { _hull, _turret })
@@ -148,6 +161,8 @@ public sealed class TankLevel
     {
         Position = new Vector3(0, GameConfig.TankArena.FloorHeight(8), 8);
         Heading = Speed = TurnRate = TurretYaw = Recoil = RecoilVel = Cooldown = Pitch = 0;
+        Elevation = AimElevation = -0.12f;
+        _lock = null;
         ReloadTime = GameConfig.Tank.Reload;
         _shells.Clear();
         Effects.Clear();
@@ -200,7 +215,12 @@ public sealed class TankLevel
     {
         Time += dt;
         if (aim.HasValue) _aim = aim.Value;
-        Drive(dt, throttle, turn);
+        // Smart aim: the turret settles on the locked block, the barrel depresses toward it.
+        var lockBlock = State == TankLevelState.Playing ? LockedTarget() : null;
+        var target = lockBlock != null ? BlockCenter(lockBlock) : FreeAimPoint();
+        Drive(dt, throttle, turn, target);
+        AimBarrel(target);
+        UpdateReticle(dt, lockBlock != null, target);
         foreach (var k in Powers.Keys.ToList()) Powers[k] = MathF.Max(0, Powers[k] - dt);
         if (fire) Fire();
         if (State == TankLevelState.Playing) UpdateTrains(dt);
@@ -231,7 +251,7 @@ public sealed class TankLevel
 
     // ---- Tank ----------------------------------------------------------------------------------
 
-    private void Drive(float dt, float throttle, float turn)
+    private void Drive(float dt, float throttle, float turn, Vector3 aimPoint)
     {
         var target = throttle * GameConfig.Tank.Speed * (throttle < 0 ? GameConfig.Tank.ReverseMul : 1);
         var acc = MathF.Abs(target) > MathF.Abs(Speed) ? GameConfig.Tank.Accel : GameConfig.Tank.Brake;
@@ -242,15 +262,22 @@ public sealed class TankLevel
         Position.X += MathF.Sin(Heading) * Speed * dt;
         Position.Z += MathF.Cos(Heading) * Speed * dt;
         ClampToBounds();
+        // Blocks are solid: the hull is pushed back out of them.
+        CollideTank();
+        ClampToBounds();
         Position.Y = GameConfig.TankArena.FloorHeight(Position.Z);
         // Slight pitch with acceleration (nose lifts pulling away, dips braking).
         Pitch = MathHelper.Lerp(Pitch, -Math.Clamp((target - Speed) * 0.012f, -0.04f, 0.04f), 1 - MathF.Exp(-6 * dt));
 
         // Turret toward the aim point at a limited rate.
-        var aimYaw = MathF.Atan2(_aim.X - Position.X, _aim.Z - Position.Z) - Heading;
+        var aimYaw = MathF.Atan2(aimPoint.X - Position.X, aimPoint.Z - Position.Z) - Heading;
         var d = Wrap(aimYaw - TurretYaw);
         var step = GameConfig.Tank.TurretSpeed * dt;
         TurretYaw = Wrap(TurretYaw + Math.Clamp(d, -step, step));
+
+        // Barrel elevation toward AimElevation at a limited rate.
+        var de = Math.Clamp(AimElevation - Elevation, -GameConfig.Tank.ElevationSpeed * dt, GameConfig.Tank.ElevationSpeed * dt);
+        Elevation = Math.Clamp(Elevation + de, GameConfig.Tank.ElevationMin, GameConfig.Tank.ElevationMax);
 
         // Barrel recoil spring.
         RecoilVel += (-Recoil * GameConfig.Tank.RecoilSpring - RecoilVel * GameConfig.Tank.RecoilDamping) * dt;
@@ -271,16 +298,25 @@ public sealed class TankLevel
         }
     }
 
-    /// <summary>Keeps the hull inside the channel (walls, dam lip, rail end).</summary>
+    /// <summary>Keeps the (turned) hull footprint in the channel, above the dam lip and below the landing zone.</summary>
     private void ClampToBounds()
     {
-        Position.X = Math.Clamp(Position.X, -HalfW + TankR, HalfW - TankR);
-        Position.Z = Math.Clamp(Position.Z, 2.4f, GameConfig.TankArena.TopZ - 2);
+        var c = MathF.Abs(MathF.Cos(Heading));
+        var sn = MathF.Abs(MathF.Sin(Heading));
+        var ex = c * GameConfig.Tank.HalfX + sn * GameConfig.Tank.HalfZ;
+        var ez = sn * GameConfig.Tank.HalfX + c * GameConfig.Tank.HalfZ;
+        Position.X = Math.Clamp(Position.X, -HalfW + ex, HalfW - ex);
+        Position.Z = Math.Clamp(Position.Z, 0.3f + ez, GameConfig.TankArena.TopZ - GameConfig.TankArena.Block * 2.6f - ez);
     }
 
     private Matrix HullWorld => MathX.RotationXYZ(Pitch, Heading, 0) * Matrix.CreateTranslation(Position);
     private Matrix TurretWorld => Matrix.CreateRotationY(TurretYaw) * _turretBase * HullWorld;
-    private Matrix BarrelWorld => Matrix.CreateTranslation(-_barrelAxis * Recoil) * _barrelBase * TurretWorld;
+    /// <summary>Barrel pose without recoil: its model pitch (elevation0) turned to Elevation about its base.</summary>
+    private Matrix BarrelRest => Matrix.CreateRotationX(_elevation0 - Elevation) * _barrelBase * TurretWorld;
+    /// <summary>Barrel axis in turret space at the current elevation.</summary>
+    private Vector3 BarrelAxis => Vector3.Normalize(Vector3.TransformNormal(_muzzleLocal, Matrix.CreateRotationX(_elevation0 - Elevation) * _barrelBase));
+    private Matrix BarrelWorld => Matrix.CreateRotationX(_elevation0 - Elevation) * _barrelBase * Matrix.CreateTranslation(-BarrelAxis * Recoil) * TurretWorld;
+    private Vector3 BarrelPivot => Vector3.Transform(_barrelBase.Translation, TurretWorld);
     private float GunYaw => Heading + TurretYaw;
 
     // ---- Trains --------------------------------------------------------------------------------
@@ -323,36 +359,81 @@ public sealed class TankLevel
 
     // ---- Blocks vs tank, drain, scoring ---------------------------------------------------------
 
-    /// <summary>
-    /// A sliding block touching the tank pushes it (out of the block's square). Returns how far the
-    /// block has to be held back when the tank cannot give way (pinned against the bottom / walls).
-    /// </summary>
-    private float PushTank(TankBlock b)
+    private static (float x, float z)[] Axes(float heading)
     {
-        var h = Blocks.Size * 0.5f;
-        var cx = Math.Clamp(Position.X, b.X - h, b.X + h);
-        var cz = Math.Clamp(Position.Z, b.Z - h, b.Z + h);
-        var dx = Position.X - cx;
-        var dz = Position.Z - cz;
-        var d2 = dx * dx + dz * dz;
-        if (d2 >= TankR * TankR) return 0;
-        var d = MathF.Sqrt(d2);
-        if (d < 1e-4f)
+        var c = MathF.Cos(heading);
+        var sn = MathF.Sin(heading);
+        // Block x, z; hull right (c, -sn), forward (sn, c).
+        return new[] { (1f, 0f), (0f, 1f), (c, -sn), (sn, c) };
+    }
+
+    /// <summary>Projections of the hull footprint and a block square on a 2D axis.</summary>
+    private (float tmin, float tmax, float bmin, float bmax, float tc, float bc) Project(float ax, float az, TankBlock b)
+    {
+        var c = MathF.Cos(Heading);
+        var sn = MathF.Sin(Heading);
+        var tr = GameConfig.Tank.HalfX * MathF.Abs(c * ax - sn * az) + GameConfig.Tank.HalfZ * MathF.Abs(sn * ax + c * az);
+        var tc = Position.X * ax + Position.Z * az;
+        var h = Blocks.Size * 0.475f;
+        var br = h * (MathF.Abs(ax) + MathF.Abs(az));
+        var bc = b.X * ax + b.Z * az;
+        return (tc - tr, tc + tr, bc - br, bc + br, tc, bc);
+    }
+
+    private bool Near(TankBlock b) => MathF.Abs(b.X - Position.X) < 4.6f && MathF.Abs(b.Z - Position.Z) < 4.6f;
+
+    /// <summary>
+    /// A block sliding into the tank stops in front of it: how far up the lane it has to be held
+    /// back (0 when it is clear of the hull or below it).
+    /// </summary>
+    private float HoldBlock(TankBlock b)
+    {
+        if (!Near(b) || b.Z <= Position.Z) return 0;
+        var need = float.PositiveInfinity;
+        foreach (var (ax, az) in Axes(Heading))
         {
-            dx = 0;
-            dz = -1;
-            d = 1;
+            var p = Project(ax, az, b);
+            if (p.bmin >= p.tmax || p.bmax <= p.tmin) return 0;
+            // Moving the block by dz along +z shifts its projection by dz * az.
+            if (az > 1e-4f) need = MathF.Min(need, (p.tmax - p.bmin) / az);
+            else if (az < -1e-4f) need = MathF.Min(need, (p.tmin - p.bmax) / az);
         }
-        var over = TankR - d;
-        Position.X += dx / d * over;
-        Position.Z += dz / d * over;
-        ClampToBounds();
-        // Whatever overlap is left holds the block back up the lane.
-        var cz2 = Math.Clamp(Position.Z, b.Z - h, b.Z + h);
-        var cx2 = Math.Clamp(Position.X, b.X - h, b.X + h);
-        var rest = MathF.Sqrt((Position.X - cx2) * (Position.X - cx2) + (Position.Z - cz2) * (Position.Z - cz2));
-        if (rest >= TankR - 1e-3f || Position.Z > b.Z) return 0;
-        return TankR - rest;
+        return float.IsFinite(need) ? need + 1e-3f : 0;
+    }
+
+    /// <summary>The hull cannot drive into blocks: pushed back out along the axis of least overlap.</summary>
+    private void CollideTank()
+    {
+        for (var pass = 0; pass < 2; pass++)
+        foreach (var lane in Blocks.Lanes)
+        foreach (var b in lane)
+        {
+            if (!Near(b)) continue;
+            var best = float.PositiveInfinity;
+            float bx = 0, bz = 0;
+            foreach (var (ax, az) in Axes(Heading))
+            {
+                var p = Project(ax, az, b);
+                var o = MathF.Min(p.tmax - p.bmin, p.bmax - p.tmin);
+                if (o <= 0)
+                {
+                    best = 0;
+                    break;
+                }
+                if (o < best)
+                {
+                    best = o;
+                    var sgn = p.tc < p.bc ? -1 : 1;
+                    bx = ax * sgn;
+                    bz = az * sgn;
+                }
+            }
+            if (best > 0 && float.IsFinite(best))
+            {
+                Position.X += bx * best;
+                Position.Z += bz * best;
+            }
+        }
     }
 
     private void OnDrain(TankBlock b)
@@ -403,16 +484,91 @@ public sealed class TankLevel
         _bannerTimer = seconds;
     }
 
+    // ---- Aiming (smart aim) ---------------------------------------------------------------------
+
+    /// <summary>
+    /// The locked block (refreshed every LockRefresh s): within AimCone around the direction the
+    /// player aims the turret, the best block by angle and distance (nearer and more centred wins).
+    /// </summary>
+    private TankBlock LockedTarget()
+    {
+        if (_lock is { } l && Time - l.at < GameConfig.Tank.LockRefresh && l.block.Alive && !l.block.Drained) return l.block;
+        var yaw = MathF.Atan2(_aim.X - Position.X, _aim.Z - Position.Z);
+        TankBlock best = null;
+        var bestScore = float.PositiveInfinity;
+        foreach (var lane in Blocks.Lanes)
+        foreach (var b in lane)
+        {
+            var dx = b.X - Position.X;
+            var dz = b.Z - Position.Z;
+            var d = MathF.Sqrt(dx * dx + dz * dz);
+            if (d < 2.6f || d > GameConfig.Tank.ShellRange) continue;
+            var ang = MathF.Abs(Wrap(MathF.Atan2(dx, dz) - yaw));
+            if (ang > GameConfig.Tank.AimCone) continue;
+            // Keep the current lock unless something is clearly better (no flicker between neighbours).
+            var score = ang * 12 + d * 0.35f - (_lock is { } cur && cur.block == b ? 0.6f : 0);
+            if (score < bestScore)
+            {
+                bestScore = score;
+                best = b;
+            }
+        }
+        _lock = best != null ? (best, Time) : null;
+        return best;
+    }
+
+    private Vector3 BlockCenter(TankBlock b)
+    {
+        var s = Blocks.Size * 0.95f * (b.Type == TankBlockType.Weak ? 0.9f : 1);
+        return new Vector3(b.X, GameConfig.TankArena.FloorHeight(b.Z) + s / 2, b.Z);
+    }
+
+    private float BlockTop(TankBlock b) => GameConfig.TankArena.FloorHeight(b.Z) + Blocks.Size * 0.95f * (b.Type == TankBlockType.Weak ? 0.9f : 1);
+
+    /// <summary>No lock: a point along the aim direction at block-centre height.</summary>
+    private Vector3 FreeAimPoint()
+    {
+        var dx = _aim.X - Position.X;
+        var dz = _aim.Z - Position.Z;
+        var d = MathF.Max(1e-3f, MathF.Sqrt(dx * dx + dz * dz));
+        var r = Math.Clamp(d, 8, 26);
+        var x = Position.X + dx / d * r;
+        var z = Position.Z + dz / d * r;
+        return new Vector3(x, GameConfig.TankArena.FloorHeight(z) + 0.9f, z);
+    }
+
+    /// <summary>Barrel elevation toward the target (from the barrel's pivot).</summary>
+    private void AimBarrel(Vector3 target)
+    {
+        if (!Available) return;
+        var pivot = BarrelPivot;
+        var h = MathF.Sqrt((target.X - pivot.X) * (target.X - pivot.X) + (target.Z - pivot.Z) * (target.Z - pivot.Z));
+        AimElevation = MathF.Atan2(target.Y - pivot.Y, MathF.Max(h, 0.5f));
+    }
+
+    private void UpdateReticle(float dt, bool locked, Vector3 target)
+    {
+        _reticle.Begin();
+        if (State == TankLevelState.Playing)
+        {
+            _reticleSpin += dt * (locked ? 2 : 0.8f);
+            var s = locked ? 2.6f + MathF.Sin(_reticleSpin * 3) * 0.18f : 2.2f;
+            var a = locked ? 1 : 0.4f;
+            _reticle.Push(target.X, target.Y, target.Z, s, s, 1, 1, 1, a, _reticleSpin);
+        }
+        _reticle.End();
+    }
+
     // ---- Shooting --------------------------------------------------------------------------------
 
-    /// <summary>Shot: barrel kick, muzzle flash, shells lobbed to land on the aim point (3 with T).</summary>
+    /// <summary>Shot: barrel kick, muzzle flash, shells straight at the locked block (3 with T).</summary>
     private void Fire()
     {
         if (Cooldown > 0 || !Available) return;
         ReloadTime = GameConfig.Tank.Reload * (Powers[SupplyType.D] > 0 ? 0.4f : 1);
         Cooldown = ReloadTime;
         RecoilVel = GameConfig.Tank.RecoilKick;
-        var bw = _barrelBase * TurretWorld;
+        var bw = BarrelRest;
         var muzzle = Vector3.Transform(_muzzleLocal, bw);
         var dir = Vector3.Normalize(Vector3.TransformNormal(_muzzleLocal, bw));
         var r = Rng.Shared;
@@ -429,43 +585,76 @@ public sealed class TankLevel
             });
         }
         _shake = MathF.Max(_shake, 0.3f);
-        var dist = Math.Clamp(MathF.Sqrt((_aim.X - Position.X) * (_aim.X - Position.X) + (_aim.Z - Position.Z) * (_aim.Z - Position.Z)), 5, GameConfig.Tank.ShellRange);
-        var spreads = Powers[SupplyType.T] > 0 ? new[] { -0.14f, 0f, 0.14f } : new[] { 0f };
+        // Locked: straight at the block's centre (the gunner corrects the last few degrees).
+        var lockBlock = _lock is { } l && l.block.Alive ? l.block : null;
+        var aimDir = lockBlock != null ? Vector3.Normalize(BlockCenter(lockBlock) - muzzle) : dir;
+        // Point blank: a block between the barrel's base and the muzzle takes the hit at once.
+        var close = TraceBlock(BarrelPivot, muzzle);
+        if (close != null)
+        {
+            Impact(BlockCenter(close), Powers[SupplyType.R] > 0, close, "block");
+            return;
+        }
+        var spreads = Powers[SupplyType.T] > 0 ? new[] { -0.12f, 0f, 0.12f } : new[] { 0f };
         foreach (var off in spreads)
         {
-            var yaw = GunYaw + off;
-            var tx = Position.X + MathF.Sin(yaw) * dist;
-            var tz = Position.Z + MathF.Cos(yaw) * dist;
-            var ty = GameConfig.TankArena.FloorHeight(tz) + (Blocks.BlockAt(tx, tz) != null ? Blocks.Size : 0.1f);
-            var T = MathF.Max(0.2f, MathF.Sqrt((tx - muzzle.X) * (tx - muzzle.X) + (tz - muzzle.Z) * (tz - muzzle.Z)) / GameConfig.Tank.ShellSpeed);
-            var vel = new Vector3((tx - muzzle.X) / T, (ty - muzzle.Y + 0.5f * Gravity * T * T) / T, (tz - muzzle.Z) / T);
-            _shells.Add((muzzle, vel, 0, T, Powers[SupplyType.R] > 0));
+            var vel = Vector3.Transform(aimDir, Matrix.CreateRotationY(off)) * GameConfig.Tank.ShellSpeed;
+            _shells.Add((muzzle, vel, 0, Powers[SupplyType.R] > 0));
         }
     }
 
+    /// <summary>First block on the segment a -> b (0.25 steps), or null.</summary>
+    private TankBlock TraceBlock(Vector3 a, Vector3 b)
+    {
+        var n = Math.Max(1, (int)MathF.Ceiling(Vector3.Distance(a, b) / 0.25f));
+        for (var k = 0; k <= n; k++)
+        {
+            var p = Vector3.Lerp(a, b, k / (float)n);
+            var blk = Blocks.BlockAt(p.X, p.Z);
+            if (blk != null && p.Y <= BlockTop(blk)) return blk;
+        }
+        return null;
+    }
+
+    /// <summary>Direct fire: each shell flies straight and stops at the first block, wall or the floor.</summary>
     private void UpdateShells(float dt)
     {
         for (var i = _shells.Count - 1; i >= 0; i--)
         {
             var s = _shells[i];
-            s.t += dt;
-            s.vel.Y -= Gravity * dt;
-            s.pos += s.vel * dt;
+            var speed = s.vel.Length();
+            var n = Math.Max(1, (int)MathF.Ceiling(speed * dt / 0.5f));
+            var h = dt / n;
+            string hit = null;
+            TankBlock block = null;
+            for (var k = 0; k < n && hit == null; k++)
+            {
+                s.pos += s.vel * h;
+                s.dist += speed * h;
+                var b = Blocks.BlockAt(s.pos.X, s.pos.Z);
+                if (b != null && s.pos.Y <= BlockTop(b))
+                {
+                    hit = "block";
+                    block = b;
+                }
+                else if (s.pos.Y <= GameConfig.TankArena.FloorHeight(s.pos.Z) + 0.05f) hit = "floor";
+                else if (MathF.Abs(s.pos.X) > HalfW || s.pos.Z > GameConfig.TankArena.TopZ + 0.5f) hit = "wall";
+                else if (s.dist > GameConfig.Tank.ShellRange) hit = "air";
+            }
             Effects.Fire.Emit(new ParticleSpec { Position = s.pos, Life = 0.12f, Size0 = 0.45f, Size1 = 0.1f, Aspect = 1, Color0 = new Vector4(3, 1.8f, 0.6f, 1), Color1 = new Vector4(1, 0.4f, 0.1f, 0), HasColor1 = true });
-            if (s.t < s.T)
+            if (hit == null)
             {
                 _shells[i] = s;
                 continue;
             }
             _shells.RemoveAt(i);
-            Impact(s.pos, s.heavy);
+            Impact(s.pos, s.heavy, block, hit);
         }
     }
 
-    private void Impact(Vector3 at, bool heavy)
+    private void Impact(Vector3 at, bool heavy, TankBlock b, string kind)
     {
         var dmg = GameConfig.Tank.ShellDamage;
-        var b = Blocks.BlockAt(at.X, at.Z);
         if (b != null) Blocks.Damage(b, dmg * (heavy ? 2 : 1), at);
         if (heavy)
         {
@@ -474,11 +663,12 @@ public sealed class TankLevel
             foreach (var (dx, dz) in new[] { (S, 0f), (-S, 0f), (0f, S), (0f, -S) })
             {
                 var n = Blocks.BlockAt(at.X + dx, at.Z + dz);
-                if (n != null) Blocks.Damage(n, dmg, new Vector3(n.X, at.Y, n.Z));
+                if (n != null && n != b) Blocks.Damage(n, dmg, new Vector3(n.X, at.Y, n.Z));
             }
         }
-        Effects.Explosion(at, heavy ? 1.3f : 0.9f, b != null ? null : 0x7a6a52u, b != null ? 0 : 6);
-        if (b == null) Effects.SnowPuff(at + new Vector3(0, 0.1f, 0), 6);
+        uint debris = kind == "wall" ? 0xb9b6adu : 0x7a6a52u;
+        Effects.Explosion(at, heavy ? 1.3f : 0.9f, b != null ? null : debris, b != null || kind == "air" ? 0 : 6);
+        if (kind == "floor") Effects.SnowPuff(at + new Vector3(0, 0.1f, 0), 6);
         var d = Vector3.Distance(at, Position);
         _shake = MathF.Max(_shake, Math.Clamp(0.4f - d * 0.01f, 0.06f, 0.4f));
     }
@@ -560,6 +750,7 @@ public sealed class TankLevel
             _links.Upload();
             queue.Add(_link, Matrix.Identity, DrawOverrides.None, true, 0, RenderLayer.World, _links);
         }
+        queue.Add(_reticle);
         foreach (var s in _shells)
         {
             var dir = Vector3.Normalize(s.vel);

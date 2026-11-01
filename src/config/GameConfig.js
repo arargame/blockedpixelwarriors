@@ -179,13 +179,21 @@ export const GameConfig = Object.freeze({
     recoilKick: 7.5,       // barrel kick-back speed on a shot (units / s)
     recoilSpring: 140,
     recoilDamping: 15,
-    shellSpeed: 46,
+    shellSpeed: 52,
     shellRange: 60,
     blinkHz: 1.4,          // tail / amber lamp blink rate
     bounds: 90,            // half size of the drivable range
     // Follow camera: z = tank z * follow - back, looking `ahead` up the channel (the drain stays in view).
     camera: Object.freeze({ height: 40, back: 28, follow: 0.5, ahead: 44, fov: 46 }),
     shellDamage: 1,
+    // Direct fire: the barrel depresses / elevates toward the locked block (rad, rad/s).
+    elevationMin: -0.36,
+    elevationMax: 0.12,
+    elevationSpeed: 1.4,
+    // Smart aim (like the heli): within this cone around the turret's aim direction the best
+    // block is locked (reticle) and the shell flies straight at its centre.
+    aimCone: 0.32,
+    lockRefresh: 0.12,
   }),
 
   /**

@@ -118,7 +118,13 @@ public static class GameConfig
     {
         public const float Speed = 7, ReverseMul = 0.6f, Accel = 9, Brake = 14, TurnSpeed = 1.6f, TurretSpeed = 2.4f;
         public const float Reload = 0.5f, RecoilKick = 7.5f, RecoilSpring = 140, RecoilDamping = 15;
-        public const float ShellSpeed = 46, ShellRange = 60, BlinkHz = 1.4f, Bounds = 90, ShellDamage = 1;
+        public const float ShellSpeed = 52, ShellRange = 60, BlinkHz = 1.4f, Bounds = 90, ShellDamage = 1;
+        /// <summary>Direct fire: the barrel depresses / elevates toward the locked block (rad, rad/s).</summary>
+        public const float ElevationMin = -0.36f, ElevationMax = 0.12f, ElevationSpeed = 1.4f;
+        /// <summary>Smart aim: cone around the turret's aim direction in which a block is locked.</summary>
+        public const float AimCone = 0.32f, LockRefresh = 0.12f;
+        /// <summary>Collision footprint half size of the hull (tank space).</summary>
+        public const float HalfX = 2.0f, HalfZ = 2.25f;
         /// <summary>Follow camera: z = tank z * follow - back, looking `ahead` up the channel.</summary>
         public const float CameraHeight = 40, CameraBack = 28, CameraFollow = 0.5f, CameraAhead = 44, CameraFov = 46;
     }

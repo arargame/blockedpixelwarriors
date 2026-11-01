@@ -99,7 +99,9 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
 - **Tank seviyesi (IRON TRACKS kartı, faz 1 — kanal):** `Gameplay/TankLevel.cs` kendi kamerası,
   ışıkları ve efektleriyle; `Gameplay/TankArena.cs` web'deki `BlockFlow` (şeritlerde kayan / iten /
   zincirleme patlayan bloklar), `DrainPile` (gider fiziği, aynı konum tabanlı çözücü) ve
-  `ArenaTrain` (lokomotif + yük vagonları, şeride blok bırakır) birebir. Sahne `tank_arena` modeli
+  `ArenaTrain` (lokomotif + yük vagonları, şeride blok bırakır) birebir. Tank katı (gövde izi ile
+  blok kareleri arasında SAT: kayan blok önünde durur, tank bloğa giremez); akıllı nişan kilidi
+  `ui_reticle` ile gösterilir, namlu hedefe eğilir, mermiler düz gider. Sahne `tank_arena` modeli
   + `tank_arena_inst*` (çam / travers / kaya) — su malzemeleri dışa aktarımda `scrollV` taşır, doku
   zamanla akar. Tank `tank_hull / tank_turret / tank_barrel / tank_link` (Blender), paletler
   instancing ile döner, namlu geri teper, lambalar yanıp söner. HUD: KIRILAN / GİDER (dolum çubuğu)
@@ -115,6 +117,6 @@ BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|menu|
 # menü: tuş betiği ve dil (save = 2. bölüm kaydı + ilerleme)
 BlockedPixelWarriors --capture menu.png --frames 3 --scenario menu --lang tr --menu down,right,enter
 node tools/staticshot.mjs web.png   # aynı "static" kareyi web sürümünden alır (karşılaştırma)
-# tank: 20 sn tren + --extra sn (varsayılan 45) en alttaki bloğa nişan alan otomatik nişancı
-BlockedPixelWarriors --capture tank.png --frames 3 --scenario tank --extra 45
+# tank: 48 sn tren (tank şeritleri tutar) + --extra sn (varsayılan 30) en alttaki bloğa nişan alan otomatik nişancı
+BlockedPixelWarriors --capture tank.png --frames 3 --scenario tank --extra 30
 ```

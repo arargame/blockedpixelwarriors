@@ -52,8 +52,9 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
 - **Tank seviyesi (IRON TRACKS) · Faz 1 — Kanal:** kamera kanala yukarıdan, arkadan bakar. En üstte
   kanalı enlemesine kesen rayda trenler sırayla sağdan / soldan geçer; her vagon geçtiği şeride
   bazen blok bırakır, bazen boşluk, bazen üst üste iki tane. Kanal beton, tabanında akan sığ su var
-  ve hafif eğimli: bloklar şeritlerde sabit hızla aşağı kayar, yeni düşen blok altındakileri iter,
-  bloklar tankı da iter (tank kenara / baraja sıkışırsa sırayı tutar). En altta baraj ağzından su
+  ve hafif eğimli: bloklar şeritlerde sabit hızla aşağı kayar, yeni düşen blok altındakileri iter.
+  Tank katı bir engel: kanalın neresinde olursa olsun üstüne kayan bloklar önünde durur (kapladığı
+  şeritleri tutar), tank da blokların içinden geçemez. En altta baraj ağzından su
   oval büyük bir gidere dökülür; kaçan bloklar oraya düşer ve fizikle (küçük konum tabanlı çözücü:
   yerçekimi, zemin, oval duvar, blok-blok temas, sürtünme, suda sıçrama) üst üste yığılır.
   **1000 blok gelir, 900'ünü kır; giderde 100 blok olursa kaybedersin.** Aynı renkte yan yana / arka
@@ -61,7 +62,9 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
   renk), normal, güçlü (çelik kafes), ikmal (yıldız; heli bölümündeki kasalar): **T** üçlü mermi,
   **D** seri atış, **R** ağır mermi (çevresine de vurur), **H** gider pompası (-10 blok).
   Etraf çimen, çam ve kaya; kanalın içinde ağaç yok. **W/S** sür, **A/D** gövdeyi çevir, **fare**
-  nişan, **tık / SPACE** ateş (mermi nişan noktasına kavisle düşer), bitince **ENTER** yeniden, ESC
+  tareti çevirir: helikopterdeki akıllı nişan gibi o yönün dar konisindeki en iyi blok kilitlenir
+  (dönen köşe işareti), taret ona oturur, namlu ona doğru eğilir. **Tık / SPACE** ateş: mermi düz
+  gider ve yolundaki ilk bloğa çarpar (tıklanan noktaya değil). Bitince **ENTER** yeniden, ESC
   menü. Paletler döner, lambalar yanıp söner. Ayarlar `GameConfig.tankArena`, kod `src/tank/`
   (`TankArena` sahne, `BlockFlow` şeritler, `DrainPile` gider fiziği, `ArenaTrain` trenler).
 - **Raylardaki kar** eskisinin %10'u kadar birikir (`GameConfig.track.railSnow`).

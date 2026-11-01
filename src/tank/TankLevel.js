@@ -9,14 +9,15 @@ import { ArenaTrain } from './ArenaTrain.js';
 import { SupplyCrates } from '../entities/PowerUps.js';
 import { PickupSfx } from '../audio/PickupSfx.js';
 import { fxRandom as rnd } from '../util/Random.js';
+import { reticleTexture } from '../ui/Reticle.js';
 
 const v1 = new THREE.Vector3();
 const v2 = new THREE.Vector3();
 const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const ray = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
-const GRAVITY = 18;
-const TANK_R = 2.25;
+const v3 = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
 
 /** Tank power-ups from supply blocks (the heli game's crates, tank meanings). */
 const POWER_NAMES = Object.freeze({ T: 'TRIPLE SHELLS', D: 'RAPID FIRE', R: 'HEAVY SHELLS', H: 'DRAIN PUMP -10', G: 'RAPID FIRE' });
@@ -29,6 +30,11 @@ const POWER_NAMES = Object.freeze({ T: 'TRIPLE SHELLS', D: 'RAPID FIRE', R: 'HEA
  *   1000 blocks come in phase 1: break 900. 100 blocks in the drain loses.
  *   Same-coloured neighbours chain-explode; weak / normal / strong (caged) / supply (star) blocks.
  *   Supplies: T triple shells, D rapid fire, R heavy shells (splash), H drain pump (-10 blocks).
+ * The tank is solid: blocks sliding into it stop in front of it (and hold up their lane), and it
+ * cannot drive through them.
+ * Aiming (smart aim, like the heli): the mouse turns the turret; within a narrow cone around that
+ * direction the best block is locked (reticle), the turret settles on it and the barrel depresses
+ * toward it. Shells fly straight (direct fire) and hit the first block in their path.
  * Controls: W/S drive, A/D turn, mouse aims the turret, click / SPACE fires, ENTER restarts a
  * finished phase, ESC pause menu. Own scene and camera; the game's pipeline points at them.
  */
@@ -78,13 +84,22 @@ export class TankLevel {
     this.scene.add(this.tank.root);
     const A = GameConfig.tankArena;
     const halfW = (A.block * A.lanes) / 2;
-    this.tank.bounds = { minX: -halfW + TANK_R, maxX: halfW - TANK_R, minZ: 2.4, maxZ: A.topZ - 2 };
+    // The hull footprint stays in the channel, above the dam lip and below the landing zone.
+    this.tank.bounds = { minX: -halfW, maxX: halfW, minZ: 0.3, maxZ: A.topZ - A.block * 2.6 };
     this.tank.heightAt = (z) => this.arena.floorHeight(z);
-    this.blocks.resolveTank = (b) => this.pushTank(b);
+    this.tank.collide = () => this.collideTank();
+    this.blocks.resolveTank = (b) => this.holdBlock(b);
     this.blocks.onDrain = (b) => this.onDrain(b);
     this.blocks.onDestroyed = (b, depth, at) => this.onBlockDestroyed(b, depth, at);
 
     this.shells = [];
+    this.lock = null;
+    this.time = 0;
+    this.reticle = new THREE.Sprite(new THREE.SpriteMaterial({ map: reticleTexture(), depthTest: false, transparent: true }));
+    this.reticle.renderOrder = 30;
+    this.reticle.visible = false;
+    this.reticleSpin = 0;
+    this.scene.add(this.reticle);
     this.shellGeometry = new THREE.CapsuleGeometry(0.13, 0.5, 4, 8).rotateX(Math.PI / 2);
     this.shellMaterial = new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffa040, emissiveIntensity: 2.2, roughness: 0.3 });
     this.aim = new THREE.Vector3(0, 0, 20);
@@ -138,6 +153,8 @@ export class TankLevel {
     const t = this.tank;
     t.root.position.set(0, 0, 8);
     t.heading = 0;
+    t.elevation = t.aimElevation = -0.12;
+    this.lock = null;
     t.speed = 0;
     t.turnRate = 0;
     t.turretYaw = 0;
@@ -146,6 +163,13 @@ export class TankLevel {
     t.cooldown = 0;
     for (const s of this.shells) s.mesh.removeFromParent();
     this.shells = [];
+    this.lock = null;
+    this.time = 0;
+    this.reticle = new THREE.Sprite(new THREE.SpriteMaterial({ map: reticleTexture(), depthTest: false, transparent: true }));
+    this.reticle.renderOrder = 30;
+    this.reticle.visible = false;
+    this.reticleSpin = 0;
+    this.scene.add(this.reticle);
     this.blocks.reset();
     this.pile.reset();
     this.supplies.clear();
@@ -202,7 +226,13 @@ export class TankLevel {
   /** One simulation step (also driven by test scripts). */
   step(dt, drive, fire) {
     const t = this.tank;
-    t.update(dt, drive, this.aim);
+    this.time += dt;
+    // Smart aim: the turret settles on the locked block, the barrel depresses toward it.
+    const lock = this.state === 'playing' ? this.lockedTarget() : null;
+    const target = lock ? this.blockCenter(lock, v3) : this.freeAimPoint(v3);
+    t.update(dt, drive, target);
+    this.aimBarrel(target);
+    this.updateReticle(dt, lock, target);
     for (const key of Object.keys(this.powers)) this.powers[key] = Math.max(0, this.powers[key] - dt);
     if (fire) this.fire();
     if (this.state === 'playing') this.updateTrains(dt);
@@ -260,35 +290,81 @@ export class TankLevel {
 
   // ---- Blocks vs tank, drain, scoring -------------------------------------------------------
 
-  /**
-   * A sliding block touching the tank pushes it (out of the block's square). Returns how far the
-   * block has to be held back when the tank cannot give way (pinned against the bottom / walls).
-   */
-  pushTank(b) {
+  /** Projections of the tank footprint and a block square on a 2D axis (ax, az). */
+  project(ax, az, b, out) {
+    const t = this.tank;
+    const p = t.position;
+    const c = Math.cos(t.heading);
+    const sn = Math.sin(t.heading);
+    // Tank right (c, -sn), forward (sn, c).
+    const tr = t.half.x * Math.abs(c * ax - sn * az) + t.half.z * Math.abs(sn * ax + c * az);
+    const tc = p.x * ax + p.z * az;
+    const h = this.blocks.size * 0.475;
+    const br = h * (Math.abs(ax) + Math.abs(az));
+    const bc = b.x * ax + b.z * az;
+    out.tmin = tc - tr; out.tmax = tc + tr; out.bmin = bc - br; out.bmax = bc + br; out.tc = tc; out.bc = bc;
+    return out;
+  }
+
+  /** Separating axes of the footprint / block pair: the block's x, z and the hull's right, forward. */
+  axes() {
+    const c = Math.cos(this.tank.heading);
+    const sn = Math.sin(this.tank.heading);
+    return [[1, 0], [0, 1], [c, -sn], [sn, c]];
+  }
+
+  near(b) {
     const p = this.tank.position;
-    const h = this.blocks.size * 0.5;
-    const cx = THREE.MathUtils.clamp(p.x, b.x - h, b.x + h);
-    const cz = THREE.MathUtils.clamp(p.z, b.z - h, b.z + h);
-    let dx = p.x - cx;
-    let dz = p.z - cz;
-    const d2 = dx * dx + dz * dz;
-    if (d2 >= TANK_R * TANK_R) return 0;
-    let d = Math.sqrt(d2);
-    if (d < 1e-4) {
-      dx = 0;
-      dz = -1;
-      d = 1;
+    return Math.abs(b.x - p.x) < 4.6 && Math.abs(b.z - p.z) < 4.6;
+  }
+
+  /**
+   * A block sliding into the tank stops in front of it: returns how far up the lane it has to be
+   * held back (0 when it is clear of the hull or below it).
+   */
+  holdBlock(b) {
+    if (!this.near(b) || b.z <= this.tank.position.z) return 0;
+    const pr = {};
+    let need = Infinity;
+    for (const [ax, az] of this.axes()) {
+      this.project(ax, az, b, pr);
+      if (pr.bmin >= pr.tmax || pr.bmax <= pr.tmin) return 0;
+      // Moving the block by dz along +z shifts its projection by dz * az.
+      if (az > 1e-4) need = Math.min(need, (pr.tmax - pr.bmin) / az);
+      else if (az < -1e-4) need = Math.min(need, (pr.tmin - pr.bmax) / az);
     }
-    const over = TANK_R - d;
-    p.x += (dx / d) * over;
-    p.z += (dz / d) * over;
-    this.tank.clampToBounds();
-    // Whatever overlap is left holds the block back up the lane.
-    const cz2 = THREE.MathUtils.clamp(p.z, b.z - h, b.z + h);
-    const cx2 = THREE.MathUtils.clamp(p.x, b.x - h, b.x + h);
-    const rest = Math.hypot(p.x - cx2, p.z - cz2);
-    if (rest >= TANK_R - 1e-3 || p.z > b.z) return 0;
-    return TANK_R - rest;
+    return Number.isFinite(need) ? need + 1e-3 : 0;
+  }
+
+  /** The hull cannot drive into blocks: pushed back out along the axis of least overlap. */
+  collideTank() {
+    const p = this.tank.position;
+    const pr = {};
+    for (let pass = 0; pass < 2; pass++) {
+      for (const lane of this.blocks.lanes) {
+        for (const b of lane) {
+          if (!this.near(b)) continue;
+          let best = Infinity;
+          let bx = 0;
+          let bz = 0;
+          for (const [ax, az] of this.axes()) {
+            this.project(ax, az, b, pr);
+            const o = Math.min(pr.tmax - pr.bmin, pr.bmax - pr.tmin);
+            if (o <= 0) { best = 0; break; }
+            if (o < best) {
+              best = o;
+              const sgn = pr.tc < pr.bc ? -1 : 1;
+              bx = ax * sgn;
+              bz = az * sgn;
+            }
+          }
+          if (best > 0 && Number.isFinite(best)) {
+            p.x += bx * best;
+            p.z += bz * best;
+          }
+        }
+      }
+    }
   }
 
   onDrain(b) {
@@ -360,9 +436,81 @@ export class TankLevel {
     this.reloadBar.style.width = `${Math.round((1 - t.cooldown / (t.reloadTime || GameConfig.tank.reload)) * 100)}%`;
   }
 
+  // ---- Aiming (smart aim) ---------------------------------------------------------------------
+
+  /**
+   * The locked block (refreshed every lockRefresh s): within aimCone around the direction the
+   * player aims the turret, the best block by angle and distance (nearer and more centred wins),
+   * or null.
+   */
+  lockedTarget() {
+    const cfg = GameConfig.tank;
+    const L = this.lock;
+    if (L && this.time - L.at < cfg.lockRefresh && L.block.alive && !L.block.drained) return L.block;
+    const p = this.tank.position;
+    const yaw = Math.atan2(this.aim.x - p.x, this.aim.z - p.z);
+    let best = null;
+    let bestScore = Infinity;
+    for (const lane of this.blocks.lanes) {
+      for (const b of lane) {
+        const dx = b.x - p.x;
+        const dz = b.z - p.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 2.6 || d > cfg.shellRange) continue;
+        const ang = Math.abs(wrap(Math.atan2(dx, dz) - yaw));
+        if (ang > cfg.aimCone) continue;
+        // Keep the current lock unless something is clearly better (no flicker between neighbours).
+        const score = ang * 12 + d * 0.35 - (L && L.block === b ? 0.6 : 0);
+        if (score < bestScore) {
+          bestScore = score;
+          best = b;
+        }
+      }
+    }
+    this.lock = best ? { block: best, at: this.time } : null;
+    return best;
+  }
+
+  blockCenter(b, out) {
+    const s = this.blocks.size * 0.95 * (b.type === 'weak' ? 0.9 : 1);
+    return out.set(b.x, this.arena.floorHeight(b.z) + s / 2, b.z);
+  }
+
+  /** No lock: a point along the aim direction at block-centre height. */
+  freeAimPoint(out) {
+    const p = this.tank.position;
+    const dx = this.aim.x - p.x;
+    const dz = this.aim.z - p.z;
+    const d = Math.max(1e-3, Math.hypot(dx, dz));
+    const r = THREE.MathUtils.clamp(d, 8, 26);
+    out.set(p.x + (dx / d) * r, 0, p.z + (dz / d) * r);
+    out.y = this.arena.floorHeight(out.z) + 0.9;
+    return out;
+  }
+
+  /** Barrel elevation toward the target (from the barrel's pivot). */
+  aimBarrel(target) {
+    const t = this.tank;
+    t.turret.updateWorldMatrix(true, false);
+    const pivot = t.turret.localToWorld(v2.copy(t.barrelHome));
+    const h = Math.hypot(target.x - pivot.x, target.z - pivot.z);
+    t.aimElevation = Math.atan2(target.y - pivot.y, Math.max(h, 0.5));
+  }
+
+  updateReticle(dt, lock, target) {
+    const r = this.reticle;
+    r.visible = this.state === 'playing';
+    if (!r.visible) return;
+    this.reticleSpin += dt * (lock ? 2 : 0.8);
+    r.position.copy(target);
+    r.material.rotation = this.reticleSpin;
+    r.material.opacity = lock ? 1 : 0.4;
+    r.scale.setScalar(lock ? 2.6 + Math.sin(this.reticleSpin * 3) * 0.18 : 2.2);
+  }
+
   // ---- Shooting ------------------------------------------------------------------------------
 
-  /** Shot: barrel kick, muzzle flash, shells lobbed to land on the aim point (3 with T). */
+  /** Shot: barrel kick, muzzle flash, shells straight at the locked block (3 with T). */
   fire() {
     const shot = this.tank.fire(this.powers.D > 0 ? 0.4 : 1);
     if (!shot) return;
@@ -379,53 +527,87 @@ export class TankLevel {
       });
     }
     this.shake = Math.max(this.shake, 0.3);
-    const p = this.tank.position;
-    const dist = THREE.MathUtils.clamp(Math.hypot(this.aim.x - p.x, this.aim.z - p.z), 5, cfg.shellRange);
-    const spreads = this.powers.T > 0 ? [-0.14, 0, 0.14] : [0];
+    // Locked: straight at the block's centre (the gunner corrects the last few degrees).
+    const lock = this.lock?.block?.alive ? this.lock.block : null;
+    const aimDir = lock ? this.blockCenter(lock, new THREE.Vector3()).sub(muzzle).normalize() : dir.clone();
+    // Point blank: a block between the barrel's base and the muzzle (pressed against the hull)
+    // takes the hit at once.
+    const pivot = this.tank.turret.localToWorld(v3.copy(this.tank.barrelHome));
+    const close = this.traceBlock(pivot, muzzle);
+    if (close) {
+      this.impact(this.blockCenter(close, v1).clone(), this.powers.R > 0, close, 'block');
+      return;
+    }
+    const spreads = this.powers.T > 0 ? [-0.12, 0, 0.12] : [0];
     for (const off of spreads) {
-      const yaw = this.tank.gunYaw + off;
-      const tx = p.x + Math.sin(yaw) * dist;
-      const tz = p.z + Math.cos(yaw) * dist;
-      const ty = this.arena.floorHeight(tz) + (this.blocks.blockAt(tx, tz) ? this.blocks.size : 0.1);
-      const T = Math.max(0.2, Math.hypot(tx - muzzle.x, tz - muzzle.z) / cfg.shellSpeed);
-      const vel = new THREE.Vector3((tx - muzzle.x) / T, (ty - muzzle.y + 0.5 * GRAVITY * T * T) / T, (tz - muzzle.z) / T);
+      const vel = v2.copy(aimDir).applyAxisAngle(UP, off).multiplyScalar(cfg.shellSpeed).clone();
       const mesh = new THREE.Mesh(this.shellGeometry, this.shellMaterial);
       mesh.position.copy(muzzle);
+      mesh.lookAt(v1.copy(muzzle).add(vel));
       this.scene.add(mesh);
-      this.shells.push({ mesh, vel, t: 0, T, heavy: this.powers.R > 0 });
+      this.shells.push({ mesh, vel, dist: 0, heavy: this.powers.R > 0 });
     }
   }
 
+  /** First block on the segment a -> b (0.25 steps), or null. */
+  traceBlock(a, b) {
+    const d = a.distanceTo(b);
+    const n = Math.max(1, Math.ceil(d / 0.25));
+    const p = new THREE.Vector3();
+    for (let k = 0; k <= n; k++) {
+      p.lerpVectors(a, b, k / n);
+      const blk = this.blocks.blockAt(p.x, p.z);
+      if (blk && p.y <= this.blockCenter(blk, v1).y * 2 - this.arena.floorHeight(blk.z)) return blk;
+    }
+    return null;
+  }
+
+  /** Direct fire: each shell flies straight and stops at the first block, wall or the floor. */
   updateShells(dt) {
+    const A = GameConfig.tankArena;
+    const halfW = (A.block * A.lanes) / 2;
+    const range = GameConfig.tank.shellRange;
     for (let i = this.shells.length - 1; i >= 0; i--) {
       const s = this.shells[i];
-      s.t += dt;
-      s.vel.y -= GRAVITY * dt;
-      s.mesh.position.addScaledVector(s.vel, dt);
-      s.mesh.lookAt(v1.copy(s.mesh.position).add(s.vel));
-      this.effects.fire.emit({ x: s.mesh.position.x, y: s.mesh.position.y, z: s.mesh.position.z, life: 0.12, size0: 0.45, size1: 0.1, color0: [3, 1.8, 0.6, 1], color1: [1, 0.4, 0.1, 0] });
-      if (s.t < s.T) continue;
-      const at = s.mesh.position;
+      const p = s.mesh.position;
+      const speed = s.vel.length();
+      const n = Math.max(1, Math.ceil((speed * dt) / 0.5));
+      const h = dt / n;
+      let hit = null;
+      let block = null;
+      for (let k = 0; k < n && !hit; k++) {
+        p.addScaledVector(s.vel, h);
+        s.dist += speed * h;
+        const b = this.blocks.blockAt(p.x, p.z);
+        if (b && p.y <= this.blockCenter(b, v1).y * 2 - this.arena.floorHeight(b.z)) {
+          hit = 'block';
+          block = b;
+        } else if (p.y <= this.arena.floorHeight(p.z) + 0.05) hit = 'floor';
+        else if (Math.abs(p.x) > halfW || p.z > A.topZ + 0.5) hit = 'wall';
+        else if (s.dist > range) hit = 'air';
+      }
+      this.effects.fire.emit({ x: p.x, y: p.y, z: p.z, life: 0.12, size0: 0.45, size1: 0.1, color0: [3, 1.8, 0.6, 1], color1: [1, 0.4, 0.1, 0] });
+      if (!hit) continue;
       s.mesh.removeFromParent();
       this.shells.splice(i, 1);
-      this.impact(at, s.heavy);
+      this.impact(p, s.heavy, block, hit);
     }
   }
 
-  impact(at, heavy) {
+  impact(at, heavy, b, kind) {
     const dmg = GameConfig.tank.shellDamage;
-    const b = this.blocks.blockAt(at.x, at.z);
     if (b) this.blocks.damage(b, dmg * (heavy ? 2 : 1), at);
     if (heavy) {
       // Splash: the four neighbours take a hit too.
       const S = this.blocks.size;
       for (const [dx, dz] of [[S, 0], [-S, 0], [0, S], [0, -S]]) {
         const n = this.blocks.blockAt(at.x + dx, at.z + dz);
-        if (n) this.blocks.damage(n, dmg, v2.set(n.x, at.y, n.z));
+        if (n && n !== b) this.blocks.damage(n, dmg, v2.set(n.x, at.y, n.z));
       }
     }
-    this.effects.explosion(at, heavy ? 1.3 : 0.9, b ? null : 0x7a6a52, b ? 0 : 6);
-    if (!b) this.effects.snowPuff(v2.set(at.x, at.y + 0.1, at.z), 6);
+    const debris = kind === 'wall' ? 0xb9b6ad : 0x7a6a52;
+    this.effects.explosion(at, heavy ? 1.3 : 0.9, b ? null : debris, b || kind === 'air' ? 0 : 6);
+    if (kind === 'floor') this.effects.snowPuff(v2.set(at.x, at.y + 0.1, at.z), 6);
     const d = at.distanceTo(this.tank.position);
     this.shake = Math.max(this.shake, THREE.MathUtils.clamp(0.4 - d * 0.01, 0.06, 0.4));
   }
@@ -463,4 +645,10 @@ export class TankLevel {
     this.sun.position.set(p.x - 20, p.y + 40, p.z - 6);
     this.sun.target.position.set(p.x, p.y, p.z + 10);
   }
+}
+
+function wrap(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
 }

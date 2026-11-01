@@ -6,6 +6,7 @@ const q = new THREE.Quaternion();
 const e = new THREE.Euler();
 const p = new THREE.Vector3();
 const one = new THREE.Vector3(1, 1, 1);
+const X_AXIS = new THREE.Vector3(1, 0, 0);
 
 /**
  * The player's tank (assets/models/tank.glb, built in Blender by tools/blender/build_tank.py).
@@ -30,6 +31,12 @@ export class PlayerTank {
     // Barrel axis in turret space (the pitch is baked into the barrel mesh; the muzzle empty sits
     // on the axis at the tip).
     this.barrelAxis = this.muzzle.position.clone().applyQuaternion(this.barrel.quaternion).normalize();
+    // The barrel elevates / depresses about its base (turret x axis) toward the target; the model's
+    // own (raised) pitch is elevation0.
+    this.barrelQuat0 = this.barrel.quaternion.clone();
+    this.elevation0 = Math.asin(THREE.MathUtils.clamp(this.barrelAxis.y, -1, 1));
+    this.elevation = -0.12;
+    this.aimElevation = -0.12;
     this.track = JSON.parse(this.root.userData.track ?? gltf.scene.getObjectByName('Tank').userData.track);
     this.root.traverse((o) => {
       if (o.isMesh) {
@@ -84,6 +91,9 @@ export class PlayerTank {
     /** Drivable area and ground height (set by the level). */
     this.bounds = { minX: -cfg.bounds, maxX: cfg.bounds, minZ: -cfg.bounds, maxZ: cfg.bounds };
     this.heightAt = null;
+    /** Collision box half size (hull footprint, tank space) and the level's collision hook. */
+    this.half = { x: 2.0, z: 2.25 };
+    this.collide = null;
     this.updateTracks(0, 0, 0);
   }
 
@@ -114,6 +124,11 @@ export class PlayerTank {
     this.root.position.x += Math.sin(this.heading) * this.speed * dt;
     this.root.position.z += Math.cos(this.heading) * this.speed * dt;
     this.clampToBounds();
+    // Blocks are solid: the level pushes the hull back out of them.
+    if (this.collide) {
+      this.collide();
+      this.clampToBounds();
+    }
     if (this.heightAt) this.root.position.y = this.heightAt(this.root.position.z);
     this.root.rotation.y = this.heading;
     // Slight pitch with acceleration (nose lifts pulling away, dips braking).
@@ -131,6 +146,11 @@ export class PlayerTank {
     // Barrel recoil: a damped spring pulling it home along its axis.
     this.recoilVel += (-this.recoil * cfg.recoilSpring - this.recoilVel * cfg.recoilDamping) * dt;
     this.recoil = Math.max(0, this.recoil + this.recoilVel * dt);
+    // Barrel elevation toward aimElevation at a limited rate, then the recoil along its axis.
+    const de = THREE.MathUtils.clamp(this.aimElevation - this.elevation, -cfg.elevationSpeed * dt, cfg.elevationSpeed * dt);
+    this.elevation = THREE.MathUtils.clamp(this.elevation + de, cfg.elevationMin, cfg.elevationMax);
+    this.barrel.quaternion.setFromAxisAngle(X_AXIS, this.elevation0 - this.elevation).multiply(this.barrelQuat0);
+    this.barrelAxis.copy(this.muzzle.position).applyQuaternion(this.barrel.quaternion).normalize();
     this.barrel.position.copy(this.barrelHome).addScaledVector(this.barrelAxis, -this.recoil);
     this.cooldown = Math.max(0, this.cooldown - dt);
 
@@ -145,13 +165,18 @@ export class PlayerTank {
     this.lamps.amber.forEach((m) => { m.emissiveIntensity = m.userData.baseIntensity * blink(Math.PI); });
   }
 
-  /** Keeps the hull inside `bounds` ({minX, maxX, minZ, maxZ}); true if it had to be moved. */
+  /** Keeps the hull footprint inside `bounds` ({minX, maxX, minZ, maxZ}); true if it had to be moved. */
   clampToBounds() {
     const b = this.bounds;
     if (!b) return false;
     const p = this.root.position;
-    const x = THREE.MathUtils.clamp(p.x, b.minX, b.maxX);
-    const z = THREE.MathUtils.clamp(p.z, b.minZ, b.maxZ);
+    // The whole (turned) hull footprint stays inside.
+    const c = Math.abs(Math.cos(this.heading));
+    const sn = Math.abs(Math.sin(this.heading));
+    const ex = c * this.half.x + sn * this.half.z;
+    const ez = sn * this.half.x + c * this.half.z;
+    const x = THREE.MathUtils.clamp(p.x, b.minX + ex, b.maxX - ex);
+    const z = THREE.MathUtils.clamp(p.z, b.minZ + ez, b.maxZ - ez);
     const moved = x !== p.x || z !== p.z;
     p.x = x;
     p.z = z;

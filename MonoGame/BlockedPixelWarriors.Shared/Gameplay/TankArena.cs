@@ -18,6 +18,8 @@ public sealed class TankBlock
     public float Hp, MaxHp, Flash, ChainAt, Rot;
     public int ChainDepth;
     public bool Alive = true;
+    /// <summary>Went over the dam lip (now a drain pile body).</summary>
+    public bool Drained;
 }
 
 /// <summary>
@@ -231,6 +233,7 @@ public sealed class BlockFlow
             {
                 var b = lane[0];
                 lane.RemoveAt(0);
+                b.Drained = true;
                 OnDrain?.Invoke(b);
             }
         }

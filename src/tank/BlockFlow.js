@@ -201,6 +201,7 @@ export class BlockFlow {
       // Over the dam lip: into the drain.
       while (lane.length && lane[0].z < -S * 0.15) {
         const b = lane.shift();
+        b.drained = true;
         this.onDrain?.(b);
       }
     }

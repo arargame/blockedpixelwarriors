@@ -260,11 +260,12 @@ public sealed class BpwGame : Game
         if (_options.Touch) _input.TouchMode = true;
         if (_options.Scenario == "tank")
         {
-            // Tank arena: 20 s of trains dropping blocks, then --extra seconds (default 45) of an
-            // auto gunner aiming at the lowest block (same script as the web test).
+            // Tank arena: 48 s of trains dropping blocks (the tank holds up the lanes it covers), then
+            // --extra seconds (default 30) of an auto gunner aiming at the lowest block (same script
+            // as the web test).
             StartTank();
-            for (float t = 0; t < 20; t += 1 / 30f) _tank.Step(1 / 30f, 0, 0, null, false);
-            var fight = _options.Extra > 0 ? _options.Extra : 45;
+            for (float t = 0; t < 48; t += 1 / 30f) _tank.Step(1 / 30f, 0, 0, null, false);
+            var fight = _options.Extra > 0 ? _options.Extra : 30;
             for (float t = 0; t < fight; t += 1 / 30f)
             {
                 TankBlock best = null;
@@ -273,7 +274,7 @@ public sealed class BpwGame : Game
                     if (best == null || b.Z < best.Z) best = b;
                 _tank.Step(1 / 30f, 0, 0, best != null ? new Vector3(best.X, 0, best.Z) : null, best != null);
             }
-            Console.WriteLine($"[tank] dropped {_tank.Dropped} broken {_tank.Broken} drain {_tank.Pile.Count} onLanes {_tank.Blocks.Count} train {_tank.TrainActive} pos {_tank.Position}");
+            Console.WriteLine($"[tank] lock {_tank.Locked} elev {_tank.Elevation:0.000} dropped {_tank.Dropped} broken {_tank.Broken} drain {_tank.Pile.Count} onLanes {_tank.Blocks.Count} train {_tank.TrainActive} pos {_tank.Position}");
         }
         if (_options.Scenario == "poster") _session.StagePoster();
         if (_options.Scenario == "static") _session.StageStatic();
