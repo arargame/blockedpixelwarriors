@@ -152,18 +152,34 @@ export class PlayerTank {
         p.z = nz;
       }
     }
-    if (this.heightAt) p.y = this.heightAt(p.x, p.z);
+    // Ground: height under the hull and its slope along the hull (ramps tip the nose up / down).
+    let slopePitch = 0;
+    if (this.heightAt) {
+      const fx = Math.sin(this.heading) * 1.9;
+      const fz = Math.cos(this.heading) * 1.9;
+      const hf = this.heightAt(p.x + fx, p.z + fz);
+      const hb = this.heightAt(p.x - fx, p.z - fz);
+      p.y = Math.max(this.heightAt(p.x, p.z), (hf + hb) / 2);
+      slopePitch = -Math.atan2(hf - hb, 3.8);
+    }
+    // Yaw first, then pitch about the hull's own x axis.
+    this.root.rotation.order = 'YXZ';
     this.root.rotation.y = this.heading;
-    // Slight pitch with acceleration (nose lifts pulling away, dips braking).
-    this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, -THREE.MathUtils.clamp((target - this.speed) * 0.012, -0.04, 0.04), 1 - Math.exp(-6 * dt));
+    // Slight pitch with acceleration (nose lifts pulling away, dips braking) on top of the slope.
+    this.accelPitch = THREE.MathUtils.lerp(this.accelPitch ?? 0, -THREE.MathUtils.clamp((target - this.speed) * 0.012, -0.04, 0.04), 1 - Math.exp(-6 * dt));
+    this.slopePitch = THREE.MathUtils.lerp(this.slopePitch ?? slopePitch, slopePitch, 1 - Math.exp(-10 * dt));
+    this.root.rotation.x = this.accelPitch + this.slopePitch;
 
-    // Turret: turn toward the aim point at a limited rate.
+    // Turret: turned by the player (drive.turret: +1 = to the screen's left, Q / left arrow /
+    // the left button), or toward an aim point at a limited rate when one is given.
+    const step = cfg.turretSpeed * dt;
     if (aim) {
       this.aimYaw = Math.atan2(aim.x - this.root.position.x, aim.z - this.root.position.z) - this.heading;
+      const d = wrap(this.aimYaw - this.turretYaw);
+      this.turretYaw = wrap(this.turretYaw + THREE.MathUtils.clamp(d, -step, step));
+    } else if (drive.turret) {
+      this.turretYaw = wrap(this.turretYaw + THREE.MathUtils.clamp(drive.turret, -1, 1) * step);
     }
-    let d = wrap(this.aimYaw - this.turretYaw);
-    const step = cfg.turretSpeed * dt;
-    this.turretYaw = wrap(this.turretYaw + THREE.MathUtils.clamp(d, -step, step));
     this.turret.rotation.y = this.turretYaw;
 
     // Barrel recoil: a damped spring pulling it home along its axis.

@@ -78,7 +78,13 @@ public sealed class TankLevel : ICombatWorld
     public Effects Effects { get; }
     public BlockFlow Blocks { get; }
     public DrainPile Pile { get; }
-    public SupplyCrates Supplies { get; }
+    public TankSupplies Supplies { get; }
+    /// <summary>The upgrade-card picker (set by the game): tank skill cards every CardEvery blocks.</summary>
+    public ICardPicker Cards { get; set; }
+    /// <summary>Tank skill cards (all card defs; the tank ones have Level "tank").</summary>
+    public IReadOnlyList<CardDefData> CardDefs { get; set; } = Array.Empty<CardDefData>();
+    public readonly HashSet<string> Skills = new();
+    private int _nextCardAt = GameConfig.TankArena.CardEvery;
     public Vector3 Position;
     public float Heading, Speed, TurnRate, TurretYaw, Recoil, RecoilVel, Cooldown, Pitch, ReloadTime = GameConfig.Tank.Reload;
     /// <summary>Barrel elevation (rad, + up) and where it is heading.</summary>
@@ -165,7 +171,8 @@ public sealed class TankLevel : ICombatWorld
             OnDestroyed = OnBlockDestroyed,
         };
         Pile = new DrainPile(models, Effects);
-        Supplies = new SupplyCrates(models.Device, models, scene.Prefabs.SupplyCrateTextures, Effects) { OnPickup = OnPickup };
+        Supplies = new TankSupplies(models, Effects, FloorAt) { OnPickup = OnPickup };
+        CardDefs = scene.Prefabs.Cards ?? new List<CardDefData>();
         _trainFactory = new TrainFactory(models, scene.Prefabs);
         var (ret, retSrgb) = models.Texture("ui_reticle");
         _reticle = new BillboardBatch(models.Device, ret, retSrgb, 1, false, 30) { DepthTest = false };
@@ -237,6 +244,11 @@ public sealed class TankLevel : ICombatWorld
         Blocks.Reset();
         Pile.Reset();
         Supplies.Clear();
+        // Skill cards: none taken, the first offer at CardEvery broken blocks.
+        Skills.Clear();
+        Blocks.ChainEnabled = false;
+        _nextCardAt = GameConfig.TankArena.CardEvery;
+        Cards?.Cancel();
         _train = null;
         _trainTimer = 1.5f;
         _trainDir = 1;
@@ -252,42 +264,44 @@ public sealed class TankLevel : ICombatWorld
 
     public void Update(float dt, GameInput input, Rectangle viewport)
     {
+        // Choosing a skill card: the level waits.
+        if (Cards?.Active == true) return;
         if ((State == TankLevelState.Lost || State == TankLevelState.Phase2) && (input.Pressed(Keys.Enter) || (input.TouchMode && input.Taps.Count > 0)))
         {
             Start();
             return;
         }
         var playing = State == TankLevelState.Playing || State == TankLevelState.Won;
+        // W / S drive, A / D turn the hull; Q / E or the left / right arrows (phones: the left /
+        // right buttons) turn the turret; the left stick also drives.
         float throttle = (input.Down(Keys.W) || input.Down(Keys.Up) ? 1 : 0) - (input.Down(Keys.S) || input.Down(Keys.Down) ? 1 : 0);
-        float turn = (input.Down(Keys.D) || input.Down(Keys.Right) ? 1 : 0) - (input.Down(Keys.A) || input.Down(Keys.Left) ? 1 : 0);
+        float turn = (input.Down(Keys.D) ? 1 : 0) - (input.Down(Keys.A) ? 1 : 0);
+        float turret = (input.Down(Keys.Q) || input.Down(Keys.Left) || input.Touch.TurnLeft ? 1 : 0) - (input.Down(Keys.E) || input.Down(Keys.Right) || input.Touch.TurnRight ? 1 : 0);
         var cmd = input.Command;
         if (cmd.StickActive && throttle == 0 && turn == 0)
         {
             throttle = MathHelper.Clamp(-cmd.Stick.Y, -1, 1);
             turn = MathHelper.Clamp(cmd.Stick.X, -1, 1);
         }
-        if (!playing) throttle = turn = 0;
-        // Aim: the point under the pointer / tap one unit above the floor; a click or tap also fires.
-        var fire = input.Down(Keys.Space);
-        foreach (var tap in input.Taps)
-        {
-            if (Ground(tap.Position, viewport) is { } p) _aim = p;
-            fire = true;
-        }
-        if (input.PointerMoved && Ground(input.Pointer, viewport) is { } q) _aim = q;
-        Step(dt, throttle, turn, null, playing && fire);
+        if (!playing) throttle = turn = turret = 0;
+        // The mouse / taps no longer aim: a click or tap fires, SPACE fires.
+        var fire = input.Down(Keys.Space) || input.Taps.Count > 0;
+        Step(dt, throttle, turn, null, playing && fire, turret);
     }
 
     /// <summary>One simulation step (also driven directly by capture scenarios).</summary>
-    public void Step(float dt, float throttle, float turn, Vector3? aim, bool fire)
+    /// <param name="aim">capture scripts: turn the turret toward this point (else <paramref name="turret"/>).</param>
+    /// <param name="turret">+1 turns the turret to the screen's left, -1 to the right.</param>
+    public void Step(float dt, float throttle, float turn, Vector3? aim, bool fire, float turret = 0)
     {
         Time += dt;
-        if (aim.HasValue) _aim = aim.Value;
-        // Smart aim: the turret settles on the locked block, the barrel depresses toward it.
+        // Smart aim (like the heli): the player points the turret; the best block in a narrow cone
+        // round the gun is locked, the barrel depresses toward it and the shells correct onto it.
+        Drive(dt, throttle, turn, aim, turret);
+        _aim = Position + new Vector3(MathF.Sin(GunYaw), 0, MathF.Cos(GunYaw)) * 20;
         var aiming = State == TankLevelState.Playing || State == TankLevelState.Won;
         var lockBlock = aiming ? LockedTarget() : null;
         var target = lockBlock != null ? BlockCenter(lockBlock) : FreeAimPoint();
-        Drive(dt, throttle, turn, target);
         AimBarrel(target);
         UpdateReticle(dt, lockBlock != null, target);
         foreach (var k in Powers.Keys.ToList()) Powers[k] = MathF.Max(0, Powers[k] - dt);
@@ -315,19 +329,9 @@ public sealed class TankLevel : ICombatWorld
         }
     }
 
-    private Vector3? Ground(Vector2 screen, Rectangle vp)
-    {
-        var ndc = new Vector2(screen.X / vp.Width * 2 - 1, 1 - screen.Y / vp.Height * 2);
-        var dir = Camera.RayDirection(ndc.X, ndc.Y);
-        if (!(dir.Y < -1e-4f)) return null; // also rejects NaN (camera not set up yet)
-        var planeY = FloorAt(_aim.X, _aim.Z) + 1;
-        var p = Camera.Position + dir * ((planeY - Camera.Position.Y) / dir.Y);
-        return float.IsFinite(p.X) && float.IsFinite(p.Z) ? p : null;
-    }
-
     // ---- Tank ----------------------------------------------------------------------------------
 
-    private void Drive(float dt, float throttle, float turn, Vector3 aimPoint)
+    private void Drive(float dt, float throttle, float turn, Vector3? aimPoint, float turret)
     {
         var target = throttle * GameConfig.Tank.Speed * (throttle < 0 ? GameConfig.Tank.ReverseMul : 1);
         var acc = MathF.Abs(target) > MathF.Abs(Speed) ? GameConfig.Tank.Accel : GameConfig.Tank.Brake;
@@ -361,15 +365,25 @@ public sealed class TankLevel : ICombatWorld
             Position.X = nx;
             Position.Z = nz;
         }
-        Position.Y = FloorAt(Position.X, Position.Z);
-        // Slight pitch with acceleration (nose lifts pulling away, dips braking).
-        Pitch = MathHelper.Lerp(Pitch, -Math.Clamp((target - Speed) * 0.012f, -0.04f, 0.04f), 1 - MathF.Exp(-6 * dt));
+        // Ground: height under the hull and its slope along the hull (ramps tip the nose up / down).
+        var fx = MathF.Sin(Heading) * 1.9f;
+        var fz = MathF.Cos(Heading) * 1.9f;
+        var hf = FloorAt(Position.X + fx, Position.Z + fz);
+        var hb = FloorAt(Position.X - fx, Position.Z - fz);
+        Position.Y = MathF.Max(FloorAt(Position.X, Position.Z), (hf + hb) / 2);
+        _slopePitch = MathHelper.Lerp(_slopePitch, -MathF.Atan2(hf - hb, 3.8f), 1 - MathF.Exp(-10 * dt));
+        // Slight pitch with acceleration (nose lifts pulling away, dips braking) on top of the slope.
+        _accelPitch = MathHelper.Lerp(_accelPitch, -Math.Clamp((target - Speed) * 0.012f, -0.04f, 0.04f), 1 - MathF.Exp(-6 * dt));
+        Pitch = _accelPitch + _slopePitch;
 
-        // Turret toward the aim point at a limited rate.
-        var aimYaw = MathF.Atan2(aimPoint.X - Position.X, aimPoint.Z - Position.Z) - Heading;
-        var d = Wrap(aimYaw - TurretYaw);
+        // Turret: turned by the player, or toward an aim point (capture scripts) at a limited rate.
         var step = GameConfig.Tank.TurretSpeed * dt;
-        TurretYaw = Wrap(TurretYaw + Math.Clamp(d, -step, step));
+        if (aimPoint is { } ap)
+        {
+            var aimYaw = MathF.Atan2(ap.X - Position.X, ap.Z - Position.Z) - Heading;
+            TurretYaw = Wrap(TurretYaw + Math.Clamp(Wrap(aimYaw - TurretYaw), -step, step));
+        }
+        else if (turret != 0) TurretYaw = Wrap(TurretYaw + Math.Clamp(turret, -1, 1) * step);
 
         // Barrel elevation toward AimElevation at a limited rate.
         var de = Math.Clamp(AimElevation - Elevation, -GameConfig.Tank.ElevationSpeed * dt, GameConfig.Tank.ElevationSpeed * dt);
@@ -394,7 +408,9 @@ public sealed class TankLevel : ICombatWorld
         }
     }
 
-    private Matrix HullWorld => MathX.RotationXYZ(Pitch, Heading, 0) * Matrix.CreateTranslation(Position);
+    private float _accelPitch, _slopePitch;
+    /// <summary>Yaw first, then pitch about the hull's own x axis (three.js Euler order 'YXZ').</summary>
+    private Matrix HullWorld => MathX.RotationYXZ(Pitch, Heading, 0) * Matrix.CreateTranslation(Position);
     private Matrix TurretWorld => Matrix.CreateRotationY(TurretYaw) * _turretBase * HullWorld;
     /// <summary>Barrel pose without recoil: its model pitch (elevation0) turned to Elevation about its base.</summary>
     private Matrix BarrelRest => Matrix.CreateRotationX(_elevation0 - Elevation) * _barrelBase * TurretWorld;
@@ -531,10 +547,38 @@ public sealed class TankLevel : ICombatWorld
     {
         Broken++;
         _shake = MathF.Max(_shake, depth > 0 ? 0.12f : 0.18f);
-        if (b.Type == TankBlockType.Supply && State == TankLevelState.Playing) Supplies.SpawnRandom(at, false, true);
+        if (b.Type == TankBlockType.Supply && State == TankLevelState.Playing)
+        {
+            // T triple, D rapid, H repair; R (homing rockets) only after its skill card.
+            var pool = Skills.Contains("tankHoming")
+                ? new[] { SupplyType.T, SupplyType.D, SupplyType.H, SupplyType.R, SupplyType.R }
+                : new[] { SupplyType.T, SupplyType.D, SupplyType.H };
+            Supplies.Spawn(pool[(int)(Rng.Shared.Next() * pool.Length)], at);
+        }
+        if (Broken >= _nextCardAt)
+        {
+            _nextCardAt += GameConfig.TankArena.CardEvery;
+            OfferCards();
+        }
     }
 
-    private void OnPickup(SupplyType type, SupplyCrates.Item item)
+    /// <summary>Every CardEvery broken blocks: pick one of the tank skill cards not taken yet.</summary>
+    public void OfferCards()
+    {
+        if (Cards == null || State != TankLevelState.Playing) return;
+        var pool = CardDefs.Where(d => d.Level == "tank" && !Skills.Contains(d.Id)).Take(2).ToArray();
+        if (pool.Length == 0) return;
+        Cards.Show(pool, ApplySkill, "CHOOSE A SKILL", $"{Broken} blocks broken");
+    }
+
+    public void ApplySkill(CardDefData def)
+    {
+        Skills.Add(def.Id);
+        if (def.Id == "tankChain") Blocks.ChainEnabled = true;
+        FlashBanner(def.Title, 1.6f);
+    }
+
+    private void OnPickup(SupplyType type, TankSupplies.Item item)
     {
         var st = _settings?.Invoke();
         var gain = st == null ? 0.64f : st.Master / 10f * (st.Sfx / 10f);
@@ -812,17 +856,24 @@ public sealed class TankLevel : ICombatWorld
         return MathF.Sqrt(best);
     }
 
-    /// <summary>Ground height anywhere: the sloped channel floor inside, the road / grass outside.</summary>
+    /// <summary>Ramp surface height at |x| = ax (channel edge .. RampEnd) and z (TankArena.rampHeight).</summary>
+    private static float RampHeight(float ax, float z)
+    {
+        var w = HalfW;
+        var t = Math.Clamp((ax - w) / (GameConfig.TankArena.RampEnd - w), 0, 1);
+        var e = t * t * (3 - 2 * t) * 0.35f + t * 0.65f;
+        return MathHelper.Lerp(GameConfig.TankArena.FloorHeight(z) + 0.16f, GameConfig.TankArena.GroundY, e);
+    }
+
+    /// <summary>Ground height anywhere: the sloped channel floor inside, the ramps, the land outside.</summary>
     public float FloorAt(float x, float z)
     {
         var w = HalfW;
-        if (MathF.Abs(x) <= w + 1.3f && z >= 0 && z <= GameConfig.TankArena.TopZ)
-        {
-            if (MathF.Abs(x) <= w) return GameConfig.TankArena.FloorHeight(z);
-            if (z >= GameConfig.TankArena.GapZ0 && z <= GameConfig.TankArena.GapZ1)
-                return GameConfig.TankArena.Slope * ((GameConfig.TankArena.GapZ0 + GameConfig.TankArena.GapZ1) / 2) + 0.07f;
-        }
-        return 0;
+        var ax = MathF.Abs(x);
+        if (ax <= w && z >= 0 && z <= GameConfig.TankArena.TopZ) return GameConfig.TankArena.FloorHeight(z);
+        if (ax > w && ax <= GameConfig.TankArena.RampEnd && z >= GameConfig.TankArena.GapZ0 && z <= GameConfig.TankArena.GapZ1) return RampHeight(ax, z);
+        if (ax <= w + 1.3f && z > -6 && z <= GameConfig.TankArena.TopZ + 1.4f) return GameConfig.TankArena.FloorHeight(z);
+        return GameConfig.TankArena.GroundY;
     }
 
     public bool IsWater(float x, float z) => MathF.Abs(x) <= HalfW && z >= 0 && z <= GameConfig.TankArena.TopZ;
@@ -831,26 +882,32 @@ public sealed class TankLevel : ICombatWorld
     public bool WallAt(Vector3 p)
     {
         var ax = MathF.Abs(p.X);
-        if (ax < HalfW || ax > HalfW + 1.35f || p.Z < 0 || p.Z > GameConfig.TankArena.TopZ + 1.2f) return false;
-        if (p.Y > 2.75f + GameConfig.TankArena.FloorHeight(p.Z)) return false;
+        if (ax < HalfW || ax > HalfW + 1.35f || p.Z < -4.2f || p.Z > GameConfig.TankArena.TopZ + 1.2f) return false;
+        if (p.Y > GameConfig.TankArena.GroundY + 0.45f) return false;
         return !(p.Z > GameConfig.TankArena.GapZ0 && p.Z < GameConfig.TankArena.GapZ1);
     }
 
-    /// <summary>Walkable ground: the channel, the wall gaps (the gate side once open), the roads, the base.</summary>
+    /// <summary>Walkable ground: the channel, the ramps (past the gate at the top of the far one only once it is open), the roads, the base.</summary>
     private bool Walkable(float x, float z)
     {
         var A = GameConfig.TankArena.Block;
         var w = HalfW;
-        var inGap = z > GameConfig.TankArena.GapZ0 + 0.15f && z < GameConfig.TankArena.GapZ1 - 0.15f;
-        if (MathF.Abs(x) <= w && z >= 0.3f && z <= GameConfig.TankArena.TopZ - A * 2.6f) return true;
+        var ax = MathF.Abs(x);
+        var g0 = GameConfig.TankArena.GapZ0;
+        var g1 = GameConfig.TankArena.GapZ1;
+        var rampEnd = GameConfig.TankArena.RampEnd;
+        var inGap = z > g0 + 0.15f && z < g1 - 0.15f;
+        if (ax <= w && z >= 0.3f && z <= GameConfig.TankArena.TopZ - A * 2.6f) return true;
         var open = _gateT > 0.85f;
         var entry = MathF.Sign(GameConfig.TankArena.BaseX);
-        if (MathF.Abs(x) > w && MathF.Abs(x) < w + 1.6f && inGap) return MathF.Sign(x) == entry || open;
-        if (MathF.Abs(x) <= w + 1.3f) return false;
+        if (ax > w && ax <= rampEnd + 0.1f && inGap) return true;
+        if (ax > w && ax <= rampEnd + 0.8f && inGap) return MathF.Sign(x) == entry || open;
+        if (ax <= rampEnd + 0.8f && z > g0 - 0.9f && z < g1 + 0.9f) return false; // ramp walls / gate posts
+        if (ax <= w + 1.3f) return false;
         var bx = x - GameConfig.TankArena.BaseX;
         var bz = z - GameConfig.TankArena.BaseZ;
         if (MathF.Sqrt(bx * bx + bz * bz) < GameConfig.TankArena.BaseR - 0.8f) return true;
-        if (DistToLine(_roadIn, x, z) < GameConfig.TankArena.RoadWidth / 2) return true;
+        if (MathF.Sign(x) == entry && DistToLine(_roadIn, x, z) < GameConfig.TankArena.RoadWidth / 2) return true;
         if (MathF.Sign(x) != entry && DistToLine(_roadOut, x, z) < GameConfig.TankArena.RoadWidth / 2) return open;
         return false;
     }

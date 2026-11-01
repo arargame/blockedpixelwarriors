@@ -69,6 +69,8 @@ public sealed class BlockFlow
     public readonly List<TankBlock>[] Lanes;
     public float Size => GameConfig.TankArena.Block;
     public Action<TankBlock> OnDrain;
+    /// <summary>CHAIN REACTION skill card taken.</summary>
+    public bool ChainEnabled;
     public Action<TankBlock, int, Vector3> OnDestroyed;
     /// <summary>Residual push the tank could not take (the block is held back by it).</summary>
     public Func<TankBlock, float> ResolveTank;
@@ -200,7 +202,9 @@ public sealed class BlockFlow
         Lanes[b.Lane].Remove(b);
         OnDestroyed?.Invoke(b, depth, at);
         _pool.Return(b);
-        // Same-coloured neighbours: back to back in the lane, or side by side in the next lane.
+        // CHAIN REACTION skill: same-coloured grid neighbours (up / down in the lane, left / right in
+        // the next lanes) go up too, one after another.
+        if (!ChainEnabled) return;
         var s = Size;
         for (var dl = -1; dl <= 1; dl++)
         {

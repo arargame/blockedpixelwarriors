@@ -11,6 +11,7 @@ import plasmaUrl from '../assets/models/plasma.glb?url';
 import crtUrl from '../assets/models/crt.glb?url';
 import tankUrl from '../assets/models/tank.glb?url';
 import fighterUrl from '../assets/models/fighter.glb?url';
+import supplyUrl from '../assets/models/supply.glb?url';
 import { PickupSfx } from './audio/PickupSfx.js';
 import * as THREE from 'three';
 import { Settings } from './core/Settings.js';
@@ -35,7 +36,7 @@ const camOverride = params.get('cam')?.split(',').map(Number);
   // Blender helicopter (falls back to the procedural one with ?procedural or on load failure).
   // Blender props: rocket, turret bullet, engineer's forklift, CH-47F cargo chopper.
   const load = (url) => new GLTFLoader().loadAsync(url).catch(() => null);
-  const [heliGltf, floorTexture, rocketGltf, bulletGltf, forkliftGltf, chinookGltf, cardGltf, haulerGltf, terraceFloorTexture, plasmaGltf, crtGltf, tankGltf, fighterGltf] = await Promise.all([
+  const [heliGltf, floorTexture, rocketGltf, bulletGltf, forkliftGltf, chinookGltf, cardGltf, haulerGltf, terraceFloorTexture, plasmaGltf, crtGltf, tankGltf, fighterGltf, supplyGltf] = await Promise.all([
     params.has('procedural') ? null : loadHelicopterGltf(),
     new THREE.TextureLoader().loadAsync(marbleUrl).catch(() => null),
     load(rocketUrl),
@@ -53,8 +54,10 @@ const camOverride = params.get('cam')?.split(',').map(Number);
     load(tankUrl),
     // Tank level: the Blocked Pixel Panzer fighter (Blender, from Blocked's FighterJet atlas).
     load(fighterUrl),
+    // Tank level supply crate (Blender, after the HOMING ROCKETS card painting).
+    load(supplyUrl),
   ]);
-  const game = new Game(document.getElementById('app'), { quality, settings, poster, camOverride, heliGltf, floorTexture, terraceFloorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf, crtGltf, tankGltf, rocketGltf, fighterGltf });
+  const game = new Game(document.getElementById('app'), { quality, settings, poster, camOverride, heliGltf, floorTexture, terraceFloorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf, crtGltf, tankGltf, rocketGltf, fighterGltf, supplyGltf });
   if (poster || params.has('fixedres')) game.pipeline.adaptive = false;
   window.__game = game;
   game.projectiles.setMissileModel(rocketGltf?.scene ?? null);

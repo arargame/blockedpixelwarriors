@@ -58,26 +58,33 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
   oval büyük bir gidere dökülür; kaçan bloklar oraya düşer ve fizikle (küçük konum tabanlı çözücü:
   yerçekimi, zemin, oval duvar, blok-blok temas, sürtünme, suda sıçrama) üst üste yığılır.
   **1000 blok gelir, 900'ünü kır; giderde 100 blok olursa kaybedersin.** Aynı renkte yan yana / arka
-  arkaya bloklar zincirleme patlar (Blocked Pixel Panzer gibi). Bloklar: zayıf (1 vuruş, açık
-  renk), normal, güçlü (çelik kafes), ikmal (yıldız; heli bölümündeki kasalar): **T** üçlü mermi,
-  **D** seri atış, **R** güdümlü füze (helikopterdeki gibi: taretin yanlarından kalkıp bloklara /
-  uçağa kıvrılır), **H** onarım +25 zırh ve gider pompası (-10 blok).
-  **Harita:** tank sol altta ağaçların arasındaki yuvarlak üste (kum torbası çemberi, bayrak,
-  cephane sandıkları) başlar, toprak yoldan kanalın sol duvarındaki açıklıktan girer. Sağ duvardaki
-  açıklıkta ahşap çitli bir kapı var: faz 1 kazanılınca kanatları dışa açılır, arkasındaki yol 2.
-  bölüme gider (şimdilik "PHASE 2 · yakında"). Etraf çimen, çam ve kaya; kanalda ve yollarda ağaç
-  yok. **Avcı uçak:** Blocked Pixel Panzer'in FighterJet düşmanı (Blender), 7-20 saniyede bir
+  arkaya bloklar zincirleme patlar — **ZİNCİRLEME PATLAMA** yetenek kartı alınınca (ızgarada alt /
+  üst / sağ / sol komşu). Bloklar: zayıf (1 vuruş, açık renk), normal, güçlü (çelik kafes), ikmal
+  (yıldız). İkmal blokları Blender'daki askeri sandığı (`supply.glb`; bloktan küçük, kapağında
+  parlayan harf, rengi türüne göre) fırlatır: **T** turuncu üçlü mermi, **D** mavi seri atış,
+  **H** yeşil onarım +25 zırh + gider pompası (-10 blok), **R** kırmızı güdümlü füze (helikopterdeki
+  gibi: taretin yanlarından kalkıp bloklara / uçağa kıvrılır) — R sadece **GÜDÜMLÜ ROKETLER**
+  kartından sonra düşer. **Yetenek kartları:** her 200 kırılan blokta oyun durur, heli bölümündeki
+  kart seçiciyle iki tank kartından biri seçilir (`assets/textures/cards/tank_homing_rockets.jpg`,
+  `tank_chain_reaction.jpg`).
+  **Harita:** arazi suyun üstünde (`groundY`), kanal toprağa gömülü: tank sol altta ağaçların
+  arasındaki yuvarlak üste (kum torbası çemberi, bayrak, cephane sandıkları) başlar, kenarları
+  farklı boyda beyaz taşlarla dizili toprak yoldan gelip sol duvardaki açıklıktan **beton rampayla**
+  sığ suya iner. Sağdaki açıklıkta da bir rampa yukarı çıkar; tepesinde ahşap çitli kapı var: faz 1
+  kazanılınca kanatları dışa açılır, arkasındaki yol 2. bölüme gider (şimdilik "PHASE 2 ·
+  yakında"). Etraf çimen, bol çam ve kayalıklar; kanalda, rampalarda ve yollarda ağaç yok. **Avcı uçak:** Blocked Pixel Panzer'in FighterJet düşmanı (Blender), 7-20 saniyede bir
   ekranın bir yanından girip tankın üstünden geçer; 3-4 saniye kanat makineli tüfekleriyle tarar
   (her mermi o anki tank konumuna nişanlı, hareket edersen ıskalar) ve bombasını tankın o anki
   yerine düşecek şekilde bırakır — **yerinde durursan bomba vurur**. Tankın 100 zırhı var (sadece
   uçak hasar verir, bloklar asla); zırh biterse kaybedersin. Güdümlü füzeler uçağı düşürebilir
-  (yanarak düşer, yere çakılınca patlar). Etraf çimen, çam ve kaya. **W/S** sür, **A/D** gövdeyi çevir, **fare**
-  tareti çevirir: helikopterdeki akıllı nişan gibi o yönün dar konisindeki en iyi blok kilitlenir
-  (dönen köşe işareti), taret ona oturur, namlu ona doğru eğilir. **Tık / SPACE** ateş: mermi düz
-  gider ve yolundaki ilk bloğa çarpar (tıklanan noktaya değil). Bitince **ENTER** yeniden, ESC
-  menü. Paletler döner, lambalar yanıp söner. Ayarlar `GameConfig.tankArena` / `.tank` / `.fighter`,
-  kod `src/tank/` (`TankArena` sahne + yollar + kapı, `BlockFlow` şeritler, `DrainPile` gider
-  fiziği, `ArenaTrain` trenler) ve `src/combat/`:
+  (yanarak düşer, yere çakılınca patlar). **W/S** sür, **A/D** gövdeyi çevir, **Q/E** ya da **←/→**
+  tareti çevirir (telefonda ekrandaki sol / sağ butonlar; fare hedef değiştirmez): helikopterdeki
+  akıllı nişan gibi taretin baktığı dar konideki en iyi blok kilitlenir (dönen köşe işareti), namlu
+  ona doğru eğilir. **SPACE / tık** (telefonda FIRE) ateş: mermi düz gider ve yolundaki ilk bloğa
+  çarpar. Rampada tank eğime göre burnunu kaldırır / indirir. Bitince **ENTER** yeniden, ESC menü.
+  Paletler döner, lambalar yanıp söner. Ayarlar `GameConfig.tankArena` / `.tank` / `.fighter`, kod
+  `src/tank/` (`TankArena` sahne + rampalar + yollar + kapı, `BlockFlow` şeritler, `DrainPile`
+  gider fiziği, `ArenaTrain` trenler, `TankSupplies` sandıklar) ve `src/combat/`:
   - `Enemy` taban sınıfı (Template Method: `isAlive / aimPoint / takeDamage / onDeath`,
     `harmsPlayer`): `Train`, heli tahtasının `BoardBlock`'u, kanalın `ArenaBlock`'u (ikisi de sadece
     hedef, oyuncuya hasar vermez) ve `JetFighter` bundan türer.
@@ -318,6 +325,7 @@ URL parametreleri:
 | CRT haberleşme cihazı | `tools/blender/build_crt.py` | `assets/models/crt.glb / .blend` (CrtRadio) |
 | Oyuncu tankı (Meshy konseptine göre) | `tools/blender/build_tank.py` | `assets/models/tank.glb / .blend`, menü kartı `assets/textures/menu/tank.jpg` |
 | Avcı uçak + WW2 bombası (Blocked FighterJet atlasına göre) | `tools/blender/build_fighter.py` | `assets/models/fighter.glb / .blend` |
+| Tank ikmal sandığı (harf + renk değişir) | `tools/blender/build_supply.py` | `assets/models/supply.glb / .blend` |
 
 Oyun `.glb` dosyalarını yükler; yüklenemezse basit yedek modellere döner. Ayrıntılar: `tools/blender/README.md`.
 

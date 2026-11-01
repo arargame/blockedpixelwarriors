@@ -263,12 +263,18 @@ export const GameConfig = Object.freeze({
     // the screen's LEFT: a round base among the trees at the bottom left (+x), a dirt road into a
     // gap in the left wall; a gap in the right wall (-x) with a fence gate that opens when phase 1
     // is won, a road on to phase 2.
+    // The land round the channel lies higher than the water: a concrete ramp runs down from road
+    // level through each wall gap (rampLength long, outside the wall).
+    groundY: 2.3,
+    rampLength: 10,
     gap: Object.freeze({ z0: 2.2, z1: 11.4 }),
-    base: Object.freeze({ x: 40, z: 3, r: 10 }),
+    base: Object.freeze({ x: 48, z: 4, r: 10 }),
     roadWidth: 9.5,
-    roadIn: Object.freeze([[14.4, 6.8], [20, 6.9], [26, 5.8], [31, 4.2]]),
-    roadOut: Object.freeze([[-14.4, 6.8], [-21, 7.2], [-30, 9.4], [-42, 13.5], [-56, 17], [-80, 20], [-105, 22], [-140, 25]]),
-    phase2X: 50,           // driving this far out along the way out (-x) ends phase 1
+    roadIn: Object.freeze([[24.6, 6.8], [30, 6.6], [35, 5.6], [39.5, 4.6]]),
+    roadOut: Object.freeze([[-24.6, 6.8], [-30, 7.2], [-38, 9.4], [-48, 13], [-60, 16], [-80, 20], [-105, 22], [-140, 25]]),
+    phase2X: 58,           // driving this far out along the way out (-x) ends phase 1
+    // Skill cards (UpgradeCards.js, level 'tank'): one pick every `cardEvery` broken blocks.
+    cardEvery: 200,
   }),
 
   /** Upgrade cards (src/ui/UpgradeCards.js). */

@@ -8,12 +8,15 @@ import doubleRowArtUrl from '../../assets/textures/cards/double_row.jpg?url';
 import surpriseEggArtUrl from '../../assets/textures/cards/surprise_egg.jpg?url';
 import flickerArtUrl from '../../assets/textures/cards/flicker.jpg?url';
 import cargoTimeArtUrl from '../../assets/textures/cards/cargo_time.jpg?url';
+import tankHomingArtUrl from '../../assets/textures/cards/tank_homing_rockets.jpg?url';
+import tankChainArtUrl from '../../assets/textures/cards/tank_chain_reaction.jpg?url';
 
 /**
  * Upgrade cards (offered after a train is destroyed).
  *
  * `text` is a list of [string, css colour?] segments; '\n' starts a new paragraph.
- * `requires`: id of a card that must be taken first. What each card does is applied in
+ * `requires`: id of a card that must be taken first. `level: 'tank'`: a skill card of the tank
+ * level (offered every GameConfig.tankArena.cardEvery broken blocks, applied in TankLevel). What each card does is applied in
  * Game.applyCard(). Add new cards here.
  */
 export const CARD_DEFS = Object.freeze([
@@ -124,6 +127,37 @@ export const CARD_DEFS = Object.freeze([
       ['The cargo chopper comes '], ['30% sooner', '#ffcf6a'], [': every '], ['1:24', '#ffcf6a'], [' instead of 2:00.'],
     ],
   },
+  // ---- Tank level skill cards ----
+  {
+    id: 'tankHoming',
+    level: 'tank',
+    title: 'HOMING ROCKETS',
+    kind: 'TANK SKILL',
+    art: tankHomingArtUrl,
+    focus: 0.6,
+    zoom: 1,
+    jewel: 0xff4a3a,
+    glow: 0xff7a5a,
+    text: [
+      ['Supply blocks may now drop the red '], ['R crate', '#ff7a5a'], [': '], ['homing rockets', '#ff7a5a'],
+      [' fly off the turret and curve onto blocks - and onto the '], ['fighter', '#ffcf6a'], ['.'],
+    ],
+  },
+  {
+    id: 'tankChain',
+    level: 'tank',
+    title: 'CHAIN REACTION',
+    kind: 'TANK SKILL',
+    art: tankChainArtUrl,
+    focus: 0.5,
+    zoom: 1.05,
+    jewel: 0xffb030,
+    glow: 0xffc860,
+    text: [
+      ['Blow up a block and its '], ['same-coloured', '#ffcf6a'], [' neighbours - '], ['up, down, left, right', '#ffcf6a'],
+      [' - go up with it, one after another, all along the chain.'],
+    ],
+  },
 ]);
 
 export const CARD_W = 0.63;
@@ -214,7 +248,7 @@ export class CardPicker {
    * @param {object[]} defs
    * @param {(def:object)=>void} onPick
    */
-  async show(defs, onPick) {
+  async show(defs, onPick, { heading = 'CHOOSE AN UPGRADE', sub = 'the train is down' } = {}) {
     if (this.active || !defs.length) return;
     if (!this.loaded) await this.ready;
     if (this.active) return;
@@ -236,6 +270,8 @@ export class CardPicker {
       this.root.add(card.object);
       this.cards.push(card);
     });
+    this.ui.querySelector('.card-heading').textContent = heading;
+    this.ui.querySelector('.card-sub-title').textContent = sub;
     this.ui.classList.add('visible');
     this.container.classList.add('cards-open');
     const touch = matchMedia('(pointer: coarse)').matches;

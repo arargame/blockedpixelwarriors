@@ -107,6 +107,7 @@ public sealed class BpwGame : Game
         _session = new GameSession(device, _models, scene, _lights, _quality, _hud);
         _cards = new CardPicker(device, _assets, _models, _renderer.Post, _ui, _lights);
         _session.Cards = _cards;
+        _tank.Cards = _cards;
         _session.Settings = _store;
         _session.Rig.ShakeScale = _store.Settings.Shake ? 1 : 0;
         _menu = new MainMenu(device, _assets, _ui, _cards, _renderer.Post, scene.Prefabs.Menu, _store, _assets.UiTexture("ui_logo"))
@@ -264,19 +265,32 @@ public sealed class BpwGame : Game
             // channel, then an auto gunner (aims at the lowest block) holds position until the
             // fighter is about to pass over (strafe + bomb), --extra seconds more (default 0.5).
             // --pick 1: phase won, the gate opens and the tank drives out along the far road.
+            // --pick 3: the skill-card offer.
             StartTank();
             var A = GameConfig.TankArena.BaseX > 0 ? 1 : -1;
-            var path = new List<Vector2> { new(31 * A, 4.2f), new(26 * A, 5.8f), new(20 * A, 6.9f), new(14 * A, 6.8f), new(8 * A, 8), new(0, 9) };
+            var path = new List<Vector2> { new(40 * A, 4.6f), new(34 * A, 5.8f), new(28 * A, 6.6f), new(22 * A, 6.8f), new(14 * A, 6.8f), new(8 * A, 8), new(0, 9) };
             DriveTank(path, 14);
             if (_options.PickCard == 1)
             {
                 _tank.ForceWin();
                 DriveTank(new List<Vector2>(), 2.5f);
-                DriveTank(new List<Vector2> { new(-8 * A, 7), new(-13 * A, 6.8f), new(-21 * A, 7.2f), new(-30 * A, 9.4f), new(-42 * A, 13.5f), new(-56 * A, 17) }, 14);
+                DriveTank(new List<Vector2> { new(-8 * A, 7), new(-14 * A, 6.8f), new(-22 * A, 6.8f), new(-28 * A, 7), new(-38 * A, 9.4f), new(-48 * A, 13), new(-62 * A, 16.5f) }, 16);
+            }
+            else if (_options.PickCard == 3)
+            {
+                // Skill cards: force an offer, let the cards fly in (then --pick 4 would choose).
+                _tank.OfferCards();
+                for (float t = 0; t < 2.5f; t += 1 / 30f) _cards.Update(1 / 30f, _input, Viewport);
             }
             else
             {
-                // --pick 2: R (homing missiles) active during the fight.
+                // --pick 2: R (homing missiles) active during the fight, a row of supply crates.
+                if (_options.PickCard == 2)
+                {
+                    var tp = _tank.Position;
+                    var types = new[] { Gameplay.SupplyType.T, Gameplay.SupplyType.D, Gameplay.SupplyType.R, Gameplay.SupplyType.H };
+                    for (var i = 0; i < types.Length; i++) _tank.Supplies.Spawn(types[i], new Vector3(tp.X - 9 + i * 4.5f, 2, tp.Z + 12));
+                }
                 for (float t = 0; t < 30; t += 1 / 30f)
                 {
                     if (_options.PickCard == 2) _tank.Powers[Gameplay.SupplyType.R] = 5;
@@ -347,8 +361,9 @@ public sealed class BpwGame : Game
                 if (_input.PausePressed) PauseTank();
                 else _tank.Update(dt, _input, vp);
             }
-            // The menu / card grey wash fades out (only the menu drives it in this level).
-            _renderer.Post.Ash = 0;
+            // Skill cards (every 200 broken blocks): the picker drives the grey wash while it is up.
+            if (!_session.Paused) _cards.Update(dt, _input, vp);
+            else _renderer.Post.Ash = 0;
             _menu.Update(dt, _input, vp);
             base.Update(gameTime);
             return;
@@ -528,6 +543,13 @@ public sealed class BpwGame : Game
         if (_tankMode)
         {
             DrawTankHud(vp);
+            if (!_session.Paused && _cards.Active)
+            {
+                _cards.Draw(vp);
+                _ui.Begin();
+                _cards.DrawUi(vp);
+                _ui.End();
+            }
             if (_menu.Visible)
             {
                 _ui.Begin();
@@ -665,7 +687,9 @@ public sealed class BpwGame : Game
         var reload = new RectangleF(cx - bw / 2, y - 7 * k, bw, 7 * k);
         _ui.Rect(reload, Color.Black * 0.45f);
         _ui.Rect(new RectangleF(reload.X, reload.Y, reload.Width * Math.Clamp(t.ReloadRatio, 0, 1), reload.Height), new Color(0xff, 0xb0, 0x2a));
-        var help = _input.TouchMode ? "STICK drive · TAP aim + fire · II menu" : "W S drive · A D turn · MOUSE aim · CLICK / SPACE fire · ESC menu";
+        var help = _input.TouchMode ? "STICK drive · ◀ ▶ turret · TAP fire · II menu" : "W S drive · A D turn · Q E / ← → turret · SPACE / CLICK fire · ESC menu";
+        // Phones: the stick, the left / right buttons (turret) and pause, as in the heli game.
+        if (_input.TouchMode) _hud.DrawTouchControls(_input.Touch);
         var hw = _ui.Ui.Measure(help, 13 * k) + 24 * k;
         _ui.Panel(new RectangleF(cx - hw / 2, y - 34 * k, hw, 22 * k), 8 * k, new Color(15, 22, 30) * 0.55f);
         _ui.TextCentered(_ui.Ui, help, new Vector2(cx, y - 23 * k), 13 * k, Color.White * 0.92f);

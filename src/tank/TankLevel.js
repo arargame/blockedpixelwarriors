@@ -6,7 +6,8 @@ import { TankArena } from './TankArena.js';
 import { BlockFlow } from './BlockFlow.js';
 import { DrainPile } from './DrainPile.js';
 import { ArenaTrain } from './ArenaTrain.js';
-import { SupplyCrates } from '../entities/PowerUps.js';
+import { TankSupplies } from './TankSupplies.js';
+import { CARD_DEFS } from '../ui/UpgradeCards.js';
 import { PickupSfx } from '../audio/PickupSfx.js';
 import { fxRandom as rnd } from '../util/Random.js';
 import { reticleTexture } from '../ui/Reticle.js';
@@ -15,9 +16,6 @@ import { JetFighter } from '../combat/JetFighter.js';
 
 const v1 = new THREE.Vector3();
 const v2 = new THREE.Vector3();
-const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-const ray = new THREE.Raycaster();
-const ndc = new THREE.Vector2();
 const v3 = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -42,17 +40,19 @@ const POWER_NAMES = Object.freeze({ T: 'TRIPLE SHELLS', D: 'RAPID FIRE', R: 'HOM
  * AerialBomb - pooled, one InstancedMesh set per class.
  * The tank is solid: blocks sliding into it stop in front of it (and hold up their lane), and it
  * cannot drive through them.
- * Aiming (smart aim, like the heli): the mouse turns the turret; within a narrow cone around that
- * direction the best block is locked (reticle), the turret settles on it and the barrel depresses
- * toward it. Shells fly straight (direct fire) and hit the first block in their path.
- * Controls: W/S drive, A/D turn, mouse aims the turret, click / SPACE fires, ENTER restarts a
- * finished phase, ESC pause menu. Own scene and camera; the game's pipeline points at them.
+ * Aiming (smart aim, like the heli): the player turns the turret (Q / E, left / right arrows, the
+ * touch buttons); within a narrow cone round the gun the best block is locked (reticle) and the
+ * barrel depresses toward it. Shells fly straight and hit the first block in their path.
+ * Skill cards every 200 broken blocks: HOMING ROCKETS (R crates drop), CHAIN REACTION.
+ * Controls: W/S drive, A/D turn the hull, Q/E or arrows turn the turret, SPACE / click fires,
+ * ENTER restarts a finished phase, ESC pause menu. Own scene and camera.
  */
 export class TankLevel {
   /**
    * @param {{ gltf:any, textures:any, materials:any, trainFactory:any, renderer:THREE.WebGLRenderer, input:any, quality:any, settings:any }} deps
    */
-  constructor({ gltf, textures, materials, trainFactory, renderer, input, quality, settings, environment, rocketGltf, fighterGltf }) {
+  constructor({ gltf, textures, materials, trainFactory, renderer, input, quality, settings, environment, rocketGltf, fighterGltf, supplyGltf, cards }) {
+    this.cards = cards ?? null;
     this.input = input;
     this.settings = settings;
     this.trainFactory = trainFactory;
@@ -87,7 +87,7 @@ export class TankLevel {
     this.scene.add(this.blocks.group);
     this.pile = new DrainPile(materials, this.effects, this.arena);
     this.scene.add(this.pile.group);
-    this.supplies = new SupplyCrates(this.scene, this.effects, textures, materials);
+    this.supplies = new TankSupplies(this.scene, this.effects, supplyGltf, (x, z) => this.arena.floorAt(x, z));
     this.supplies.onPickup = (type, item) => this.onPickup(type, item);
 
     this.tank = new PlayerTank(gltf);
@@ -143,15 +143,13 @@ export class TankLevel {
     this.hp = GameConfig.tank.hp;
     this.buildHud();
 
-    this.onPointerMove = (e) => {
-      const r = this.element.getBoundingClientRect();
-      this.pointer = { x: ((e.clientX - r.left) / r.width) * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 };
-    };
+    // The mouse no longer aims: a left click just fires (touch fires with the FIRE button).
+    this.onPointerMove = () => {};
     this.onPointerDown = (e) => {
-      if (!this.active || this.paused) return;
-      this.onPointerMove(e);
-      if (e.button === 0 || e.pointerType !== 'mouse') this.fireQueued = true;
+      if (!this.active || this.paused || this.cards?.active) return;
+      if (e.pointerType === 'mouse' && e.button === 0) this.fireQueued = true;
     };
+    this.touch = { left: false, right: false, fire: false };
   }
 
   buildHud() {
@@ -168,7 +166,12 @@ export class TankLevel {
       <div class="th-powers" data-powers></div>
       <div class="th-banner" data-banner></div>
       <div class="th-title">IRON TRACKS <small>PHASE 1 · THE CHANNEL</small></div>
-      <div class="th-keys"><b>W S</b> drive · <b>A D</b> turn · <b>MOUSE</b> aim · <b>CLICK / SPACE</b> fire · <b>ESC</b> menu</div>
+      <div class="th-keys"><b>W S</b> drive · <b>A D</b> turn · <b>Q E / ← →</b> turret · <b>SPACE / CLICK</b> fire · <b>ESC</b> menu</div>
+      <div class="th-touch">
+        <button class="th-btn" data-tl aria-label="turret left">&#9664;</button>
+        <button class="th-btn" data-tr aria-label="turret right">&#9654;</button>
+        <button class="th-btn fire" data-fire aria-label="fire">FIRE</button>
+      </div>
       <div class="th-reload"><i></i></div>`;
     Object.assign(el.style, { display: 'none' });
     this.hud = el;
@@ -179,6 +182,27 @@ export class TankLevel {
       hp: el.querySelector('[data-hp]'), hpBar: el.querySelector('[data-hpbar]'), hit: el.querySelector('[data-hit]'),
     };
     (this.element.parentElement ?? document.body).appendChild(el);
+    // Phones: turret left / right and FIRE buttons (like the heli's turn buttons); the drag
+    // joystick drives the hull.
+    const hold = (sel, key) => {
+      const b = el.querySelector(sel);
+      const on = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.touch[key] = true;
+      };
+      const off = (e) => {
+        e.preventDefault();
+        this.touch[key] = false;
+      };
+      b.addEventListener('pointerdown', on);
+      b.addEventListener('pointerup', off);
+      b.addEventListener('pointercancel', off);
+      b.addEventListener('pointerleave', off);
+    };
+    hold('[data-tl]', 'left');
+    hold('[data-tr]', 'right');
+    hold('[data-fire]', 'fire');
   }
 
   /** Starts (or restarts) phase 1: tank at the bottom of the channel, everything cleared. */
@@ -214,6 +238,11 @@ export class TankLevel {
     this.blocks.reset();
     this.pile.reset();
     this.supplies.clear();
+    // Skill cards: none taken, the first offer at cardEvery broken blocks.
+    this.skills = new Set();
+    this.blocks.chainEnabled = false;
+    this.nextCardAt = GameConfig.tankArena.cardEvery;
+    this.cards?.cancel();
     this.train?.dispose();
     this.train = null;
     this.trainTimer = 1.5;
@@ -225,7 +254,6 @@ export class TankLevel {
     this.state = 'playing';
     this.hudEl.banner.className = 'th-banner';
     this.aim.set(B.x - Math.sign(B.x) * 20, 0, B.z + 4);
-    this.pointer = null;
     this.updateCamera(0, true);
     this.element.addEventListener('pointermove', this.onPointerMove);
     this.element.addEventListener('pointerdown', this.onPointerDown);
@@ -244,6 +272,11 @@ export class TankLevel {
   update(dt) {
     const keys = this.input.keys;
     const k = (...codes) => codes.some((c) => keys.has(c));
+    // Choosing a skill card: the level waits.
+    if (this.cards?.active) {
+      this.fireQueued = false;
+      return;
+    }
     if ((this.state === 'lost' || this.state === 'phase2') && k('Enter', 'NumpadEnter')) {
       keys.delete('Enter');
       this.start();
@@ -251,17 +284,18 @@ export class TankLevel {
     }
     const playing = this.state === 'playing';
     const driving = playing || this.state === 'won';
+    // W / S drive, A / D turn the hull; Q / E or the left / right arrows (or the touch buttons)
+    // turn the turret; the drag joystick also drives.
     const drive = driving ? {
       throttle: (k('KeyW', 'ArrowUp') ? 1 : 0) - (k('KeyS', 'ArrowDown') ? 1 : 0),
-      turn: (k('KeyD', 'ArrowRight') ? 1 : 0) - (k('KeyA', 'ArrowLeft') ? 1 : 0),
-    } : { throttle: 0, turn: 0 };
-    if (this.pointer) {
-      ndc.set(this.pointer.x, this.pointer.y);
-      ray.setFromCamera(ndc, this.camera);
-      plane.constant = -this.arena.floorAt(this.aim.x, this.aim.z) - 1;
-      if (ray.ray.intersectPlane(plane, v1)) this.aim.copy(v1);
+      turn: (k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0),
+      turret: (k('KeyQ', 'ArrowLeft') || this.touch.left ? 1 : 0) - (k('KeyE', 'ArrowRight') || this.touch.right ? 1 : 0),
+    } : { throttle: 0, turn: 0, turret: 0 };
+    if (driving && this.input.dragging && !drive.throttle && !drive.turn) {
+      drive.throttle = THREE.MathUtils.clamp(-this.input.move.z * 1.4, -1, 1);
+      drive.turn = THREE.MathUtils.clamp(this.input.move.x * 1.4, -1, 1);
     }
-    this.step(dt, drive, driving && (this.fireQueued || keys.has('Space')));
+    this.step(dt, drive, driving && (this.fireQueued || keys.has('Space') || this.touch.fire));
     this.fireQueued = false;
   }
 
@@ -269,10 +303,12 @@ export class TankLevel {
   step(dt, drive, fire) {
     const t = this.tank;
     this.time += dt;
-    // Smart aim: the turret settles on the locked block, the barrel depresses toward it.
+    // Smart aim (like the heli): the player points the turret; the best block in a narrow cone
+    // round the gun is locked, the barrel depresses toward it and the shells correct onto it.
+    t.update(dt, drive, drive.aim ?? null);
+    this.aim.set(t.position.x + Math.sin(t.gunYaw) * 20, 0, t.position.z + Math.cos(t.gunYaw) * 20);
     const lock = this.state === 'playing' || this.state === 'won' ? this.lockedTarget() : null;
     const target = lock ? this.blockCenter(lock, v3) : this.freeAimPoint(v3);
-    t.update(dt, drive, target);
     this.aimBarrel(target);
     this.updateReticle(dt, lock, target);
     for (const key of Object.keys(this.powers)) this.powers[key] = Math.max(0, this.powers[key] - dt);
@@ -578,7 +614,29 @@ export class TankLevel {
   onBlockDestroyed(b, depth, at) {
     this.broken += 1;
     this.shake = Math.max(this.shake, depth > 0 ? 0.12 : 0.18);
-    if (b.type === 'supply' && this.state === 'playing') this.supplies.spawnRandom(at, { gems: false, homing: true });
+    if (b.type === 'supply' && this.state === 'playing') {
+      // T triple, D rapid, H repair; R (homing rockets) only after its skill card.
+      const pool = this.skills.has('tankHoming') ? ['T', 'D', 'H', 'R', 'R'] : ['T', 'D', 'H'];
+      this.supplies.spawn(pool[Math.floor(rnd.next() * pool.length)], at);
+    }
+    if (this.broken >= this.nextCardAt) {
+      this.nextCardAt += GameConfig.tankArena.cardEvery;
+      this.offerCards();
+    }
+  }
+
+  /** Every cardEvery broken blocks: pick one of the tank skill cards not taken yet. */
+  offerCards() {
+    if (!this.cards || this.state !== 'playing') return;
+    const pool = CARD_DEFS.filter((d) => d.level === 'tank' && !this.skills.has(d.id));
+    if (!pool.length) return;
+    this.cards.show(pool.slice(0, 2), (def) => this.applySkill(def), { heading: 'CHOOSE A SKILL', sub: `${this.broken} blocks broken` });
+  }
+
+  applySkill(def) {
+    this.skills.add(def.id);
+    if (def.id === 'tankChain') this.blocks.chainEnabled = true;
+    this.flashBanner(def.title, 1.6);
   }
 
   onPickup(type, item) {
@@ -592,7 +650,7 @@ export class TankLevel {
       this.powers[key] = GameConfig.tankArena.powerTime;
     }
     this.flashBanner(POWER_NAMES[type] ?? type, 1.4);
-    this.effects.sparkBurst(item.mesh.position, 26, 6, [3, 3, 3, 1]);
+    this.effects.sparkBurst(item.obj.position, 26, 6, [3, 3, 3, 1]);
   }
 
   checkEnd() {

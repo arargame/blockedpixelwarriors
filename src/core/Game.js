@@ -297,6 +297,7 @@ export class Game {
       gltf: this.options.tankGltf, textures: this.textures, materials: this.materials, trainFactory: this.trainFactory,
       renderer: this.pipeline.renderer, input: this.input, quality: this.pipeline.quality, settings: this.settings,
       environment: this.scene.environment, rocketGltf: this.options.rocketGltf, fighterGltf: this.options.fighterGltf,
+      supplyGltf: this.options.supplyGltf, cards: this.cards,
     });
     this.tankMode = true;
     this.state = GameState.PLAYING;
@@ -1311,9 +1312,8 @@ export class Game {
     this.input.update();
     if (this.tankMode) {
       this.tankLevel.update(dt);
-      // The menu / card grey wash fades out (nothing else drives the grade pass in this level).
-      const grade = this.pipeline.gradePass;
-      if (grade) grade.uniforms.uAsh.value = 0;
+      // Skill cards (every 200 broken blocks): the picker drives the grey wash while it is up.
+      this.cards.update(dt);
       this.menu.update(dt);
       return;
     }
@@ -1440,7 +1440,8 @@ export class Game {
    */
   offerCards() {
     if (this.state !== GameState.PLAYING && this.state !== GameState.DEAD) return;
-    const open = (d) => !this.takenCards.has(d.id) && (!d.requires || this.takenCards.has(d.requires));
+    // Heli upgrades only (the tank level's skill cards are offered by TankLevel).
+    const open = (d) => !d.level && !this.takenCards.has(d.id) && (!d.requires || this.takenCards.has(d.requires));
     const pool = CARD_DEFS.filter(open);
     if (!pool.length) return;
     const pick = [];

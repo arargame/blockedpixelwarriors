@@ -66,6 +66,7 @@ public sealed class CardPicker : ICardPicker, IDisposable
     private Rectangle _vp;
 
     public bool Active { get; private set; }
+    private string _heading = "CHOOSE AN UPGRADE", _sub = "the train is down";
     /// <summary>True while the heading is up (toasts and notices stay out of the way).</summary>
     public bool Open => Active && _picked == null;
 
@@ -130,9 +131,11 @@ public sealed class CardPicker : ICardPicker, IDisposable
 
     // ---- ICardPicker --------------------------------------------------------------------------
 
-    public void Show(IReadOnlyList<CardDefData> defs, Action<CardDefData> onPick)
+    public void Show(IReadOnlyList<CardDefData> defs, Action<CardDefData> onPick, string heading = "CHOOSE AN UPGRADE", string sub = "the train is down")
     {
         if (Active || defs.Count == 0) return;
+        _heading = heading;
+        _sub = sub;
         _cards.Clear();
         _onPick = onPick;
         Active = true;
@@ -536,7 +539,7 @@ public sealed class CardPicker : ICardPicker, IDisposable
         var cssW = vp.Width / k;
         var headPx = Math.Clamp(cssW * 0.034f, 20, 40) * k;
         var top = vp.Y + vp.Height * 0.055f;
-        var heading = "CHOOSE AN UPGRADE";
+        var heading = _heading;
         var cx = vp.Center.X;
         var hw = _ui.Serif.Measure(heading, headPx, 0.32f);
         var pos = new Vector2(cx - hw / 2, top);
@@ -550,7 +553,7 @@ public sealed class CardPicker : ICardPicker, IDisposable
         _ui.Serif.Draw(_ui.Batch, heading, pos, headPx, new Color(0xf6, 0xdc, 0x91) * a, 0.32f);
         var subPx = Math.Clamp(cssW * 0.013f, 11, 15) * k;
         var subY = top + Math.Clamp(cssW * 0.046f, 30, 54) * k;
-        _ui.Serif.DrawShadowed(_ui.Batch, "the train is down", new Vector2(cx - _ui.Serif.Measure("the train is down", subPx, 0.2f) / 2, subY), subPx, new Color(245, 238, 222) * 0.9f * a, Color.Black * 0.8f * a, new Vector2(0, k), 0.2f);
+        _ui.Serif.DrawShadowed(_ui.Batch, _sub, new Vector2(cx - _ui.Serif.Measure(_sub, subPx, 0.2f) / 2, subY), subPx, new Color(245, 238, 222) * 0.9f * a, Color.Black * 0.8f * a, new Vector2(0, k), 0.2f);
         // Hint line with boxed keys.
         var hintPx = Math.Clamp(cssW * 0.01f, 9, 12) * k;
         var y = subY + subPx * 1.3f + 6 * k;

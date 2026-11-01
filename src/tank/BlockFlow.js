@@ -44,8 +44,8 @@ const MAX = 520;
  *   - a block never overlaps the one in front of it: a block landing on a lane pushes the ones
  *     below it down, and a block held up (by the tank pinned at the bottom) holds up the line;
  *   - the tank is pushed by the blocks touching it;
- *   - destroyed blocks blow up their same-coloured neighbours (same lane back to back, or side
- *     by side in the next lane), one after another;
+ *   - with the CHAIN REACTION skill, destroyed blocks blow up their same-coloured neighbours
+ *     (same lane back to back, or side by side in the next lane), one after another;
  *   - types: weak (1 hit, lighter), normal, strong (steel cage), supply (star, drops a power-up).
  * Blocks passing the dam lip are handed to onDrain. Rendering: one instanced mesh per colour +
  * the cage / star overlays.
@@ -73,6 +73,8 @@ export class BlockFlow {
     const star = supplyTexture();
     this.star = this.prep(new THREE.InstancedMesh(overlay, new THREE.MeshStandardMaterial({ map: star, emissiveMap: star, emissive: new THREE.Color(1, 0.85, 0.4), emissiveIntensity: 0.9, transparent: true, alphaTest: 0.3, roughness: 0.3, metalness: 0.4 }), MAX), false);
     this.pool = new ObjectPool(() => new ArenaBlock(), 160);
+    /** CHAIN REACTION skill card taken. */
+    this.chainEnabled = false;
     this.onDrain = null;
     this.onDestroyed = null;
     /** (block) => residual push the tank could not take (the block is held back by it). */
@@ -181,7 +183,9 @@ export class BlockFlow {
     lane.splice(lane.indexOf(b), 1);
     this.onDestroyed?.(b, depth, tmp.clone());
     this.pool.release(b);
-    // Same-coloured neighbours: back to back in the lane, or side by side in the next lane.
+    // CHAIN REACTION skill: same-coloured grid neighbours (up / down in the lane, left / right in
+    // the next lanes) go up too, one after another.
+    if (!this.chainEnabled) return;
     const S = this.size;
     for (const dl of [-1, 0, 1]) {
       const other = this.lanes[b.lane + dl];

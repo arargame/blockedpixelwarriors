@@ -106,9 +106,13 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
   zamanla akar. Tank `tank_hull / tank_turret / tank_barrel / tank_link` (Blender), paletler
   instancing ile döner, namlu geri teper, lambalar yanıp söner. Üs + yollar sahnenin parçası;
   yol orta çizgileri ve kapı menteşeleri `Prefabs.TankArena` ile gelir (yürünebilir alan testi),
-  kapı kanatları `tank_gate_leaf0/1`. HUD: KIRILAN / GİDER (dolum çubuğu) / GELEN / ZIRH sayaçları,
-  aktif güçler, isabette kırmızı kenar, bitiş afişi. Klavye W/S/A/D + fare / tık / SPACE, ENTER
-  yeniden; telefonda sol joystick sürer, dokunma nişan + ateş.
+  kapı kanatları `tank_gate_leaf0/1`; arazi `GroundY` yüksekliğinde, rampalar `RampHeight` ile
+  (zemin yüksekliği + gövde eğimi). İkmal sandığı `supply_body` (türe göre `BaseColor`) +
+  `supply_trim` + `supply_letter_X`. Yetenek kartları heli'nin `CardPicker`'ıyla (`Level == "tank"`
+  kartlar, her 200 blokta). HUD: KIRILAN / GİDER (dolum çubuğu) / GELEN / ZIRH sayaçları, aktif
+  güçler, isabette kırmızı kenar, bitiş afişi. Klavye W/S sür, A/D gövde, Q/E veya ←/→ taret,
+  SPACE / tık ateş, ENTER yeniden; telefonda sol joystick sürer, sol / sağ butonlar tareti
+  çevirir, dokunma ateş eder.
 - **Düşman / mermi sınıfları (web'deki `src/combat/` ile aynı):** `Gameplay/Enemy.cs` soyut taban
   (`IsAlive`, `AimPoint`, `TakeDamage`, `OnDeath`, `HarmsPlayer`) — `Train`, heli tahtasının
   `Block`'u, kanalın `TankBlock`'u (havuzdan, `Serial` ile) ve `JetFighter` türer.
@@ -127,6 +131,7 @@ BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|menu|
 BlockedPixelWarriors --capture menu.png --frames 3 --scenario menu --lang tr --menu down,right,enter
 node tools/staticshot.mjs web.png   # aynı "static" kareyi web sürümünden alır (karşılaştırma)
 # tank: üsten yola, kanala sürüş; sonra en alttaki bloğa nişan alan otomatik nişancı uçak geçene kadar
-# (--extra sn daha). --pick 1: faz kazanıldı, kapı açılır, uzak yoldan çıkış; --pick 2: R füzeleri açık
-BlockedPixelWarriors --capture tank.png --frames 3 --scenario tank [--pick 1|2] [--extra 0.5]
+# (--extra sn daha). --pick 1: faz kazanıldı, kapı açılır, uzak yoldan çıkış; --pick 2: R füzeleri açık;
+# --pick 3: yetenek kartı seçimi
+BlockedPixelWarriors --capture tank.png --frames 3 --scenario tank [--pick 1|2|3] [--extra 0.5]
 ```

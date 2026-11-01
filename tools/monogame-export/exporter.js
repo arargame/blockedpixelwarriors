@@ -327,6 +327,17 @@ class Exporter {
           guns: [at('FighterGunL'), at('FighterGunR')],
         };
       }
+      // Supply crate (Blender, supply.glb): painted body (tinted per type), steel trim, a letter each.
+      const crate = g.options?.supplyGltf?.scene.getObjectByName('SupplyCrate');
+      if (crate) {
+        crate.updateMatrixWorld(true);
+        await this.writeModel('supply_body', collect(crate.getObjectByName('SupplyBody')), crate);
+        await this.writeModel('supply_trim', collect(crate.getObjectByName('SupplyTrim')), crate);
+        for (const ch of ['T', 'D', 'R', 'H', 'G']) {
+          const l = crate.getObjectByName(`SupplyLetter${ch}`);
+          if (l) await this.writeModel(`supply_letter_${ch}`, collect(l, () => true), crate);
+        }
+      }
       await this.writeGeometryList('tank_shell', [{ geometry: new THREE.CapsuleGeometry(0.13, 0.5, 4, 8).rotateX(Math.PI / 2), material: new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffa040, emissiveIntensity: 2.2, roughness: 0.3 }) }]);
     }
 
@@ -401,7 +412,7 @@ class Exporter {
           await this.save(`Textures/card_${def.id}_${suffix}.png`, canvasBase64(tex.image));
           this.textureSpaces[`card_${def.id}_${suffix}`] = 'srgb';
         }
-        prefabs.cards.push({ id: def.id, title: def.title, kind: def.kind, requires: def.requires ?? null, jewel: linear(def.jewel), glow: linear(def.glow) });
+        prefabs.cards.push({ id: def.id, title: def.title, kind: def.kind, requires: def.requires ?? null, level: def.level ?? null, jewel: linear(def.jewel), glow: linear(def.glow) });
         c.frontTex.dispose();
         c.artTex.dispose();
         c.bannerTex.dispose();

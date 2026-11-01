@@ -771,6 +771,9 @@ public sealed class Hud : IHudEvents
         }
     }
 
+    /// <summary>Touch joystick + left / right buttons + pause for other screens (the tank level turns its turret with them).</summary>
+    public void DrawTouchControls(TouchControls t) => DrawTouch(t, _ui.Scale);
+
     private void DrawTouch(TouchControls t, float k)
     {
         if (!t.Enabled) return;

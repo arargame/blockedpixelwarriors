@@ -143,3 +143,15 @@ python tools/blender/build_fighter.py                       # fighter.glb + figh
 python tools/blender/build_fighter.py --render captures/fx  # + sprite açısı, yan, üst, ön, alt, oyun
 ```
 
+# İkmal sandığı (tank seviyesi)
+
+`build_supply.py`, GÜDÜMLÜ ROKETLER kartı resmindeki askeri sandığı yapar: pahlı kenarlı kapaklı
+kutu (tahta doku, neredeyse beyaz boya — oyun türüne göre boyar: R kırmızı, T turuncu, D mavi, H
+yeşil, G mor), 8 köşede perçinli çelik köşebent, ön / arkada çelik bantlar, önde iki mandal ve
+etiket plakası, yanlarda halat saplar, kapakta parlayan harf (Poppins Bold'dan 3B metin). Her harf
+ayrı nesne (`SupplyLetterT/D/R/H/G`), oyun birini gösterir. Ön yüz -z'de (oyun kamerasına bakar).
+
+```bash
+python tools/blender/build_supply.py                          # supply.glb + supply.blend
+python tools/blender/build_supply.py --render captures/supply # + her renk / harf için render
+```

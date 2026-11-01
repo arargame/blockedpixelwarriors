@@ -158,7 +158,12 @@ public static class GameConfig
         /// phase 1 is won (road lines come with the export: Prefabs.TankArena).
         /// </summary>
         public const float GapZ0 = 2.2f, GapZ1 = 11.4f;
-        public const float BaseX = 40, BaseZ = 3, BaseR = 10, RoadWidth = 9.5f, Phase2X = 50;
+        public const float BaseX = 48, BaseZ = 4, BaseR = 10, RoadWidth = 9.5f, Phase2X = 58;
+        /// <summary>The land lies higher than the water: a concrete ramp (RampLength outside the wall) runs down through each gap.</summary>
+        public const float GroundY = 2.3f, RampLength = 10;
+        public static float RampEnd => Width / 2 + 1.2f + RampLength;
+        /// <summary>Skill cards (level "tank"): one pick every CardEvery broken blocks.</summary>
+        public const int CardEvery = 200;
         public static float Width => Block * Lanes;
         public static float RailY => Slope * TopZ + 3.0f;
         public static float FloorHeight(float z) => Slope * Math.Clamp(z, 0, TopZ);

@@ -291,6 +291,8 @@ public sealed class CardDefData
     public string Title { get; set; }
     public string Kind { get; set; }
     public string Requires { get; set; }
+    /// <summary>"tank": a tank-level skill card (offered by TankLevel, not after a train).</summary>
+    public string Level { get; set; }
     public float[] Jewel { get; set; }
     public float[] Glow { get; set; }
 }

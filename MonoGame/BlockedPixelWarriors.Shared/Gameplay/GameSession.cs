@@ -1180,7 +1180,7 @@ public sealed class GameSession : IRenderable
 
     // ---- Upgrade cards ------------------------------------------------------------------------
 
-    private bool CardOpen(CardDefData d) => !_takenCards.Contains(d.Id) && (d.Requires == null || _takenCards.Contains(d.Requires));
+    private bool CardOpen(CardDefData d) => d.Level == null && !_takenCards.Contains(d.Id) && (d.Requires == null || _takenCards.Contains(d.Requires));
 
     /// <summary>
     /// Two cards (or the last one left) the player hasn't taken yet, after a train went down. The

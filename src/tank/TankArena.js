@@ -28,22 +28,24 @@ export class TankArena {
     const top = A.slope * L;
     const rng = new Random(77);
 
-    // ---- Grass ground with an oval hole for the drain -----------------------------------
+    // ---- Grass ground: the land lies higher than the water (groundY); one hole for the channel,
+    // the two ramp cuts and the drain basin (their outline traced as a single path).
     const D = A.drain;
+    const GY = A.groundY;
+    this.groundY = GY;
+    this.rampEnd = W / 2 + 1.2 + A.rampLength;
     const shape = new THREE.Shape();
     shape.moveTo(-160, -120);
     shape.lineTo(160, -120);
     shape.lineTo(160, 220);
     shape.lineTo(-160, 220);
     shape.lineTo(-160, -120);
-    const hole = new THREE.Path();
-    hole.absellipse(0, -D.z, D.rx + 1.2, D.rz + 1.2, 0, Math.PI * 2, true);
-    shape.holes.push(hole);
+    shape.holes.push(this.groundHole());
     const groundGeo = new THREE.ShapeGeometry(shape, 48);
     groundGeo.rotateX(-Math.PI / 2);
     planarUV(groundGeo, 1 / 8);
     const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 0.95 }));
-    ground.position.y = -0.04;
+    ground.position.y = GY - 0.04;
     ground.receiveShadow = true;
     this.group.add(ground);
 
@@ -81,32 +83,28 @@ export class TankArena {
     // Side walls, each with a gap near the bottom: the road from the base comes in on the left,
     // the way on to phase 2 leaves on the right (behind the gate).
     const G = A.gap;
+    // The walls are retaining walls now: from below the floor up to just above the land, flat
+    // topped (the channel is deep at the dam, shallow under the rail). They run on past the dam
+    // down to the drain basin.
+    const wallTop = GY + 0.35;
     for (const side of [-1, 1]) {
-      for (const [z0, z1] of [[-0.0, G.z0], [G.z1, L + 1.2]]) {
+      for (const [z0, z1] of [[-4.2, G.z0], [G.z1, L + 1.2]]) {
         const len = z1 - z0;
-        const g = new THREE.BoxGeometry(1.2, 3.2, len);
-        g.translate(side * (W / 2 + 0.6), 0.9, z0 + len / 2);
-        slopeY(g, A.slope);
+        const g = new THREE.BoxGeometry(1.2, wallTop + 0.7, len);
+        g.translate(side * (W / 2 + 0.6), (wallTop - 0.7) / 2, z0 + len / 2);
         planarUV(g, 1 / 3);
         const wall = new THREE.Mesh(g, wallMat);
         wall.castShadow = true;
         wall.receiveShadow = true;
         this.group.add(wall);
-        const cap = new THREE.BoxGeometry(1.5, 0.25, len + (z0 > 0 ? 0.2 : 0.2));
-        cap.translate(side * (W / 2 + 0.6), 2.6, z0 + len / 2);
-        slopeY(cap, A.slope);
+        const cap = new THREE.BoxGeometry(1.5, 0.25, len + 0.2);
+        cap.translate(side * (W / 2 + 0.6), wallTop + 0.1, z0 + len / 2);
         planarUV(cap, 1 / 3);
         const capMesh = new THREE.Mesh(cap, concrete);
         capMesh.castShadow = true;
         this.group.add(capMesh);
       }
-      // Threshold slab across the gap (channel floor to the road).
-      const th = new THREE.BoxGeometry(1.4, 0.3, G.z1 - G.z0);
-      th.translate(side * (W / 2 + 0.6), A.slope * ((G.z0 + G.z1) / 2) - 0.08, (G.z0 + G.z1) / 2);
-      planarUV(th, 1 / A.block);
-      const thMesh = new THREE.Mesh(th, concrete);
-      thMesh.receiveShadow = true;
-      this.group.add(thMesh);
+      this.buildRamp(side, concrete, wallMat, wallTop);
     }
     this.buildRoads(rng);
     this.buildBase(rng);
@@ -193,6 +191,9 @@ export class TankArena {
     rim.castShadow = true;
     rim.receiveShadow = true;
     this.group.add(rim);
+    // The basin is sunk into the higher land: a retaining band from the rim up to the grass, all
+    // round except where the channel meets it.
+    this.group.add(this.basinBand(wallMat, concrete, GY));
     const pool = new THREE.MeshStandardMaterial({
       color: 0x2f7f9c, map: ripple.clone(), transparent: true, opacity: 0.72, roughness: 0.06, metalness: 0.1,
       depthWrite: false, emissive: 0x08303e, emissiveIntensity: 0.5,
@@ -211,36 +212,54 @@ export class TankArena {
 
     // ---- Trees and rocks around (never on the channel, the rail bed or the drain) ----------
     const trees = [];
-    for (let i = 0; i < 260 && trees.length < 150; i++) {
+    for (let i = 0; i < 420 && trees.length < 230; i++) {
       const side = rng.chance(0.5) ? -1 : 1;
       const x = side * rng.range(W / 2 + 4, W / 2 + 46);
       const z = rng.range(-30, A.railZ + 40);
       if (Math.abs(z - A.railZ) < 5) continue;
       if (Math.abs(x) < D.rx + 4 && z < 4 && z > D.z - D.rz - 4) continue;
       if (this.nearRoad(x, z, 3.2)) continue;
-      trees.push({ x, y: -0.05, z, scale: rng.range(1.1, 1.9), rot: rng.next() * 6, variant: Math.floor(rng.next() * 3) });
+      trees.push({ x, y: GY - 0.05, z, scale: rng.range(1.1, 1.9), rot: rng.next() * 6, variant: Math.floor(rng.next() * 3) });
     }
-    for (let i = 0; i < 40; i++) {
-      const x = rng.range(-50, 50);
+    for (let i = 0; i < 50; i++) {
+      const x = rng.range(-60, 60);
       const z = rng.range(A.railZ + 6, A.railZ + 45);
-      trees.push({ x, y: -0.05, z, scale: rng.range(1.2, 2), rot: rng.next() * 6, variant: Math.floor(rng.next() * 3) });
+      trees.push({ x, y: GY - 0.05, z, scale: rng.range(1.2, 2), rot: rng.next() * 6, variant: Math.floor(rng.next() * 3) });
     }
     this.trees = new PineTreeFactory(materials).createForest(trees);
     this.group.add(this.trees);
     const rockMat = new THREE.MeshStandardMaterial({ color: 0x8c8f88, roughness: 0.95, flatShading: true });
     const rockGeo = new THREE.DodecahedronGeometry(1, 0);
-    const rocks = new THREE.InstancedMesh(rockGeo, rockMat, 24);
-    for (let i = 0; i < 24; i++) {
+    // Rocks: scattered along the walls, plus rocky outcrops (a big boulder ringed by smaller ones).
+    const rockList = [];
+    for (let i = 0; i < 40; i++) {
       const side = i % 2 ? -1 : 1;
       let rz = rng.range(-8, A.railZ - 6);
-      const rx = side * rng.range(W / 2 + 2.2, W / 2 + 9);
+      const rx = side * rng.range(W / 2 + 2.2, W / 2 + 12);
       if (this.nearRoad(rx, rz, 1.5)) rz += 16;
-      dummy.position.set(rx, 0.2, rz);
+      rockList.push([rx, rz, rng.range(0.6, 1.5), rng.range(0.4, 0.9), rng.range(0.6, 1.4)]);
+    }
+    for (let c = 0; c < 9; c++) {
+      const side = c % 2 ? -1 : 1;
+      const cx = side * rng.range(W / 2 + 8, W / 2 + 40);
+      const cz = rng.range(14, A.railZ - 4);
+      if (this.nearRoad(cx, cz, 4)) continue;
+      const big = rng.range(1.6, 2.6);
+      rockList.push([cx, cz, big, big * rng.range(0.6, 0.9), big * rng.range(0.8, 1.1)]);
+      for (let k = 0; k < 6; k++) {
+        const a = rng.next() * Math.PI * 2;
+        const d = big + rng.range(0.4, 2.2);
+        rockList.push([cx + Math.cos(a) * d, cz + Math.sin(a) * d, rng.range(0.4, 1.1), rng.range(0.3, 0.8), rng.range(0.4, 1.0)]);
+      }
+    }
+    const rocks = new THREE.InstancedMesh(rockGeo, rockMat, rockList.length);
+    rockList.forEach(([rx, rz, sx, sy, sz], i) => {
+      dummy.position.set(rx, GY + 0.1 + sy * 0.25, rz);
       dummy.rotation.set(rng.next() * 3, rng.next() * 3, 0);
-      dummy.scale.set(rng.range(0.6, 1.5), rng.range(0.4, 0.9), rng.range(0.6, 1.4));
+      dummy.scale.set(sx, sy, sz);
       dummy.updateMatrix();
       rocks.setMatrixAt(i, dummy.matrix);
-    }
+    });
     rocks.castShadow = true;
     rocks.receiveShadow = true;
     this.group.add(rocks);
@@ -280,10 +299,11 @@ export class TankArena {
     return Math.sqrt(best);
   }
 
-  /** Inside the base, on a road (or within `margin` of them). */
+  /** Inside the base, on a road or a ramp (or within `margin` of them). */
   nearRoad(x, z, margin = 0) {
     const A = GameConfig.tankArena;
     const B = A.base;
+    if (Math.abs(x) < (this.rampEnd ?? 0) + margin && z > A.gap.z0 - 0.6 - margin && z < A.gap.z1 + 0.6 + margin) return true;
     const R = this.roadLines();
     if (Math.hypot(x - B.x, z - B.z) < B.r + margin) return true;
     const w = A.roadWidth / 2 + margin;
@@ -311,7 +331,8 @@ export class TankArena {
         // Slightly wobbly edges so the road does not look ruled.
         const w0 = A.roadWidth / 2 + rng.spread(0.35);
         const w1 = A.roadWidth / 2 + rng.spread(0.35);
-        pos.push(pts[i].x + nx * w0, 0.012, pts[i].z + nz * w0, pts[i].x - nx * w1, 0.012, pts[i].z - nz * w1);
+        const y = A.groundY + 0.012;
+        pos.push(pts[i].x + nx * w0, y, pts[i].z + nz * w0, pts[i].x - nx * w1, y, pts[i].z - nz * w1);
         uv.push(0, dist / 6, 1, dist / 6);
         if (i > 0) {
           const k = i * 2;
@@ -327,6 +348,172 @@ export class TankArena {
       road.receiveShadow = true;
       this.group.add(road);
     }
+    this.buildRoadStones(rng);
+  }
+
+  /** White stones of different sizes lined up along both edges of the roads (grass | dirt). */
+  buildRoadStones(rng) {
+    const A = GameConfig.tankArena;
+    const B = A.base;
+    const list = [];
+    for (const pts of Object.values(this.roadLines())) {
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[Math.max(0, i - 1)];
+        const b = pts[Math.min(pts.length - 1, i + 1)];
+        const l = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+        const nx = -(b.z - a.z) / l;
+        const nz = (b.x - a.x) / l;
+        for (const side of [-1, 1]) {
+          const off = A.roadWidth / 2 + 0.3 + rng.spread(0.12);
+          const x = pts[i].x + nx * off * side;
+          const z = pts[i].z + nz * off * side;
+          if (Math.abs(x) < this.rampEnd + 0.6 || Math.hypot(x - B.x, z - B.z) < B.r + 0.4) continue;
+          list.push([x, z, rng.range(0.22, 0.5)]);
+        }
+      }
+    }
+    const geo = new THREE.DodecahedronGeometry(1, 0);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xeceae4, roughness: 0.75, flatShading: true });
+    const stones = new THREE.InstancedMesh(geo, mat, list.length);
+    const d = new THREE.Object3D();
+    list.forEach(([x, z, s], i) => {
+      d.position.set(x, A.groundY + s * 0.25, z);
+      d.rotation.set(rng.next() * 3, rng.next() * 3, rng.next() * 3);
+      d.scale.set(s * rng.range(0.9, 1.3), s * rng.range(0.55, 0.8), s * rng.range(0.9, 1.2));
+      d.updateMatrix();
+      stones.setMatrixAt(i, d.matrix);
+    });
+    stones.castShadow = true;
+    stones.receiveShadow = true;
+    this.group.add(stones);
+  }
+
+  /** Outline of the ground's hole: channel (with the two ramp cuts) joined to the drain basin. */
+  groundHole() {
+    const A = GameConfig.tankArena;
+    const D = A.drain;
+    const W = (A.block * A.lanes) / 2;
+    const X = W + 1.2;
+    const R = this.rampEnd;
+    const za = A.gap.z0 - 0.6;
+    const zb = A.gap.z1 + 0.6;
+    const Ztop = A.topZ + 1.4;
+    const a = D.rx + 1.2;
+    const b = D.rz + 1.2;
+    const al = Math.acos(X / a);
+    const zc = D.z + b * Math.sin(al);
+    // Shape space: (x, -z).
+    const pts = [[-X, Ztop], [-X, zb], [-R, zb], [-R, za], [-X, za], [-X, zc]];
+    for (let k = 1; k < 48; k++) {
+      const t = Math.PI - al + ((Math.PI + 2 * al) * k) / 48;
+      pts.push([Math.cos(t) * a, D.z + Math.sin(t) * b]);
+    }
+    pts.push([X, zc], [X, za], [R, za], [R, zb], [X, zb], [X, Ztop]);
+    const path = new THREE.Path();
+    path.moveTo(pts[0][0], -pts[0][1]);
+    for (const [x, z] of pts.slice(1)) path.lineTo(x, -z);
+    path.closePath();
+    return path;
+  }
+
+  /** Retaining band round the basin from its rim up to the grass (outside the channel only). */
+  basinBand(wallMat, capMat, GY) {
+    const A = GameConfig.tankArena;
+    const D = A.drain;
+    const X = (A.block * A.lanes) / 2 + 1.2;
+    const a = D.rx + 1.25;
+    const b = D.rz + 1.25;
+    const al = Math.acos(Math.min(1, X / a));
+    const pos = [];
+    const uv = [];
+    const idx = [];
+    const n = 64;
+    for (let k = 0; k <= n; k++) {
+      const t = Math.PI - al + ((Math.PI + 2 * al) * k) / n;
+      const x = Math.cos(t) * a;
+      const z = D.z + Math.sin(t) * b;
+      pos.push(x, 0.15, z, x, GY + 0.1, z);
+      uv.push(k / 4, 0, k / 4, (GY - 0.05) / 3);
+      if (k > 0) {
+        const i = k * 2;
+        idx.push(i - 2, i, i - 1, i - 1, i, i + 1);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const m = wallMat.clone();
+    m.side = THREE.DoubleSide;
+    const band = new THREE.Mesh(g, m);
+    band.receiveShadow = true;
+    return band;
+  }
+
+  /**
+   * Concrete ramp through the wall gap on `side`: from just under the water at the channel edge up
+   * to the land (rampLength outside the wall), between two retaining walls.
+   */
+  buildRamp(side, concrete, wallMat, wallTop) {
+    const A = GameConfig.tankArena;
+    const G = A.gap;
+    const W = (A.block * A.lanes) / 2;
+    const nx = 14;
+    const nz = 4;
+    const pos = [];
+    const uv = [];
+    const idx = [];
+    for (let i = 0; i <= nx; i++) {
+      const ax = W + ((this.rampEnd - W) * i) / nx;
+      for (let j = 0; j <= nz; j++) {
+        const z = G.z0 + ((G.z1 - G.z0) * j) / nz;
+        pos.push(side * ax, this.rampHeight(ax, z), z);
+        uv.push(ax / A.block, z / A.block);
+      }
+    }
+    for (let i = 0; i < nx; i++) {
+      for (let j = 0; j < nz; j++) {
+        const a = i * (nz + 1) + j;
+        const b = a + nz + 1;
+        if (side > 0) idx.push(a, a + 1, b, b, a + 1, b + 1);
+        else idx.push(a, b, a + 1, b, b + 1, a + 1);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const ramp = new THREE.Mesh(g, concrete);
+    ramp.receiveShadow = true;
+    this.group.add(ramp);
+    // Front face under the ramp's low end (hidden by the water) and the two side walls.
+    for (const z of [G.z0 - 0.3, G.z1 + 0.3]) {
+      const len = this.rampEnd - W + 0.2;
+      const wg = new THREE.BoxGeometry(len, wallTop + 0.7, 0.6);
+      wg.translate(side * (W + len / 2), (wallTop - 0.7) / 2, z);
+      planarUV(wg, 1 / 3);
+      const wall = new THREE.Mesh(wg, wallMat);
+      wall.castShadow = true;
+      wall.receiveShadow = true;
+      this.group.add(wall);
+      const cap = new THREE.BoxGeometry(len, 0.25, 0.9);
+      cap.translate(side * (W + len / 2), wallTop + 0.1, z);
+      planarUV(cap, 1 / 3);
+      const capMesh = new THREE.Mesh(cap, concrete);
+      capMesh.castShadow = true;
+      this.group.add(capMesh);
+    }
+  }
+
+  /** Ramp surface height at |x| = ax (channel edge .. rampEnd) and z. */
+  rampHeight(ax, z) {
+    const A = GameConfig.tankArena;
+    const W = (A.block * A.lanes) / 2;
+    const t = THREE.MathUtils.clamp((ax - W) / (this.rampEnd - W), 0, 1);
+    const e = t * t * (3 - 2 * t) * 0.35 + t * 0.65;
+    return THREE.MathUtils.lerp(this.floorHeight(z) + 0.16, A.groundY, e);
   }
 
   /** Round base at the bottom left: packed earth pad, sandbag ring open toward the road, a flag. */
@@ -335,7 +522,7 @@ export class TankArena {
     const B = A.base;
     const pad = new THREE.Mesh(new THREE.CircleGeometry(B.r, 48), new THREE.MeshStandardMaterial({ map: dirtTexture(true), roughness: 0.95 }));
     pad.rotation.x = -Math.PI / 2;
-    pad.position.set(B.x, 0.02, B.z);
+    pad.position.set(B.x, A.groundY + 0.02, B.z);
     pad.receiveShadow = true;
     this.group.add(pad);
     // Sandbags: two staggered courses round the edge, open toward the road.
@@ -356,7 +543,7 @@ export class TankArena {
     const bags = new THREE.InstancedMesh(bagGeo, bagMat, placements.length);
     const dummy = new THREE.Object3D();
     placements.forEach(({ a, layer }, i) => {
-      dummy.position.set(B.x + Math.cos(a) * ring, 0.22 + layer * 0.4, B.z + Math.sin(a) * ring);
+      dummy.position.set(B.x + Math.cos(a) * ring, A.groundY + 0.22 + layer * 0.4, B.z + Math.sin(a) * ring);
       dummy.rotation.set(0, -a + Math.PI / 2 + rng.spread(0.06), rng.spread(0.04));
       dummy.scale.set(1, 1 - layer * 0.08, 1);
       dummy.updateMatrix();
@@ -369,7 +556,7 @@ export class TankArena {
     const fx = B.x - B.r * 0.55;
     const fz = B.z + B.r * 0.55;
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 7.5, 10), new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.7, roughness: 0.35 }));
-    pole.position.set(fx, 3.75, fz);
+    pole.position.set(fx, A.groundY + 3.75, fz);
     pole.castShadow = true;
     this.group.add(pole);
     const flagGeo = new THREE.PlaneGeometry(2.6, 1.6, 8, 1);
@@ -378,7 +565,7 @@ export class TankArena {
     flagGeo.translate(1.3, 0, 0);
     flagGeo.computeVertexNormals();
     const flag = new THREE.Mesh(flagGeo, new THREE.MeshStandardMaterial({ map: flagTexture(), side: THREE.DoubleSide, roughness: 0.85 }));
-    flag.position.set(fx + 0.1, 6.6, fz);
+    flag.position.set(fx + 0.1, A.groundY + 6.6, fz);
     flag.rotation.y = -0.4;
     flag.castShadow = true;
     this.group.add(flag);
@@ -386,7 +573,7 @@ export class TankArena {
     const crateGeo = new THREE.BoxGeometry(1.3, 0.9, 0.9);
     for (const [dx, dz, dy, ry] of [[-6.2, -4.6, 0, 0.3], [-5.0, -5.4, 0, -0.2], [-5.6, -5.0, 0.9, 0.05], [5.4, -6.2, 0, 1.2]]) {
       const c = new THREE.Mesh(crateGeo, crateMat);
-      c.position.set(B.x + dx, 0.47 + dy, B.z + dz);
+      c.position.set(B.x + dx, A.groundY + 0.47 + dy, B.z + dz);
       c.rotation.y = ry;
       c.castShadow = true;
       c.receiveShadow = true;
@@ -396,7 +583,7 @@ export class TankArena {
     const drumGeo = new THREE.CylinderGeometry(0.42, 0.42, 1.05, 16);
     for (const [dx, dz] of [[-2.0, 7.2], [-1.1, 7.6], [-1.6, 6.5]]) {
       const d = new THREE.Mesh(drumGeo, drumMat);
-      d.position.set(B.x + dx, 0.54, B.z + dz);
+      d.position.set(B.x + dx, A.groundY + 0.54, B.z + dz);
       d.castShadow = true;
       this.group.add(d);
     }
@@ -413,7 +600,8 @@ export class TankArena {
     const W = A.block * A.lanes;
     // The gate is on the side away from the base.
     this.gateSide = -Math.sign(A.base.x);
-    const x = this.gateSide * (W / 2 + 0.6);
+    // At the top of the far ramp, where the road starts.
+    const x = this.gateSide * (this.rampEnd + 0.3);
     const wood = new THREE.MeshStandardMaterial({ map: plankTexture(), roughness: 0.85 });
     const postMat = new THREE.MeshStandardMaterial({ color: 0x5a4330, roughness: 0.9 });
     const span = (G.z1 - G.z0) / 2;
@@ -422,13 +610,13 @@ export class TankArena {
     this.gateT = 0;
     for (const [hz, dir] of [[G.z0, 1], [G.z1, -1]]) {
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.2, 0.5), postMat);
-      post.position.set(x, 1.4, hz - dir * 0.15);
+      post.position.set(x, A.groundY + 1.4, hz - dir * 0.15);
       post.receiveShadow = true;
       post.castShadow = true;
       this.group.add(post);
       const pivot = new THREE.Group();
-      pivot.position.set(x, A.slope * hz, hz);
-      pivot.userData = { hinge: [x, A.slope * hz, hz], dir };
+      pivot.position.set(x, A.groundY, hz);
+      pivot.userData = { hinge: [x, A.groundY, hz], dir };
       const leaf = new THREE.Group();
       const L = span - 0.12;
       // Frame: two posts, three rails, a diagonal brace; vertical planks between the rails.
@@ -468,16 +656,15 @@ export class TankArena {
     this.gateOpen = open;
   }
 
-  /** Ground height anywhere: the sloped channel floor inside, the road / grass outside. */
+  /** Ground height anywhere: the sloped channel floor inside, the ramps, the land outside. */
   floorAt(x, z) {
     const A = GameConfig.tankArena;
     const W = (A.block * A.lanes) / 2;
-    if (Math.abs(x) <= W + 1.3 && z >= 0 && z <= A.topZ) {
-      if (Math.abs(x) <= W) return this.floorHeight(z);
-      // The threshold slabs in the gaps.
-      if (z >= A.gap.z0 && z <= A.gap.z1) return A.slope * ((A.gap.z0 + A.gap.z1) / 2) + 0.07;
-    }
-    return 0.0;
+    const ax = Math.abs(x);
+    if (ax <= W && z >= 0 && z <= A.topZ) return this.floorHeight(z);
+    if (ax > W && ax <= this.rampEnd && z >= A.gap.z0 && z <= A.gap.z1) return this.rampHeight(ax, z);
+    if (ax <= W + 1.3 && z > -6 && z <= A.topZ + 1.4) return this.floorHeight(z);
+    return A.groundY;
   }
 
   isWater(x, z) {
@@ -486,23 +673,26 @@ export class TankArena {
   }
 
   /**
-   * Can the tank stand here (a footprint point)? The channel inside, the two wall gaps (the right
-   * one only once the gate is open), the roads and the base.
+   * Can the tank stand here (a footprint point)? The channel inside, the two ramps (past the gate
+   * at the top of the far one only once it is open), the roads and the base.
    */
   walkable(x, z) {
     const A = GameConfig.tankArena;
     const W = (A.block * A.lanes) / 2;
     const G = A.gap;
+    const ax = Math.abs(x);
     const inGap = z > G.z0 + 0.15 && z < G.z1 - 0.15;
-    if (Math.abs(x) <= W && z >= 0.3 && z <= A.topZ - A.block * 2.6) return true;
+    if (ax <= W && z >= 0.3 && z <= A.topZ - A.block * 2.6) return true;
     const open = this.gateT > 0.85;
     const entry = Math.sign(A.base.x);
-    if (Math.abs(x) > W && Math.abs(x) < W + 1.6 && inGap) return Math.sign(x) === entry || open;
-    if (Math.abs(x) <= W + 1.3) return false;      // the walls
+    if (ax > W && ax <= this.rampEnd + 0.1 && inGap) return true;
+    if (ax > W && ax <= this.rampEnd + 0.8 && inGap) return Math.sign(x) === entry || open;
+    if (ax <= this.rampEnd + 0.8 && z > G.z0 - 0.9 && z < G.z1 + 0.9) return false;   // ramp walls / gate posts
+    if (ax <= W + 1.3) return false;      // the walls
     const B = A.base;
     if (Math.hypot(x - B.x, z - B.z) < B.r - 0.8) return true;
     const R = this.roadLines();
-    if (TankArena.distToLine(R.in, x, z) < A.roadWidth / 2) return true;
+    if (Math.sign(x) === entry && TankArena.distToLine(R.in, x, z) < A.roadWidth / 2) return true;
     if (Math.sign(x) !== entry && TankArena.distToLine(R.out, x, z) < A.roadWidth / 2) return open;
     return false;
   }
@@ -512,8 +702,8 @@ export class TankArena {
     const A = GameConfig.tankArena;
     const W = (A.block * A.lanes) / 2;
     const ax = Math.abs(p.x);
-    if (ax < W || ax > W + 1.35 || p.z < 0 || p.z > A.topZ + 1.2) return false;
-    if (p.y > 2.75 + this.floorHeight(p.z)) return false;
+    if (ax < W || ax > W + 1.35 || p.z < -4.2 || p.z > A.topZ + 1.2) return false;
+    if (p.y > A.groundY + 0.45) return false;
     return !(p.z > A.gap.z0 && p.z < A.gap.z1);
   }
 
