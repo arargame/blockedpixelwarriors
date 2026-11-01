@@ -260,21 +260,36 @@ public sealed class BpwGame : Game
         if (_options.Touch) _input.TouchMode = true;
         if (_options.Scenario == "tank")
         {
-            // Tank arena: 48 s of trains dropping blocks (the tank holds up the lanes it covers), then
-            // --extra seconds (default 30) of an auto gunner aiming at the lowest block (same script
-            // as the web test).
+            // Tank level (same script as the web test): drive from the base along the road into the
+            // channel, then an auto gunner (aims at the lowest block) holds position until the
+            // fighter is about to pass over (strafe + bomb), --extra seconds more (default 0.5).
+            // --pick 1: phase won, the gate opens and the tank drives out along the far road.
             StartTank();
-            for (float t = 0; t < 48; t += 1 / 30f) _tank.Step(1 / 30f, 0, 0, null, false);
-            var fight = _options.Extra > 0 ? _options.Extra : 30;
-            for (float t = 0; t < fight; t += 1 / 30f)
+            var A = GameConfig.TankArena.BaseX > 0 ? 1 : -1;
+            var path = new List<Vector2> { new(31 * A, 4.2f), new(26 * A, 5.8f), new(20 * A, 6.9f), new(14 * A, 6.8f), new(8 * A, 8), new(0, 9) };
+            DriveTank(path, 14);
+            if (_options.PickCard == 1)
             {
-                TankBlock best = null;
-                foreach (var lane in _tank.Blocks.Lanes)
-                foreach (var b in lane)
-                    if (best == null || b.Z < best.Z) best = b;
-                _tank.Step(1 / 30f, 0, 0, best != null ? new Vector3(best.X, 0, best.Z) : null, best != null);
+                _tank.ForceWin();
+                DriveTank(new List<Vector2>(), 2.5f);
+                DriveTank(new List<Vector2> { new(-8 * A, 7), new(-13 * A, 6.8f), new(-21 * A, 7.2f), new(-30 * A, 9.4f), new(-42 * A, 13.5f), new(-56 * A, 17) }, 14);
             }
-            Console.WriteLine($"[tank] lock {_tank.Locked} elev {_tank.Elevation:0.000} dropped {_tank.Dropped} broken {_tank.Broken} drain {_tank.Pile.Count} onLanes {_tank.Blocks.Count} train {_tank.TrainActive} pos {_tank.Position}");
+            else
+            {
+                // --pick 2: R (homing missiles) active during the fight.
+                for (float t = 0; t < 30; t += 1 / 30f)
+                {
+                    if (_options.PickCard == 2) _tank.Powers[Gameplay.SupplyType.R] = 5;
+                    TankFightStep();
+                    if (_tank.FighterActive && _tank.Fighter.Position.Y > 0 && _tank.Fighter.IsAlive && _tank.FighterPassLeft < 12) break;
+                }
+                for (float t = 0; t < (_options.Extra > 0 ? _options.Extra : 0.5f); t += 1 / 30f)
+                {
+                    if (_options.PickCard == 2) _tank.Powers[Gameplay.SupplyType.R] = 5;
+                    TankFightStep();
+                }
+            }
+            Console.WriteLine($"[tank] state {_tank.State} hp {_tank.Hp:0.0} lock {_tank.Locked} dropped {_tank.Dropped} broken {_tank.Broken} drain {_tank.Pile.Count} fighter {_tank.FighterActive} projectiles {_tank.Projectiles.Count} pos {_tank.Position}");
         }
         if (_options.Scenario == "poster") _session.StagePoster();
         if (_options.Scenario == "static") _session.StageStatic();
@@ -385,6 +400,40 @@ public sealed class BpwGame : Game
                 if (!s.Paused && _input.PausePressed) Pause();
                 break;
         }
+    }
+
+    /// <summary>Capture helper: drives the tank through waypoints (heading error steering).</summary>
+    private void DriveTank(List<Vector2> path, float seconds)
+    {
+        var wp = 0;
+        for (float t = 0; t < seconds; t += 1 / 30f)
+        {
+            float throttle = 0, turn = 0;
+            if (wp < path.Count)
+            {
+                var p = _tank.Position;
+                var target = path[wp];
+                if (Vector2.Distance(target, new Vector2(p.X, p.Z)) < 2.5f) wp++;
+                else
+                {
+                    var want = MathF.Atan2(target.X - p.X, target.Y - p.Z);
+                    var err = MathHelper.WrapAngle(want - _tank.Heading);
+                    throttle = MathF.Abs(err) < 0.6f ? 1 : 0.2f;
+                    turn = err > 0.08f ? -1 : err < -0.08f ? 1 : 0;
+                }
+            }
+            _tank.Step(1 / 30f, throttle, turn, null, false);
+        }
+    }
+
+    /// <summary>Capture helper: aim at the lowest block in the channel and fire.</summary>
+    private void TankFightStep()
+    {
+        TankBlock best = null;
+        foreach (var lane in _tank.Blocks.Lanes)
+        foreach (var b in lane)
+            if (best == null || b.Z < best.Z) best = b;
+        _tank.Step(1 / 30f, 0, 0, best != null ? new Vector3(best.X, 0, best.Z) : null, best != null);
     }
 
     /// <summary>Tank level (menu card IRON TRACKS): its own scene, the heli game is put away.</summary>
@@ -533,6 +582,8 @@ public sealed class BpwGame : Game
         var k = _ui.Scale;
         var t = _tank;
         _ui.Begin();
+        // Hit: red screen edges (the web HUD's .th-hit inset shadow).
+        if (t.HitFlash > 0.01f) _ui.DamageVignette(vp, t.HitFlash);
         var cx = vp.Width / 2f;
         var panel = new Color(15, 22, 30) * 0.6f;
         var edge = Color.White * 0.25f;
@@ -543,6 +594,7 @@ public sealed class BpwGame : Game
             ("BROKEN", t.Broken.ToString(), $"/ {GameConfig.TankArena.BreakGoal}", Color.White, -1),
             ("DRAIN", t.Pile.Count.ToString(), $"/ {GameConfig.TankArena.DrainLimit}", new Color(0x7f, 0xd8, 0xff), Math.Min(1, t.Pile.Count / (float)GameConfig.TankArena.DrainLimit)),
             ("INCOMING", Math.Max(0, GameConfig.TankArena.PhaseBlocks - t.Dropped).ToString(), "", Color.White, -1),
+            ("ARMOR", MathF.Ceiling(t.Hp).ToString(), "", t.Hp < 30 ? new Color(0xff, 0x6b, 0x5a) : new Color(0x9b, 0xe3, 0x6a), Math.Clamp(t.Hp / GameConfig.Tank.Hp, 0, 1) + 2),
         };
         float LabelW(string s) => _ui.Ui.Measure(s, 11 * k, 0.14f);
         var widths = stats.Select(st => 28 * k + LabelW(st.label) + 6 * k + _ui.Hud.Measure(st.value, 24 * k)
@@ -566,16 +618,19 @@ public sealed class BpwGame : Game
             if (st.tail.Length > 0) _ui.Text(_ui.Ui, st.tail, new Vector2(tx, mid - 4.5f * k), 13 * k, Color.White * 0.7f);
             if (st.bar >= 0)
             {
+                // bar >= 2: armour (green -> red as it drops), else the drain fill (blue -> red).
+                var armour = st.bar >= 2;
+                var f = armour ? st.bar - 2 : st.bar;
                 var bar = new RectangleF(x + 8 * k, top + h - 6 * k, widths[i] - 16 * k, 3 * k);
                 _ui.Rect(bar, Color.White * 0.15f);
-                var fill = Color.Lerp(new Color(0x5a, 0xd0, 0xff), new Color(0xff, 0x5a, 0x4a), st.bar);
-                _ui.Rect(new RectangleF(bar.X, bar.Y, bar.Width * st.bar, bar.Height), fill);
+                var fill = armour ? Color.Lerp(new Color(0xff, 0x5a, 0x4a), new Color(0x9b, 0xe3, 0x6a), f) : Color.Lerp(new Color(0x5a, 0xd0, 0xff), new Color(0xff, 0x5a, 0x4a), f);
+                _ui.Rect(new RectangleF(bar.X, bar.Y, bar.Width * f, bar.Height), fill);
             }
             x += widths[i] + 10 * k;
         }
 
         // ---- Active power-ups ----
-        var names = new Dictionary<SupplyType, string> { [SupplyType.T] = "TRIPLE SHELLS", [SupplyType.D] = "RAPID FIRE", [SupplyType.R] = "HEAVY SHELLS" };
+        var names = new Dictionary<SupplyType, string> { [SupplyType.T] = "TRIPLE SHELLS", [SupplyType.D] = "RAPID FIRE", [SupplyType.R] = "HOMING MISSILES" };
         var powers = t.Powers.Where(p => p.Value > 0).Select(p => $"{names[p.Key]} {MathF.Ceiling(p.Value)}s").ToList();
         if (powers.Count > 0)
         {

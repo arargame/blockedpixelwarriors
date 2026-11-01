@@ -2,6 +2,7 @@ using BlockedPixelWarriors.Assets;
 using BlockedPixelWarriors.Audio;
 using BlockedPixelWarriors.Core;
 using BlockedPixelWarriors.Fx;
+using BlockedPixelWarriors.Gameplay.Combat;
 using BlockedPixelWarriors.Input;
 using BlockedPixelWarriors.Rendering;
 using Microsoft.Xna.Framework;
@@ -9,7 +10,7 @@ using Microsoft.Xna.Framework.Input;
 
 namespace BlockedPixelWarriors.Gameplay;
 
-public enum TankLevelState { Playing, Won, Lost }
+public enum TankLevelState { Playing, Won, Lost, Phase2 }
 
 /// <summary>
 /// Tank level (src/tank/TankLevel.js + PlayerTank.js), menu card IRON TRACKS, phase 1 "the
@@ -19,7 +20,14 @@ public enum TankLevelState { Playing, Won, Lost }
 /// and piles up there (physics).
 ///   1000 blocks come in phase 1: break 900. 100 blocks in the drain loses.
 ///   Same-coloured neighbours chain-explode; weak / normal / strong (caged) / supply (star) blocks.
-///   Supplies: T triple shells, D rapid fire, R heavy shells (splash), H drain pump (-10 blocks).
+///   Supplies: T triple shells, D rapid fire, R homing missiles (like the heli's), H repair + drain
+///   pump (-10 blocks).
+/// The tank starts in a round base among the trees at the bottom left and drives in along a dirt
+/// road through a gap in the left wall. Every 7-20 s the Blocked Pixel Panzer fighter makes a pass:
+/// 3-4 s of machine-gun fire and a bomb aimed where the tank is (keep moving). Winning the phase
+/// opens the fence gate in the right wall; the road behind it leads on to phase 2.
+/// Enemies (Enemy.cs): channel blocks (targets only), trains, the fighter. Projectiles
+/// (TankCombat.cs): TankShell, HomingMissile, JetBullet, AerialBomb - pooled, instanced per class.
 /// The tank is solid: blocks sliding into it stop in front of it (holding up their lane) and it
 /// cannot drive through them. Smart aim (like the heli): the mouse turns the turret; within a narrow
 /// cone around that direction the best block is locked (reticle), the turret settles on it and the
@@ -27,25 +35,34 @@ public enum TankLevelState { Playing, Won, Lost }
 /// W/S drive, A/D turn, the mouse aims the turret, click / SPACE fires, ENTER restarts a finished
 /// phase. Phones: the left stick drives, a tap aims and fires. Own camera, lights and effects.
 /// </summary>
-public sealed class TankLevel
+public sealed class TankLevel : ICombatWorld
 {
-    
     private static readonly Dictionary<SupplyType, string> PowerNames = new()
     {
-        [SupplyType.T] = "TRIPLE SHELLS", [SupplyType.D] = "RAPID FIRE", [SupplyType.R] = "HEAVY SHELLS", [SupplyType.H] = "DRAIN PUMP -10", [SupplyType.G] = "RAPID FIRE",
+        [SupplyType.T] = "TRIPLE SHELLS", [SupplyType.D] = "RAPID FIRE", [SupplyType.R] = "HOMING MISSILES", [SupplyType.H] = "REPAIR · DRAIN PUMP", [SupplyType.G] = "RAPID FIRE",
     };
 
-    private readonly GpuMesh _hull, _turret, _barrel, _link, _arena, _shellMesh;
+    private readonly GpuMesh _hull, _turret, _barrel, _link, _arena;
+    private readonly (GpuMesh mesh, Vector3 hinge, int dir)[] _gate;
+    private readonly int _gateSide = -1;
+    private readonly List<Vector2> _roadIn = new(), _roadOut = new();
+    private float _gateT;
+    private bool _gateOpen;
+    private readonly ProjectileManager _projectiles;
+    private readonly JetFighter _fighter;
+    private readonly FighterContext _fighterCtx;
+    private bool _fighterActive;
+    private float _fighterTimer, _homingTimer;
+    private int _fighterSide = 1, _homingSide = 1;
     private readonly List<InstancedModel> _arenaSets = new();
     private readonly Matrix _turretBase, _barrelBase;
     private readonly Vector3 _barrelAxis, _muzzleLocal;
     private readonly TankTrackData _track;
     private readonly InstanceBuffer _links;
     private readonly List<(RenderMaterial mat, Vector3 baseEmissive, bool red)> _lamps = new();
-    private readonly List<(Vector3 pos, Vector3 vel, float dist, bool heavy)> _shells = new();
     private readonly BillboardBatch _reticle;
     private float _reticleSpin, _elevation0;
-    private (TankBlock block, float at)? _lock;
+    private (TankBlock block, int serial, float at)? _lock;
     private readonly float[] _trackOffset = new float[2];
     private readonly TrainFactory _trainFactory;
     private readonly Microsoft.Xna.Framework.Graphics.GraphicsDevice _device;
@@ -79,6 +96,23 @@ public sealed class TankLevel
     /// <summary>Banner: title, sub line, kind ("won", "lost", "power"); visible while Banner != null.</summary>
     public (string title, string sub, string kind)? Banner { get; private set; }
     public Vector3 Aim => _aim;
+    /// <summary>Armour (the fighter's guns and bombs are the only things that hurt the tank).</summary>
+    public float Hp { get; private set; } = GameConfig.Tank.Hp;
+    /// <summary>Red screen-edge flash after a hit (0..1).</summary>
+    public float HitFlash { get; private set; }
+    public bool FighterActive => _fighterActive;
+    public JetFighter Fighter => _fighter;
+    public IReadOnlyList<Combat.Projectile> Projectiles => _projectiles.Active;
+    /// <summary>Capture helper: units the fighter still has to fly to its pass point.</summary>
+    public float FighterPassLeft => _fighterActive ? -_fighter.PassS : float.PositiveInfinity;
+
+    /// <summary>Capture helper: phase won (the gate opens).</summary>
+    public void ForceWin()
+    {
+        State = TankLevelState.Won;
+        _gateOpen = true;
+        Banner = ("PHASE 1 CLEAR!", "the gate on the right is open - drive out", "won");
+    }
 
     public TankLevel(ModelLibrary models, SceneData scene, Microsoft.Xna.Framework.Graphics.Texture2D envMap, RenderQuality quality, Func<GameSettings> settings)
     {
@@ -90,7 +124,6 @@ public sealed class TankLevel
         _barrel = models.Mesh("tank_barrel");
         _link = models.Mesh("tank_link");
         _arena = models.Mesh("tank_arena");
-        _shellMesh = models.Mesh("tank_shell");
         _track = data?.Track;
         if (scene.InstanceSets != null && scene.InstanceSets.TryGetValue("tank_arena", out var sets))
             foreach (var name in sets)
@@ -121,7 +154,7 @@ public sealed class TankLevel
         var debrisMaterial = cube.Material.Clone();
         debrisMaterial.BaseColor = Vector4.One;
         debrisMaterial.Roughness = 0.9f;
-        var debris = new DebrisSystem(cube, debrisMaterial, new InstanceBuffer(models.Device, 400, true), (_, z) => GameConfig.TankArena.FloorHeight(z));
+        var debris = new DebrisSystem(cube, debrisMaterial, new InstanceBuffer(models.Device, 400, true), (x, z) => FloorAt(x, z));
         Effects = new Effects(new ParticleSystem(Batch("smoke", 2000, false, 11)), new ParticleSystem(Batch("glow", 1200, true, 12)),
             new ParticleSystem(Batch("streak", 900, true, 13)), new ParticleSystem(Batch("fireball0", 500, false, 12)), debris, rig, 3);
 
@@ -136,6 +169,31 @@ public sealed class TankLevel
         _trainFactory = new TrainFactory(models, scene.Prefabs);
         var (ret, retSrgb) = models.Texture("ui_reticle");
         _reticle = new BillboardBatch(models.Device, ret, retSrgb, 1, false, 30) { DepthTest = false };
+
+        // Way in / out: road lines and the gate leaves (hinge space models) from the export.
+        var arenaData = scene.Prefabs.TankArena;
+        if (arenaData != null)
+        {
+            _gateSide = arenaData.GateSide == 0 ? -1 : arenaData.GateSide;
+            foreach (var p in arenaData.RoadIn ?? new()) _roadIn.Add(new Vector2(p[0], p[1]));
+            foreach (var p in arenaData.RoadOut ?? new()) _roadOut.Add(new Vector2(p[0], p[1]));
+            _gate = (arenaData.Hinges ?? new()).Select((h, i) => (models.Mesh($"tank_gate_leaf{i}"), new Vector3(h[0], h[1], h[2]), (int)h[3])).ToArray();
+        }
+        else _gate = Array.Empty<(GpuMesh, Vector3, int)>();
+
+        // Projectiles: pooled class hierarchy, one instance buffer per class.
+        _projectiles = new ProjectileManager(models.Device);
+        var shellMesh = models.Mesh("tank_shell");
+        _projectiles.Register<TankShell>(shellMesh, Vector3.UnitZ, Vector3.One, 24, false);
+        _projectiles.Register<HomingMissile>(models.Mesh("projectile_missile"), -Vector3.UnitZ, new Vector3(1.6f / 1.25f), 32, true);
+        _projectiles.Register<JetBullet>(shellMesh, Vector3.UnitZ, new Vector3(0.45f, 0.45f, 1.6f), 96, false, 48);
+        _projectiles.Register<AerialBomb>(models.Mesh("fighter_bomb"), Vector3.UnitZ, new Vector3(GameConfig.Fighter.Scale), 6, true, 4);
+        _fighter = new JetFighter(models, scene.Prefabs.Fighter);
+        _fighterCtx = new FighterContext
+        {
+            Projectiles = _projectiles, Effects = Effects, FloorAt = FloorAt,
+            CrashAt = p => BombBlast(p, GameConfig.Fighter.BombRadius * 0.8f, GameConfig.Fighter.BombDamage * 0.5f),
+        };
 
         if (!Available) return;
         _turretBase = MathX.FromThree(data.TurretMatrix);
@@ -159,12 +217,22 @@ public sealed class TankLevel
     /// <summary>Starts (or restarts) phase 1: tank at the bottom of the channel, everything cleared.</summary>
     public void Start()
     {
-        Position = new Vector3(0, GameConfig.TankArena.FloorHeight(8), 8);
-        Heading = Speed = TurnRate = TurretYaw = Recoil = RecoilVel = Cooldown = Pitch = 0;
+        // In the base, facing the road (toward the channel).
+        Position = new Vector3(GameConfig.TankArena.BaseX, 0, GameConfig.TankArena.BaseZ);
+        Speed = TurnRate = TurretYaw = Recoil = RecoilVel = Cooldown = Pitch = 0;
+        Heading = -MathF.Sign(GameConfig.TankArena.BaseX) * MathF.PI / 2;
         Elevation = AimElevation = -0.12f;
         _lock = null;
         ReloadTime = GameConfig.Tank.Reload;
-        _shells.Clear();
+        _projectiles.Clear();
+        Hp = GameConfig.Tank.Hp;
+        HitFlash = 0;
+        _homingTimer = 0;
+        _fighterActive = false;
+        _fighterTimer = GameConfig.Fighter.FirstDelay;
+        _fighterSide = 1;
+        _gateOpen = false;
+        _gateT = 0;
         Effects.Clear();
         Blocks.Reset();
         Pile.Reset();
@@ -178,18 +246,18 @@ public sealed class TankLevel
         foreach (var k in Powers.Keys.ToList()) Powers[k] = 0;
         State = TankLevelState.Playing;
         Banner = null;
-        _aim = new Vector3(0, 0, 24);
+        _aim = new Vector3(GameConfig.TankArena.BaseX - MathF.Sign(GameConfig.TankArena.BaseX) * 20, 0, GameConfig.TankArena.BaseZ + 4);
         UpdateCamera(0, true);
     }
 
     public void Update(float dt, GameInput input, Rectangle viewport)
     {
-        if (State != TankLevelState.Playing && (input.Pressed(Keys.Enter) || (input.TouchMode && input.Taps.Count > 0)))
+        if ((State == TankLevelState.Lost || State == TankLevelState.Phase2) && (input.Pressed(Keys.Enter) || (input.TouchMode && input.Taps.Count > 0)))
         {
             Start();
             return;
         }
-        var playing = State == TankLevelState.Playing;
+        var playing = State == TankLevelState.Playing || State == TankLevelState.Won;
         float throttle = (input.Down(Keys.W) || input.Down(Keys.Up) ? 1 : 0) - (input.Down(Keys.S) || input.Down(Keys.Down) ? 1 : 0);
         float turn = (input.Down(Keys.D) || input.Down(Keys.Right) ? 1 : 0) - (input.Down(Keys.A) || input.Down(Keys.Left) ? 1 : 0);
         var cmd = input.Command;
@@ -216,17 +284,25 @@ public sealed class TankLevel
         Time += dt;
         if (aim.HasValue) _aim = aim.Value;
         // Smart aim: the turret settles on the locked block, the barrel depresses toward it.
-        var lockBlock = State == TankLevelState.Playing ? LockedTarget() : null;
+        var aiming = State == TankLevelState.Playing || State == TankLevelState.Won;
+        var lockBlock = aiming ? LockedTarget() : null;
         var target = lockBlock != null ? BlockCenter(lockBlock) : FreeAimPoint();
         Drive(dt, throttle, turn, target);
         AimBarrel(target);
         UpdateReticle(dt, lockBlock != null, target);
         foreach (var k in Powers.Keys.ToList()) Powers[k] = MathF.Max(0, Powers[k] - dt);
         if (fire) Fire();
-        if (State == TankLevelState.Playing) UpdateTrains(dt);
+        if (State == TankLevelState.Playing)
+        {
+            UpdateTrains(dt);
+            UpdateHoming(dt);
+        }
+        UpdateFighter(dt);
         Blocks.Update(dt);
         Pile.Update(dt);
-        UpdateShells(dt);
+        _projectiles.Update(dt, this);
+        UpdateGate(dt);
+        HitFlash = MathF.Max(0, HitFlash - dt * 1.8f);
         Supplies.Update(dt, Position + new Vector3(0, 1.2f, 0), State == TankLevelState.Playing);
         UpdateDust(dt);
         Effects.Update(dt);
@@ -244,7 +320,7 @@ public sealed class TankLevel
         var ndc = new Vector2(screen.X / vp.Width * 2 - 1, 1 - screen.Y / vp.Height * 2);
         var dir = Camera.RayDirection(ndc.X, ndc.Y);
         if (!(dir.Y < -1e-4f)) return null; // also rejects NaN (camera not set up yet)
-        var planeY = GameConfig.TankArena.FloorHeight(_aim.Z) + 1;
+        var planeY = FloorAt(_aim.X, _aim.Z) + 1;
         var p = Camera.Position + dir * ((planeY - Camera.Position.Y) / dir.Y);
         return float.IsFinite(p.X) && float.IsFinite(p.Z) ? p : null;
     }
@@ -258,14 +334,34 @@ public sealed class TankLevel
         Speed += Math.Clamp(target - Speed, -acc * dt, acc * dt);
         var turnTarget = -turn * GameConfig.Tank.TurnSpeed * (MathF.Abs(Speed) > 0.1f && Speed < 0 ? -1 : 1);
         TurnRate += (turnTarget - TurnRate) * (1 - MathF.Exp(-8 * dt));
+        var ox = Position.X;
+        var oz = Position.Z;
+        var oh = Heading;
         Heading += TurnRate * dt;
-        Position.X += MathF.Sin(Heading) * Speed * dt;
-        Position.Z += MathF.Cos(Heading) * Speed * dt;
-        ClampToBounds();
-        // Blocks are solid: the hull is pushed back out of them.
+        var nx = ox + MathF.Sin(Heading) * Speed * dt;
+        var nz = oz + MathF.Cos(Heading) * Speed * dt;
+        // Where the hull cannot stand (walls, trees, a closed gate) it slides along one axis or stops.
+        if (!CanStand(nx, nz, Heading))
+        {
+            if (CanStand(nx, oz, Heading)) nz = oz;
+            else if (CanStand(ox, nz, Heading)) nx = ox;
+            else
+            {
+                nx = ox;
+                nz = oz;
+                if (!CanStand(ox, oz, Heading)) Heading = oh;
+            }
+        }
+        Position.X = nx;
+        Position.Z = nz;
+        // Blocks are solid: the hull is pushed back out of them (never into a wall).
         CollideTank();
-        ClampToBounds();
-        Position.Y = GameConfig.TankArena.FloorHeight(Position.Z);
+        if (!CanStand(Position.X, Position.Z, Heading))
+        {
+            Position.X = nx;
+            Position.Z = nz;
+        }
+        Position.Y = FloorAt(Position.X, Position.Z);
         // Slight pitch with acceleration (nose lifts pulling away, dips braking).
         Pitch = MathHelper.Lerp(Pitch, -Math.Clamp((target - Speed) * 0.012f, -0.04f, 0.04f), 1 - MathF.Exp(-6 * dt));
 
@@ -296,17 +392,6 @@ public sealed class TankLevel
             var on = MathF.Sin(phase + (red ? 0 : MathF.PI)) > 0 ? 1 : 0.12f;
             mat.Emissive = baseE * (red && reversing ? 1.4f : on);
         }
-    }
-
-    /// <summary>Keeps the (turned) hull footprint in the channel, above the dam lip and below the landing zone.</summary>
-    private void ClampToBounds()
-    {
-        var c = MathF.Abs(MathF.Cos(Heading));
-        var sn = MathF.Abs(MathF.Sin(Heading));
-        var ex = c * GameConfig.Tank.HalfX + sn * GameConfig.Tank.HalfZ;
-        var ez = sn * GameConfig.Tank.HalfX + c * GameConfig.Tank.HalfZ;
-        Position.X = Math.Clamp(Position.X, -HalfW + ex, HalfW - ex);
-        Position.Z = Math.Clamp(Position.Z, 0.3f + ez, GameConfig.TankArena.TopZ - GameConfig.TankArena.Block * 2.6f - ez);
     }
 
     private Matrix HullWorld => MathX.RotationXYZ(Pitch, Heading, 0) * Matrix.CreateTranslation(Position);
@@ -454,13 +539,23 @@ public sealed class TankLevel
         var st = _settings?.Invoke();
         var gain = st == null ? 0.64f : st.Master / 10f * (st.Sfx / 10f);
         PickupSfx.Play(gain, 0, type == SupplyType.H ? -0.1f : 0);
-        if (type == SupplyType.H) Pile.Remove(10);
+        if (type == SupplyType.H)
+        {
+            Pile.Remove(10);
+            Hp = MathF.Min(GameConfig.Tank.Hp, Hp + 25);
+        }
         else Powers[type == SupplyType.G ? SupplyType.D : type] = GameConfig.TankArena.PowerTime;
         FlashBanner(PowerNames.TryGetValue(type, out var n) ? n : type.ToString(), 1.4f);
     }
 
     private void CheckEnd()
     {
+        if (State == TankLevelState.Won && Position.X * MathF.Sign(GameConfig.TankArena.BaseX) < -GameConfig.TankArena.Phase2X)
+        {
+            State = TankLevelState.Phase2;
+            Banner = ("PHASE 2", "Coming soon · ENTER to replay phase 1", "won");
+            return;
+        }
         if (State != TankLevelState.Playing) return;
         if (Pile.Count >= GameConfig.TankArena.DrainLimit)
         {
@@ -471,8 +566,10 @@ public sealed class TankLevel
         {
             var won = Broken >= GameConfig.TankArena.BreakGoal;
             State = won ? TankLevelState.Won : TankLevelState.Lost;
+            // Won: the gate in the right wall opens; the road behind it leads on to phase 2.
+            if (won) _gateOpen = true;
             Banner = won
-                ? ("PHASE 1 CLEAR!", $"{Broken} blocks broken · {Pile.Count} in the drain · ENTER to play again", "won")
+                ? ("PHASE 1 CLEAR!", $"{Broken} blocks broken · the gate on the right is open - drive out", "won")
                 : ("NOT ENOUGH", $"Only {Broken} / {GameConfig.TankArena.BreakGoal} broken · ENTER to try again", "lost");
         }
     }
@@ -492,7 +589,7 @@ public sealed class TankLevel
     /// </summary>
     private TankBlock LockedTarget()
     {
-        if (_lock is { } l && Time - l.at < GameConfig.Tank.LockRefresh && l.block.Alive && !l.block.Drained) return l.block;
+        if (_lock is { } l && Time - l.at < GameConfig.Tank.LockRefresh && l.block.Serial == l.serial && l.block.Alive) return l.block;
         var yaw = MathF.Atan2(_aim.X - Position.X, _aim.Z - Position.Z);
         TankBlock best = null;
         var bestScore = float.PositiveInfinity;
@@ -506,14 +603,14 @@ public sealed class TankLevel
             var ang = MathF.Abs(Wrap(MathF.Atan2(dx, dz) - yaw));
             if (ang > GameConfig.Tank.AimCone) continue;
             // Keep the current lock unless something is clearly better (no flicker between neighbours).
-            var score = ang * 12 + d * 0.35f - (_lock is { } cur && cur.block == b ? 0.6f : 0);
+            var score = ang * 12 + d * 0.35f - (_lock is { } cur && cur.block == b && cur.serial == b.Serial ? 0.6f : 0);
             if (score < bestScore)
             {
                 bestScore = score;
                 best = b;
             }
         }
-        _lock = best != null ? (best, Time) : null;
+        _lock = best != null ? (best, best.Serial, Time) : null;
         return best;
     }
 
@@ -534,7 +631,7 @@ public sealed class TankLevel
         var r = Math.Clamp(d, 8, 26);
         var x = Position.X + dx / d * r;
         var z = Position.Z + dz / d * r;
-        return new Vector3(x, GameConfig.TankArena.FloorHeight(z) + 0.9f, z);
+        return new Vector3(x, FloorAt(x, z) + 0.9f, z);
     }
 
     /// <summary>Barrel elevation toward the target (from the barrel's pivot).</summary>
@@ -549,7 +646,7 @@ public sealed class TankLevel
     private void UpdateReticle(float dt, bool locked, Vector3 target)
     {
         _reticle.Begin();
-        if (State == TankLevelState.Playing)
+        if (State == TankLevelState.Playing || State == TankLevelState.Won)
         {
             _reticleSpin += dt * (locked ? 2 : 0.8f);
             var s = locked ? 2.6f + MathF.Sin(_reticleSpin * 3) * 0.18f : 2.2f;
@@ -586,21 +683,20 @@ public sealed class TankLevel
         }
         _shake = MathF.Max(_shake, 0.3f);
         // Locked: straight at the block's centre (the gunner corrects the last few degrees).
-        var lockBlock = _lock is { } l && l.block.Alive ? l.block : null;
+        var lockBlock = _lock is { } l && l.block.Serial == l.serial && l.block.Alive ? l.block : null;
         var aimDir = lockBlock != null ? Vector3.Normalize(BlockCenter(lockBlock) - muzzle) : dir;
         // Point blank: a block between the barrel's base and the muzzle takes the hit at once.
         var close = TraceBlock(BarrelPivot, muzzle);
         if (close != null)
         {
-            Impact(BlockCenter(close), Powers[SupplyType.R] > 0, close, "block");
+            var c = BlockCenter(close);
+            Blocks.Damage(close, GameConfig.Tank.ShellDamage, c);
+            Effects.Explosion(c, 0.9f);
             return;
         }
         var spreads = Powers[SupplyType.T] > 0 ? new[] { -0.12f, 0f, 0.12f } : new[] { 0f };
         foreach (var off in spreads)
-        {
-            var vel = Vector3.Transform(aimDir, Matrix.CreateRotationY(off)) * GameConfig.Tank.ShellSpeed;
-            _shells.Add((muzzle, vel, 0, Powers[SupplyType.R] > 0));
-        }
+            _projectiles.Spawn<TankShell>(muzzle, Vector3.Transform(aimDir, Matrix.CreateRotationY(off)) * GameConfig.Tank.ShellSpeed);
     }
 
     /// <summary>First block on the segment a -> b (0.25 steps), or null.</summary>
@@ -616,61 +712,212 @@ public sealed class TankLevel
         return null;
     }
 
-    /// <summary>Direct fire: each shell flies straight and stops at the first block, wall or the floor.</summary>
-    private void UpdateShells(float dt)
+    // ---- Combat world (ICombatWorld: what the projectiles see) ------------------------------------
+
+    TankBlock ICombatWorld.BlockAt(float x, float z) => Blocks.BlockAt(x, z);
+    float ICombatWorld.BlockTop(TankBlock b) => BlockTop(b);
+    void ICombatWorld.DamageBlock(TankBlock b, float amount, Vector3 at) => Blocks.Damage(b, amount, at);
+    JetFighter ICombatWorld.FlyingEnemy => _fighterActive && _fighter.IsAlive ? _fighter : null;
+
+    public void ShakeAt(Vector3 p, float amount)
     {
-        for (var i = _shells.Count - 1; i >= 0; i--)
+        var d = Vector3.Distance(p, Position);
+        _shake = MathF.Max(_shake, Math.Clamp(amount - d * 0.01f, 0.06f, amount));
+    }
+
+    /// <summary>The hull as a box: footprint (oriented) and 0..2.8 above the ground.</summary>
+    public bool TankHit(Vector3 p)
+    {
+        if (p.Y < Position.Y - 0.2f || p.Y > Position.Y + 2.8f) return false;
+        var dx = p.X - Position.X;
+        var dz = p.Z - Position.Z;
+        var c = MathF.Cos(Heading);
+        var sn = MathF.Sin(Heading);
+        return MathF.Abs(dx * c - dz * sn) <= GameConfig.Tank.HalfX + 0.1f && MathF.Abs(dx * sn + dz * c) <= GameConfig.Tank.HalfZ + 0.1f;
+    }
+
+    public void DamageTank(float amount, Vector3 at)
+    {
+        if (State != TankLevelState.Playing && State != TankLevelState.Won) return;
+        Hp = MathF.Max(0, Hp - amount);
+        HitFlash = MathF.Min(1, HitFlash + amount / 25);
+        _shake = MathF.Max(_shake, MathF.Min(0.5f, 0.08f + amount / 60));
+        if (Hp <= 0 && State == TankLevelState.Playing)
         {
-            var s = _shells[i];
-            var speed = s.vel.Length();
-            var n = Math.Max(1, (int)MathF.Ceiling(speed * dt / 0.5f));
-            var h = dt / n;
-            string hit = null;
-            TankBlock block = null;
-            for (var k = 0; k < n && hit == null; k++)
-            {
-                s.pos += s.vel * h;
-                s.dist += speed * h;
-                var b = Blocks.BlockAt(s.pos.X, s.pos.Z);
-                if (b != null && s.pos.Y <= BlockTop(b))
-                {
-                    hit = "block";
-                    block = b;
-                }
-                else if (s.pos.Y <= GameConfig.TankArena.FloorHeight(s.pos.Z) + 0.05f) hit = "floor";
-                else if (MathF.Abs(s.pos.X) > HalfW || s.pos.Z > GameConfig.TankArena.TopZ + 0.5f) hit = "wall";
-                else if (s.dist > GameConfig.Tank.ShellRange) hit = "air";
-            }
-            Effects.Fire.Emit(new ParticleSpec { Position = s.pos, Life = 0.12f, Size0 = 0.45f, Size1 = 0.1f, Aspect = 1, Color0 = new Vector4(3, 1.8f, 0.6f, 1), Color1 = new Vector4(1, 0.4f, 0.1f, 0), HasColor1 = true });
-            if (hit == null)
-            {
-                _shells[i] = s;
-                continue;
-            }
-            _shells.RemoveAt(i);
-            Impact(s.pos, s.heavy, block, hit);
+            State = TankLevelState.Lost;
+            var p = Position + new Vector3(0, 1.5f, 0);
+            Effects.Explosion(p, 2.4f, 0x3c4a2au, 22);
+            Effects.FlashLight(p, 0xff8040, 120, 0.5f, 18);
+            Banner = ("TANK DESTROYED", "The fighter got you - keep moving under fire · ENTER to try again", "lost");
         }
     }
 
-    private void Impact(Vector3 at, bool heavy, TankBlock b, string kind)
+    /// <summary>A bomb (or the crashing fighter): fireball, crater dust, the tank and blocks in reach hurt.</summary>
+    public void BombBlast(Vector3 p, float radius, float damage)
     {
-        var dmg = GameConfig.Tank.ShellDamage;
-        if (b != null) Blocks.Damage(b, dmg * (heavy ? 2 : 1), at);
-        if (heavy)
+        var r = Rng.Shared;
+        Effects.Explosion(p, 2.2f, 0x6a5a40u, 18);
+        Effects.Explosion(new Vector3(p.X + r.Spread(1), p.Y + 0.8f, p.Z + r.Spread(1)), 1.4f);
+        Effects.FlashLight(p, 0xff9040, 140, 0.45f, 20);
+        var wet = IsWater(p.X, p.Z);
+        for (var i = 0; i < 26; i++)
         {
-            // Splash: the four neighbours take a hit too.
-            var S = Blocks.Size;
-            foreach (var (dx, dz) in new[] { (S, 0f), (-S, 0f), (0f, S), (0f, -S) })
+            Effects.Smoke.Emit(new ParticleSpec
             {
-                var n = Blocks.BlockAt(at.X + dx, at.Z + dz);
-                if (n != null && n != b) Blocks.Damage(n, dmg, new Vector3(n.X, at.Y, n.Z));
+                Position = new Vector3(p.X + r.Spread(1.5f), p.Y + 0.2f, p.Z + r.Spread(1.5f)), Velocity = new Vector3(r.Spread(6), r.Range(4, 11), r.Spread(6)), Drag = 1.4f, Gravity = 10,
+                Life = r.Range(0.8f, 1.5f), Size0 = 0.6f, Size1 = r.Range(1.8f, 2.8f), Aspect = 1,
+                Color0 = wet ? new Vector4(1.2f, 1.32f, 1.42f, 0.9f) : new Vector4(0.55f, 0.47f, 0.36f, 0.85f),
+                Color1 = wet ? new Vector4(1.1f, 1.2f, 1.3f, 0) : new Vector4(0.65f, 0.6f, 0.52f, 0), HasColor1 = true,
+            });
+        }
+        var d = MathF.Sqrt((p.X - Position.X) * (p.X - Position.X) + (p.Z - Position.Z) * (p.Z - Position.Z));
+        if (d < radius) DamageTank(damage * MathF.Pow(1 - d / radius, 0.6f), p);
+        foreach (var lane in Blocks.Lanes)
+        foreach (var b in lane.ToArray())
+            if (MathF.Sqrt((b.X - p.X) * (b.X - p.X) + (b.Z - p.Z) * (b.Z - p.Z)) < radius * 0.7f) Blocks.Damage(b, 2, new Vector3(b.X, p.Y + 1, b.Z));
+        _shake = MathF.Max(_shake, Math.Clamp(0.9f - d * 0.02f, 0.2f, 0.9f));
+    }
+
+    public Enemy ClosestEnemy(Vector3 p)
+    {
+        TankBlock best = null;
+        var bd = GameConfig.Tank.HomingRange;
+        foreach (var lane in Blocks.Lanes)
+        foreach (var b in lane)
+        {
+            var d = MathF.Sqrt((b.X - p.X) * (b.X - p.X) + (b.Z - p.Z) * (b.Z - p.Z));
+            if (d < bd)
+            {
+                bd = d;
+                best = b;
             }
         }
-        uint debris = kind == "wall" ? 0xb9b6adu : 0x7a6a52u;
-        Effects.Explosion(at, heavy ? 1.3f : 0.9f, b != null ? null : debris, b != null || kind == "air" ? 0 : 6);
-        if (kind == "floor") Effects.SnowPuff(at + new Vector3(0, 0.1f, 0), 6);
-        var d = Vector3.Distance(at, Position);
-        _shake = MathF.Max(_shake, Math.Clamp(0.4f - d * 0.01f, 0.06f, 0.4f));
+        return best;
+    }
+
+    // ---- Arena layout: ground, water, walls, the way in / out (TankArena.js) ------------------------
+
+    private static float DistToLine(List<Vector2> pts, float x, float z)
+    {
+        var best = float.PositiveInfinity;
+        for (var i = 0; i < pts.Count - 1; i++)
+        {
+            var a = pts[i];
+            var ab = pts[i + 1] - a;
+            var t = Math.Clamp(((x - a.X) * ab.X + (z - a.Y) * ab.Y) / MathF.Max(ab.LengthSquared(), 1e-6f), 0, 1);
+            var px = a.X + ab.X * t - x;
+            var pz = a.Y + ab.Y * t - z;
+            best = MathF.Min(best, px * px + pz * pz);
+        }
+        return MathF.Sqrt(best);
+    }
+
+    /// <summary>Ground height anywhere: the sloped channel floor inside, the road / grass outside.</summary>
+    public float FloorAt(float x, float z)
+    {
+        var w = HalfW;
+        if (MathF.Abs(x) <= w + 1.3f && z >= 0 && z <= GameConfig.TankArena.TopZ)
+        {
+            if (MathF.Abs(x) <= w) return GameConfig.TankArena.FloorHeight(z);
+            if (z >= GameConfig.TankArena.GapZ0 && z <= GameConfig.TankArena.GapZ1)
+                return GameConfig.TankArena.Slope * ((GameConfig.TankArena.GapZ0 + GameConfig.TankArena.GapZ1) / 2) + 0.07f;
+        }
+        return 0;
+    }
+
+    public bool IsWater(float x, float z) => MathF.Abs(x) <= HalfW && z >= 0 && z <= GameConfig.TankArena.TopZ;
+
+    /// <summary>A shell hitting a channel wall (inside the wall boxes, below the cap).</summary>
+    public bool WallAt(Vector3 p)
+    {
+        var ax = MathF.Abs(p.X);
+        if (ax < HalfW || ax > HalfW + 1.35f || p.Z < 0 || p.Z > GameConfig.TankArena.TopZ + 1.2f) return false;
+        if (p.Y > 2.75f + GameConfig.TankArena.FloorHeight(p.Z)) return false;
+        return !(p.Z > GameConfig.TankArena.GapZ0 && p.Z < GameConfig.TankArena.GapZ1);
+    }
+
+    /// <summary>Walkable ground: the channel, the wall gaps (the gate side once open), the roads, the base.</summary>
+    private bool Walkable(float x, float z)
+    {
+        var A = GameConfig.TankArena.Block;
+        var w = HalfW;
+        var inGap = z > GameConfig.TankArena.GapZ0 + 0.15f && z < GameConfig.TankArena.GapZ1 - 0.15f;
+        if (MathF.Abs(x) <= w && z >= 0.3f && z <= GameConfig.TankArena.TopZ - A * 2.6f) return true;
+        var open = _gateT > 0.85f;
+        var entry = MathF.Sign(GameConfig.TankArena.BaseX);
+        if (MathF.Abs(x) > w && MathF.Abs(x) < w + 1.6f && inGap) return MathF.Sign(x) == entry || open;
+        if (MathF.Abs(x) <= w + 1.3f) return false;
+        var bx = x - GameConfig.TankArena.BaseX;
+        var bz = z - GameConfig.TankArena.BaseZ;
+        if (MathF.Sqrt(bx * bx + bz * bz) < GameConfig.TankArena.BaseR - 0.8f) return true;
+        if (DistToLine(_roadIn, x, z) < GameConfig.TankArena.RoadWidth / 2) return true;
+        if (MathF.Sign(x) != entry && DistToLine(_roadOut, x, z) < GameConfig.TankArena.RoadWidth / 2) return open;
+        return false;
+    }
+
+    /// <summary>Footprint corners (and edge midpoints) on walkable ground.</summary>
+    private bool CanStand(float x, float z, float heading)
+    {
+        var c = MathF.Cos(heading);
+        var sn = MathF.Sin(heading);
+        foreach (var (u, v) in new[] { (-1, -1), (1, -1), (1, 1), (-1, 1), (0, 1), (0, -1), (1, 0), (-1, 0) })
+        {
+            var lx = u * GameConfig.Tank.HalfX;
+            var lz = v * GameConfig.Tank.HalfZ;
+            if (!Walkable(x + lx * c + lz * sn, z - lx * sn + lz * c)) return false;
+        }
+        return true;
+    }
+
+    private void UpdateGate(float dt) => _gateT = Math.Clamp(_gateT + (_gateOpen ? dt / 1.6f : -dt / 0.8f), 0, 1);
+
+    // ---- Fighter, homing missiles ------------------------------------------------------------------
+
+    private void UpdateFighter(float dt)
+    {
+        if (!_fighter.Available) return;
+        if (_fighterActive)
+        {
+            _fighterCtx.TankPosition = Position;
+            _fighterCtx.Armed = State == TankLevelState.Playing;
+            _fighter.Update(dt, _fighterCtx);
+            if (_fighter.Done)
+            {
+                _fighterActive = false;
+                _fighterTimer = Rng.Shared.Range(GameConfig.Fighter.GapMin, GameConfig.Fighter.GapMax);
+            }
+            return;
+        }
+        if (State != TankLevelState.Playing) return;
+        _fighterTimer -= dt;
+        if (_fighterTimer > 0) return;
+        _fighter.Start(Position, _fighterSide);
+        _fighterSide = -_fighterSide;
+        _fighterActive = true;
+    }
+
+    /// <summary>R: homing missiles off the turret sides, up and out, curving onto blocks / the fighter.</summary>
+    private void UpdateHoming(float dt)
+    {
+        if (Powers[SupplyType.R] <= 0 || !Available) return;
+        _homingTimer -= dt;
+        if (_homingTimer > 0) return;
+        var targets = new List<Enemy>();
+        foreach (var lane in Blocks.Lanes)
+        foreach (var b in lane)
+            if (MathF.Sqrt((b.X - Position.X) * (b.X - Position.X) + (b.Z - Position.Z) * (b.Z - Position.Z)) < GameConfig.Tank.HomingRange) targets.Add(b);
+        if (_fighterActive && _fighter.IsAlive && Vector3.Distance(_fighter.Position, Position) < GameConfig.Tank.HomingRange * 1.4f)
+            for (var i = 0; i < 4; i++) targets.Add(_fighter); // the favourite target while in reach
+        _homingTimer = targets.Count > 0 ? GameConfig.Tank.HomingInterval : 0.2f;
+        if (targets.Count == 0) return;
+        var r = Rng.Shared;
+        var pick = targets[(int)(r.Next() * targets.Count)];
+        _homingSide = -_homingSide;
+        var muzzle = Vector3.Transform(new Vector3(_homingSide * 1.1f, 1.0f, -0.4f), TurretWorld);
+        var dir = Vector3.Normalize(Vector3.Transform(new Vector3(_homingSide * 0.7f + r.Spread(0.5f), 1.5f, r.Spread(0.6f)), Matrix.CreateRotationY(GunYaw)));
+        var m = _projectiles.Spawn<HomingMissile>(muzzle, dir * GameConfig.Tank.MissileSpeed * 0.7f);
+        m.Target = pick;
+        Effects.MuzzleFlash(muzzle, dir, new Vector4(5, 2.4f, 0.6f, 1), 0.6f);
     }
 
     /// <summary>Spray behind the tracks while driving (shallow water).</summary>
@@ -684,12 +931,14 @@ public sealed class TankLevel
         foreach (var x in _track.X)
         {
             var p = Vector3.Transform(new Vector3(x, 0.2f, -2.3f * (Speed < 0 ? -1 : 1)), hull);
+            var wet = IsWater(p.X, p.Z);
             Effects.Smoke.Emit(new ParticleSpec
             {
-                Position = new Vector3(p.X + r.Spread(0.3f), GameConfig.TankArena.FloorHeight(p.Z) + 0.3f, p.Z + r.Spread(0.3f)),
-                Velocity = new Vector3(r.Spread(0.8f), r.Range(0.8f, 1.8f), r.Spread(0.8f)), Drag = 1.8f, Gravity = 4,
-                Life = r.Range(0.5f, 0.9f), Size0 = 0.4f, Size1 = r.Range(1.2f, 1.8f), Aspect = 1,
-                Color0 = new Vector4(1.15f, 1.3f, 1.4f, 0.6f), Color1 = new Vector4(1.1f, 1.2f, 1.3f, 0), HasColor1 = true,
+                Position = new Vector3(p.X + r.Spread(0.3f), FloorAt(p.X, p.Z) + 0.3f, p.Z + r.Spread(0.3f)),
+                Velocity = new Vector3(r.Spread(0.8f), r.Range(0.8f, 1.8f), r.Spread(0.8f)), Drag = 1.8f, Gravity = wet ? 4 : 0.5f,
+                Life = r.Range(0.5f, 0.9f) * (wet ? 1 : 1.5f), Size0 = 0.4f, Size1 = r.Range(1.2f, 1.8f) * (wet ? 1 : 1.4f), Aspect = 1,
+                Color0 = wet ? new Vector4(1.15f, 1.3f, 1.4f, 0.6f) : new Vector4(0.62f, 0.53f, 0.4f, 0.55f),
+                Color1 = wet ? new Vector4(1.1f, 1.2f, 1.3f, 0) : new Vector4(0.7f, 0.64f, 0.55f, 0), HasColor1 = true,
             });
         }
     }
@@ -697,7 +946,10 @@ public sealed class TankLevel
     /// <summary>Follow camera looking up the channel: x partly, z at `follow` (the drain stays in view).</summary>
     private void UpdateCamera(float dt, bool snap = false)
     {
-        var want = new Vector3(Math.Clamp(Position.X * 0.4f, -HalfW * 0.3f, HalfW * 0.3f), GameConfig.Tank.CameraHeight,
+        // In the channel follow x only partly (keep it framed); out on the roads / in the base follow.
+        var ax = MathF.Abs(Position.X);
+        var camX = ax <= HalfW ? Position.X * 0.4f : MathF.Sign(Position.X) * (HalfW * 0.4f + (ax - HalfW) * 0.9f);
+        var want = new Vector3(camX, GameConfig.Tank.CameraHeight,
             Position.Z * GameConfig.Tank.CameraFollow - GameConfig.Tank.CameraBack);
         _camPos = snap ? want : Vector3.Lerp(_camPos, want, 1 - MathF.Exp(-4 * dt));
         _shake = MathF.Max(0, _shake - dt * 1.6f);
@@ -750,14 +1002,13 @@ public sealed class TankLevel
             _links.Upload();
             queue.Add(_link, Matrix.Identity, DrawOverrides.None, true, 0, RenderLayer.World, _links);
         }
+        // Gate leaves: both swing outward (away from the channel), eased.
+        var e = _gateT * _gateT * (3 - 2 * _gateT);
+        foreach (var (mesh, hinge, dir) in _gate)
+            if (mesh != null) queue.Add(mesh, Matrix.CreateRotationY(_gateSide * dir * e * 1.75f) * Matrix.CreateTranslation(hinge));
+        if (_fighterActive) _fighter.Submit(queue);
+        _projectiles.Submit(queue);
         queue.Add(_reticle);
-        foreach (var s in _shells)
-        {
-            var dir = Vector3.Normalize(s.vel);
-            var yaw = MathF.Atan2(dir.X, dir.Z);
-            var pitch = -MathF.Asin(Math.Clamp(dir.Y, -1, 1));
-            if (_shellMesh != null) queue.Add(_shellMesh, Matrix.CreateRotationX(pitch) * Matrix.CreateRotationY(yaw) * Matrix.CreateTranslation(s.pos), DrawOverrides.None, false);
-        }
         Effects.Submit(queue);
     }
 

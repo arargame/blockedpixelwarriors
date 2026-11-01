@@ -94,6 +94,8 @@ export class PlayerTank {
     /** Collision box half size (hull footprint, tank space) and the level's collision hook. */
     this.half = { x: 2.0, z: 2.25 };
     this.collide = null;
+    /** (x, z, heading) => can the hull footprint stand there (set by the level). */
+    this.canStand = null;
     this.updateTracks(0, 0, 0);
   }
 
@@ -120,16 +122,37 @@ export class PlayerTank {
     this.speed += THREE.MathUtils.clamp(target - this.speed, -acc * dt, acc * dt);
     const turnTarget = -drive.turn * cfg.turnSpeed * (Math.abs(this.speed) > 0.1 && this.speed < 0 ? -1 : 1);
     this.turnRate += (turnTarget - this.turnRate) * (1 - Math.exp(-8 * dt));
+    const p = this.root.position;
+    const ox = p.x;
+    const oz = p.z;
+    const oh = this.heading;
     this.heading += this.turnRate * dt;
-    this.root.position.x += Math.sin(this.heading) * this.speed * dt;
-    this.root.position.z += Math.cos(this.heading) * this.speed * dt;
+    let nx = ox + Math.sin(this.heading) * this.speed * dt;
+    let nz = oz + Math.cos(this.heading) * this.speed * dt;
+    // Where the level says the hull cannot stand (walls, trees, a closed gate) it slides along
+    // the obstacle on one axis or stops.
+    if (this.canStand && !this.canStand(nx, nz, this.heading)) {
+      if (this.canStand(nx, oz, this.heading)) nz = oz;
+      else if (this.canStand(ox, nz, this.heading)) nx = ox;
+      else {
+        nx = ox;
+        nz = oz;
+        if (!this.canStand(ox, oz, this.heading)) this.heading = oh;
+      }
+    }
+    p.x = nx;
+    p.z = nz;
     this.clampToBounds();
-    // Blocks are solid: the level pushes the hull back out of them.
+    // Blocks are solid: the level pushes the hull back out of them (never into a wall).
     if (this.collide) {
       this.collide();
       this.clampToBounds();
+      if (this.canStand && !this.canStand(p.x, p.z, this.heading)) {
+        p.x = nx;
+        p.z = nz;
+      }
     }
-    if (this.heightAt) this.root.position.y = this.heightAt(this.root.position.z);
+    if (this.heightAt) p.y = this.heightAt(p.x, p.z);
     this.root.rotation.y = this.heading;
     // Slight pitch with acceleration (nose lifts pulling away, dips braking).
     this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, -THREE.MathUtils.clamp((target - this.speed) * 0.012, -0.04, 0.04), 1 - Math.exp(-6 * dt));

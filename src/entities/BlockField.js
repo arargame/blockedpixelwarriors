@@ -5,6 +5,23 @@ import { Palette, BLOCK_COLOR_KEYS } from '../config/Palette.js';
 import { Random, fxRandom as rnd } from '../util/Random.js';
 import { VoxelModelBuilder } from '../util/VoxelModelBuilder.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
+import { Enemy } from '../combat/Enemy.js';
+
+/** A board block: a target only (blocks never hurt the heli). */
+export class BoardBlock extends Enemy {
+  constructor(c, r, x, z, slot) {
+    super({ hp: 1, harmsPlayer: false, kind: 'block' });
+    this.c = c;
+    this.r = r;
+    this.x = x;
+    this.z = z;
+    this.slot = slot;
+  }
+
+  aimPoint(out) {
+    return out.set(this.x, GameConfig.blockSize * 0.5, this.z);
+  }
+}
 
 const dummy = new THREE.Object3D();
 const white = new THREE.Color(1, 1, 1);
@@ -153,7 +170,7 @@ export class BlockField {
     let l = this.cells.get(k);
     if (!l) {
       const { x, z } = this.cellCenter(c, r);
-      l = { c, r, x, z, slot: this.slot(c, r) };
+      l = new BoardBlock(c, r, x, z, this.slot(c, r));
       this.cells.set(k, l);
       this.blocks.push(l);
     }

@@ -295,7 +295,7 @@ public sealed class TrainFactory
 /// lobs cannonballs from brass side cannons and carries cargo cubes. Its weak spot is the ruby
 /// gem on the locomotive front, shielded until every turret is broken.
 /// </summary>
-public sealed class Train : IRenderable
+public sealed class Train : Enemy, IRenderable
 {
     private readonly Effects _effects;
     private readonly TrainFactory _factory;
@@ -336,6 +336,10 @@ public sealed class Train : IRenderable
     public float X => GameConfig.Track.X;
     public TrainCar Locomotive => Cars[0];
     public bool Stopped => _stopTimer > 0;
+    /// <summary>Enemy: a target until it is destroyed or has left the line.</summary>
+    public override bool IsAlive => !Destroyed && !Finished;
+    /// <summary>Enemy: aim at the locomotive.</summary>
+    public override Vector3 AimPoint => Locomotive.World.Translation + new Vector3(0, 1.5f, 0);
 
     // Events (Observer): the session reacts to fire, knocked cargo and destroyed parts.
     public Action<Vector3, Vector3> OnFire;
@@ -345,6 +349,7 @@ public sealed class Train : IRenderable
     public Action OnShieldDown;
 
     public Train(TrainFactory factory, Effects effects, LightRig lights, Microsoft.Xna.Framework.Graphics.GraphicsDevice device, int wave, uint seed, bool hauler = false, bool terrace = false)
+        : base(float.PositiveInfinity, true, "train")
     {
         _factory = factory;
         _effects = effects;

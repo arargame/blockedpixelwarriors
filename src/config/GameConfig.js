@@ -194,6 +194,41 @@ export const GameConfig = Object.freeze({
     // block is locked (reticle) and the shell flies straight at its centre.
     aimCone: 0.32,
     lockRefresh: 0.12,
+    // Armour (the fighter's guns and bombs are the only things that hurt the tank).
+    hp: 100,
+    // R power-up: homing missiles (like the heli's), launched off the turret at this interval.
+    homingInterval: 0.42,
+    homingRange: 44,
+    missileSpeed: 14,
+    missileDamage: 2,
+  }),
+
+  /**
+   * The Blocked Pixel Panzer fighter (src/combat/JetFighter.js, Blender model fighter.glb): a
+   * strafing pass every 7-20 s, 3-4 s of machine-gun fire, then a bomb aimed at the tank.
+   */
+  fighter: Object.freeze({
+    scale: 1.8,
+    altitude: 15,
+    dive: 4,               // the attack run dips this much lower
+    speed: 21,
+    approach: 105,         // starts this far before the pass point, leaves this far after it
+    exit: 110,
+    passOffset: 1.5,       // how far from the tank the pass point may be
+    gapMin: 7,
+    gapMax: 20,
+    firstDelay: 9,
+    hp: 6,
+    hitRadius: 3.4,
+    strafeMin: 3,
+    strafeMax: 4,
+    fireRate: 11,          // rounds per second (both wing packs alternate)
+    bulletSpeed: 62,
+    bulletDamage: 0.7,
+    spread: 1.8,           // aim scatter round the tank (units)
+    bombGravity: 18,
+    bombRadius: 5.5,
+    bombDamage: 30,        // at the centre of the blast, falling off with the distance
   }),
 
   /**
@@ -224,6 +259,16 @@ export const GameConfig = Object.freeze({
     // Drain basin: an oval pit below the dam lip.
     drain: Object.freeze({ z: -6.2, rx: 14, rz: 5.2, depth: 5, water: 1.2 }),
     powerTime: 12,         // seconds a T / D / R power-up lasts
+    // The way in and out (src/tank/TankArena.js). The camera looks up the channel (+z), so +x is
+    // the screen's LEFT: a round base among the trees at the bottom left (+x), a dirt road into a
+    // gap in the left wall; a gap in the right wall (-x) with a fence gate that opens when phase 1
+    // is won, a road on to phase 2.
+    gap: Object.freeze({ z0: 2.2, z1: 11.4 }),
+    base: Object.freeze({ x: 40, z: 3, r: 10 }),
+    roadWidth: 9.5,
+    roadIn: Object.freeze([[14.4, 6.8], [20, 6.9], [26, 5.8], [31, 4.2]]),
+    roadOut: Object.freeze([[-14.4, 6.8], [-21, 7.2], [-30, 9.4], [-42, 13.5], [-56, 17], [-80, 20], [-105, 22], [-140, 25]]),
+    phase2X: 50,           // driving this far out along the way out (-x) ends phase 1
   }),
 
   /** Upgrade cards (src/ui/UpgradeCards.js). */

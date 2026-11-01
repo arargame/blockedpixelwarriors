@@ -291,7 +291,17 @@ class Exporter {
       // the instanced ones (pines, sleepers, rocks) as instance sets like the heli world.
       const arena = new TankArena(g.materials, g.textures);
       arena.group.updateMatrixWorld(true);
-      const arenaMeshes = collect(arena.group);
+      // Gate leaves swing at runtime: their own models (in hinge space), not part of the scenery.
+      const leaves = arena.gateLeaves ?? [];
+      const arenaMeshes = collect(arena.group, (o) => !leaves.some((l) => isUnder(o, l)));
+      for (let i = 0; i < leaves.length; i++) await this.writeModel(`tank_gate_leaf${i}`, collect(leaves[i]), leaves[i]);
+      const roads = arena.roadLines();
+      prefabs.tankArena = {
+        gateSide: arena.gateSide,
+        hinges: leaves.map((l) => [...l.userData.hinge, l.userData.dir]),
+        roadIn: roads.in.map((p) => [+p.x.toFixed(3), +p.z.toFixed(3)]),
+        roadOut: roads.out.map((p) => [+p.x.toFixed(3), +p.z.toFixed(3)]),
+      };
       await this.writeModel('tank_arena', arenaMeshes.filter((m) => !m.isInstancedMesh), null);
       this.instanceSets.tank_arena = [];
       let k = 0;
@@ -299,6 +309,23 @@ class Exporter {
         const file = `tank_arena_inst${k++}`;
         await this.writeInstances(file, inst);
         this.instanceSets.tank_arena.push(file);
+      }
+      // The fighter (Blender, fighter.glb): body, spinning prop + blur disc, droppable bomb.
+      const fighter = g.options?.fighterGltf?.scene.getObjectByName('Fighter');
+      if (fighter) {
+        fighter.updateMatrixWorld(true);
+        const fp = (name) => fighter.getObjectByName(name);
+        await this.writeModel('fighter_body', collect(fp('FighterBody')), fighter);
+        await this.writeModel('fighter_prop', collect(fp('FighterProp')), fp('FighterProp'));
+        await this.writeModel('fighter_disc', collect(fp('FighterPropDisc')), fp('FighterPropDisc'));
+        await this.writeModel('fighter_bomb', collect(fp('FighterBomb')), fp('FighterBomb'));
+        const at = (name) => fighter.worldToLocal(fp(name).getWorldPosition(new THREE.Vector3())).toArray();
+        prefabs.fighter = {
+          propMatrix: rel(fighter, fp('FighterProp')),
+          discMatrix: rel(fighter, fp('FighterPropDisc')),
+          bombMatrix: rel(fighter, fp('FighterBomb')),
+          guns: [at('FighterGunL'), at('FighterGunR')],
+        };
       }
       await this.writeGeometryList('tank_shell', [{ geometry: new THREE.CapsuleGeometry(0.13, 0.5, 4, 8).rotateX(Math.PI / 2), material: new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffa040, emissiveIntensity: 2.2, roughness: 0.3 }) }]);
     }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BillboardBatch } from './BillboardBatch.js';
 import { fxRandom as rnd } from '../util/Random.js';
+import { ObjectPool } from '../core/ObjectPool.js';
 
 /** Visual + gameplay definitions per projectile kind (Strategy-like data table). */
 export const PROJECTILE_KINDS = Object.freeze({
@@ -37,6 +38,7 @@ export class ProjectileSystem {
     this.effects = effects;
     this.scene = scene;
     this.items = [];
+    this.pool = new ObjectPool(() => ({ pos: new THREE.Vector3(), prev: new THREE.Vector3(), vel: new THREE.Vector3() }), 64);
     this.comets = new BillboardBatch(textures.plasmaBolt(), 400, { additive: false, anchorTop: true, renderOrder: 16 });
     this.tracerBolts = new BillboardBatch(textures.tracerBolt(), 400, { additive: false, anchorTop: true, renderOrder: 15 });
     this.glows = new BillboardBatch(textures.glow(), 600, { additive: true, renderOrder: 15 });
@@ -56,22 +58,24 @@ export class ProjectileSystem {
    */
   spawn(kind, position, direction, target = null, { tint = null, damageMul = 1, aimed = false, gem = null, crit = false } = {}) {
     const def = PROJECTILE_KINDS[kind];
-    this.items.push({
-      target,
-      aimed,
-      gem,
-      crit,
-      tint: tint ? new THREE.Color(tint) : null,
-      damage: def.damage * damageMul,
-      kind,
-      def,
-      pos: position.clone(),
-      prev: position.clone(),
-      vel: direction.clone().normalize().multiplyScalar(def.speed),
-      life: 0,
-      trailTimer: 0,
-      seed: rnd.next() * 10,
-    });
+    // Pooled records: a spent projectile's object (and its vectors) is reused by the next shot.
+    const p = this.pool.acquire();
+    p.target = target;
+    p.aimed = aimed;
+    p.gem = gem;
+    p.crit = crit;
+    if (tint) p.tint = (p.tintColor ??= new THREE.Color()).set(tint);
+    else p.tint = null;
+    p.damage = def.damage * damageMul;
+    p.kind = kind;
+    p.def = def;
+    p.pos.copy(position);
+    p.prev.copy(position);
+    p.vel.copy(direction).normalize().multiplyScalar(def.speed);
+    p.life = 0;
+    p.trailTimer = 0;
+    p.seed = rnd.next() * 10;
+    this.items.push(p);
   }
 
   update(dt) {
@@ -102,7 +106,11 @@ export class ProjectileSystem {
         p.pos.addScaledVector(p.vel, dt / steps);
         consumed = this.collisionHandler(p, p.pos);
       }
-      if (consumed || p.life > p.def.life || p.pos.y < -2) continue;
+      if (consumed || p.life > p.def.life || p.pos.y < -2) {
+        p.target = null;
+        this.pool.release(p);
+        continue;
+      }
 
       p.trailTimer -= dt;
       if (p.trailTimer <= 0) {
@@ -283,6 +291,7 @@ export class ProjectileSystem {
   }
 
   clear() {
+    for (const p of this.items) this.pool.release(p);
     this.items.length = 0;
     this.render();
   }

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { HAULER_ORDER } from './HaulerModels.js';
 import { GameConfig } from '../config/GameConfig.js';
 import { TrainModelFactory } from './TrainModels.js';
+import { Enemy } from '../combat/Enemy.js';
 
 const local = new THREE.Vector3();
 const world = new THREE.Vector3();
@@ -16,7 +17,7 @@ const quat = new THREE.Quaternion();
  * helicopter and carries destructible cargo. Its weak spot is the red gem on the locomotive
  * front - shielded until every turret has been broken.
  */
-export class Train {
+export class Train extends Enemy {
   /**
    * @param {object} deps
    * @param {import('../world/Track.js').Track} deps.track
@@ -24,6 +25,8 @@ export class Train {
    * @param {TrainModelFactory} deps.factory
    */
   constructor({ track, effects, factory, wave = 1, seed = 1, hauler = null, path = null, arena = null }) {
+    // An enemy that shoots back; its parts (turrets, gem, cargo) carry their own hit points.
+    super({ hp: Infinity, harmsPlayer: true, kind: 'train' });
     this.track = track;
     this.effects = effects;
     this.wave = wave;
@@ -114,6 +117,16 @@ export class Train {
   }
 
   /** Wagons behind the locomotive on a given wave: one more every `growEvery` waves. */
+  /** Enemy: a train is a target until it is destroyed or has left the line. */
+  isAlive() {
+    return !this.destroyed && !this.finished;
+  }
+
+  /** Enemy: aim at the locomotive. */
+  aimPoint(out) {
+    return out.copy(this.group.position).setY(this.group.position.y + 1.5);
+  }
+
   static wagonsForWave(wave) {
     const cfg = GameConfig.train;
     return Math.min(cfg.maxWagons, cfg.wagonCount + Math.floor((Math.max(1, wave) - 1) / cfg.growEvery));

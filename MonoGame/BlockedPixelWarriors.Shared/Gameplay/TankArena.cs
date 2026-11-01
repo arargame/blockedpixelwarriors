@@ -8,16 +8,42 @@ namespace BlockedPixelWarriors.Gameplay;
 
 public enum TankBlockType { Weak, Normal, Strong, Supply }
 
-/// <summary>A block sliding down a lane of the tank channel (BlockFlow.js).</summary>
-public sealed class TankBlock
+/// <summary>
+/// A block sliding down a lane of the tank channel (BlockFlow.js ArenaBlock): an Enemy that is a
+/// target only. Pooled: Serial changes every time the object is reused, so a stale reference (an
+/// aim lock, a pending chain reaction) can tell.
+/// </summary>
+public sealed class TankBlock : Enemy
 {
-    public int Lane;
+    public int Lane, Serial;
     public float X, Z;
     public BlockColor Color;
     public TankBlockType Type;
-    public float Hp, MaxHp, Flash, ChainAt, Rot;
+    public float Flash, ChainAt, Rot;
     public int ChainDepth;
-    public bool Alive = true;
+
+    public TankBlock() => EnemyKind = "block";
+
+    public TankBlock Reset(int lane, float x, float z, BlockColor color, TankBlockType type, float hp, float rot)
+    {
+        Serial++;
+        Lane = lane;
+        X = x;
+        Z = z;
+        Color = color;
+        Type = type;
+        Hp = MaxHp = hp;
+        Rot = rot;
+        Flash = ChainAt = 0;
+        ChainDepth = 0;
+        Alive = true;
+        Drained = false;
+        return this;
+    }
+
+    public float Height => GameConfig.TankArena.Block * 0.95f * (Type == TankBlockType.Weak ? 0.9f : 1);
+
+    public override Vector3 AimPoint => new(X, GameConfig.TankArena.FloorHeight(Z) + Height / 2, Z);
     /// <summary>Went over the dam lip (now a drain pile body).</summary>
     public bool Drained;
 }
@@ -38,7 +64,8 @@ public sealed class BlockFlow
     private readonly RenderMaterial _blockMaterial;
     private readonly InstanceBuffer _blocks, _cages, _stars;
     private readonly List<(TankBlock b, Vector3 from, float t, float dur, float spin)> _airborne = new();
-    private readonly List<TankBlock> _chain = new();
+    private readonly List<(TankBlock b, int serial)> _chain = new();
+    private readonly ObjectPool<TankBlock> _pool = new(() => new TankBlock(), 160);
     public readonly List<TankBlock>[] Lanes;
     public float Size => GameConfig.TankArena.Block;
     public Action<TankBlock> OnDrain;
@@ -62,7 +89,12 @@ public sealed class BlockFlow
 
     public void Reset()
     {
-        foreach (var l in Lanes) l.Clear();
+        foreach (var l in Lanes)
+        {
+            foreach (var b in l) _pool.Return(b);
+            l.Clear();
+        }
+        foreach (var a in _airborne) _pool.Return(a.b);
         _airborne.Clear();
         _chain.Clear();
     }
@@ -109,7 +141,7 @@ public sealed class BlockFlow
         var color = Palette.BlockColors[(int)(r.Next() * 4)];
         var type = RollType();
         var hp = HpOf(type);
-        var b = new TankBlock { Lane = lane, X = LaneX(lane), Z = z, Color = color, Type = type, Hp = hp, MaxHp = hp, Rot = (int)(r.Next() * 4) * MathHelper.PiOver2 };
+        var b = _pool.Rent().Reset(lane, LaneX(lane), z, color, type, hp, (int)(r.Next() * 4) * MathHelper.PiOver2);
         _airborne.Add((b, from, 0, 0.7f + r.Next() * 0.15f, r.Spread(6)));
     }
 
@@ -167,6 +199,7 @@ public sealed class BlockFlow
         if (b.Type == TankBlockType.Strong) _effects.Shatter(at, 0x6f757e, 8, 1.2f, 0.15f, 0.3f);
         Lanes[b.Lane].Remove(b);
         OnDestroyed?.Invoke(b, depth, at);
+        _pool.Return(b);
         // Same-coloured neighbours: back to back in the lane, or side by side in the next lane.
         var s = Size;
         for (var dl = -1; dl <= 1; dl++)
@@ -181,7 +214,7 @@ public sealed class BlockFlow
                 {
                     n.ChainAt = GameConfig.TankArena.ChainDelay;
                     n.ChainDepth = depth + 1;
-                    _chain.Add(n);
+                    _chain.Add((n, n.Serial));
                 }
             }
         }
@@ -193,12 +226,18 @@ public sealed class BlockFlow
         // Chain reaction.
         for (var i = _chain.Count - 1; i >= 0; i--)
         {
-            var n = _chain[i];
+            var (n, serial) = _chain[i];
+            // Gone (destroyed / drained, maybe already reused for a new block): drop the entry.
+            if (n.Serial != serial || !n.Alive)
+            {
+                _chain.RemoveAt(i);
+                continue;
+            }
             n.ChainAt -= dt;
             if (n.ChainAt <= 0)
             {
                 _chain.RemoveAt(i);
-                if (n.Alive) Destroy(n, n.ChainDepth);
+                Destroy(n, n.ChainDepth);
             }
         }
         // Airborne blocks land on their lane.
@@ -234,7 +273,9 @@ public sealed class BlockFlow
                 var b = lane[0];
                 lane.RemoveAt(0);
                 b.Drained = true;
+                b.Alive = false;
                 OnDrain?.Invoke(b);
+                _pool.Return(b);
             }
         }
     }

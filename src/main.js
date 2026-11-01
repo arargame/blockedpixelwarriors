@@ -10,6 +10,7 @@ import haulerUrl from '../assets/models/hauler.glb?url';
 import plasmaUrl from '../assets/models/plasma.glb?url';
 import crtUrl from '../assets/models/crt.glb?url';
 import tankUrl from '../assets/models/tank.glb?url';
+import fighterUrl from '../assets/models/fighter.glb?url';
 import { PickupSfx } from './audio/PickupSfx.js';
 import * as THREE from 'three';
 import { Settings } from './core/Settings.js';
@@ -34,7 +35,7 @@ const camOverride = params.get('cam')?.split(',').map(Number);
   // Blender helicopter (falls back to the procedural one with ?procedural or on load failure).
   // Blender props: rocket, turret bullet, engineer's forklift, CH-47F cargo chopper.
   const load = (url) => new GLTFLoader().loadAsync(url).catch(() => null);
-  const [heliGltf, floorTexture, rocketGltf, bulletGltf, forkliftGltf, chinookGltf, cardGltf, haulerGltf, terraceFloorTexture, plasmaGltf, crtGltf, tankGltf] = await Promise.all([
+  const [heliGltf, floorTexture, rocketGltf, bulletGltf, forkliftGltf, chinookGltf, cardGltf, haulerGltf, terraceFloorTexture, plasmaGltf, crtGltf, tankGltf, fighterGltf] = await Promise.all([
     params.has('procedural') ? null : loadHelicopterGltf(),
     new THREE.TextureLoader().loadAsync(marbleUrl).catch(() => null),
     load(rocketUrl),
@@ -50,8 +51,10 @@ const camOverride = params.get('cam')?.split(',').map(Number);
     load(crtUrl),
     // Tank level: the player's tank (Blender, after the Meshy concept).
     load(tankUrl),
+    // Tank level: the Blocked Pixel Panzer fighter (Blender, from Blocked's FighterJet atlas).
+    load(fighterUrl),
   ]);
-  const game = new Game(document.getElementById('app'), { quality, settings, poster, camOverride, heliGltf, floorTexture, terraceFloorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf, crtGltf, tankGltf });
+  const game = new Game(document.getElementById('app'), { quality, settings, poster, camOverride, heliGltf, floorTexture, terraceFloorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf, crtGltf, tankGltf, rocketGltf, fighterGltf });
   if (poster || params.has('fixedres')) game.pipeline.adaptive = false;
   window.__game = game;
   game.projectiles.setMissileModel(rocketGltf?.scene ?? null);

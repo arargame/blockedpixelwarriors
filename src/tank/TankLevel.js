@@ -10,6 +10,8 @@ import { SupplyCrates } from '../entities/PowerUps.js';
 import { PickupSfx } from '../audio/PickupSfx.js';
 import { fxRandom as rnd } from '../util/Random.js';
 import { reticleTexture } from '../ui/Reticle.js';
+import { ProjectileManager, TankShell, HomingMissile, JetBullet, AerialBomb } from '../combat/Projectiles.js';
+import { JetFighter } from '../combat/JetFighter.js';
 
 const v1 = new THREE.Vector3();
 const v2 = new THREE.Vector3();
@@ -20,7 +22,7 @@ const v3 = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 
 /** Tank power-ups from supply blocks (the heli game's crates, tank meanings). */
-const POWER_NAMES = Object.freeze({ T: 'TRIPLE SHELLS', D: 'RAPID FIRE', R: 'HEAVY SHELLS', H: 'DRAIN PUMP -10', G: 'RAPID FIRE' });
+const POWER_NAMES = Object.freeze({ T: 'TRIPLE SHELLS', D: 'RAPID FIRE', R: 'HOMING MISSILES', H: 'REPAIR · DRAIN PUMP', G: 'RAPID FIRE' });
 
 /**
  * Tank level (menu card IRON TRACKS), phase 1. The tank drives in a sloped concrete channel with
@@ -29,7 +31,15 @@ const POWER_NAMES = Object.freeze({ T: 'TRIPLE SHELLS', D: 'RAPID FIRE', R: 'HEA
  * gets past the lip tumbles into the oval drain and piles up there (physics).
  *   1000 blocks come in phase 1: break 900. 100 blocks in the drain loses.
  *   Same-coloured neighbours chain-explode; weak / normal / strong (caged) / supply (star) blocks.
- *   Supplies: T triple shells, D rapid fire, R heavy shells (splash), H drain pump (-10 blocks).
+ *   Supplies: T triple shells, D rapid fire, R homing missiles (like the heli's), H repair + drain
+ *   pump (-10 blocks).
+ * The tank starts in a round base among the trees at the bottom left and drives in along a dirt
+ * road through a gap in the left wall. Every 7-20 s the Blocked Pixel Panzer fighter makes a pass:
+ * 3-4 s of machine-gun fire and a bomb aimed where the tank is (keep moving). Winning the phase
+ * opens the fence gate in the right wall; the road behind it leads on to phase 2.
+ * Enemies (src/combat/Enemy.js): channel blocks (targets only, never hurt the tank), the trains
+ * and the fighter. Projectiles (src/combat/Projectiles.js): TankShell, HomingMissile, JetBullet,
+ * AerialBomb - pooled, one InstancedMesh set per class.
  * The tank is solid: blocks sliding into it stop in front of it (and hold up their lane), and it
  * cannot drive through them.
  * Aiming (smart aim, like the heli): the mouse turns the turret; within a narrow cone around that
@@ -42,7 +52,7 @@ export class TankLevel {
   /**
    * @param {{ gltf:any, textures:any, materials:any, trainFactory:any, renderer:THREE.WebGLRenderer, input:any, quality:any, settings:any }} deps
    */
-  constructor({ gltf, textures, materials, trainFactory, renderer, input, quality, settings, environment }) {
+  constructor({ gltf, textures, materials, trainFactory, renderer, input, quality, settings, environment, rocketGltf, fighterGltf }) {
     this.input = input;
     this.settings = settings;
     this.trainFactory = trainFactory;
@@ -72,7 +82,7 @@ export class TankLevel {
     this.scene.add(this.arena.group);
 
     const debris = new THREE.MeshStandardMaterial({ color: 0x8a8070, roughness: 0.9 });
-    this.effects = new EffectsManager(this.scene, textures, debris, (x, z) => this.arena.floorHeight(z), { flashLights: 3 });
+    this.effects = new EffectsManager(this.scene, textures, debris, (x, z) => this.arena.floorAt(x, z), { flashLights: 3 });
     this.blocks = new BlockFlow(materials, this.effects, this.arena);
     this.scene.add(this.blocks.group);
     this.pile = new DrainPile(materials, this.effects, this.arena);
@@ -84,15 +94,15 @@ export class TankLevel {
     this.scene.add(this.tank.root);
     const A = GameConfig.tankArena;
     const halfW = (A.block * A.lanes) / 2;
-    // The hull footprint stays in the channel, above the dam lip and below the landing zone.
-    this.tank.bounds = { minX: -halfW, maxX: halfW, minZ: 0.3, maxZ: A.topZ - A.block * 2.6 };
-    this.tank.heightAt = (z) => this.arena.floorHeight(z);
+    // Where the hull may stand: the channel, the wall gaps, the roads, the base (TankArena.walkable).
+    this.tank.bounds = null;
+    this.tank.canStand = (x, z, heading) => this.canStand(x, z, heading);
+    this.tank.heightAt = (x, z) => this.arena.floorAt(x, z);
     this.tank.collide = () => this.collideTank();
     this.blocks.resolveTank = (b) => this.holdBlock(b);
     this.blocks.onDrain = (b) => this.onDrain(b);
     this.blocks.onDestroyed = (b, depth, at) => this.onBlockDestroyed(b, depth, at);
 
-    this.shells = [];
     this.lock = null;
     this.time = 0;
     this.reticle = new THREE.Sprite(new THREE.SpriteMaterial({ map: reticleTexture(), depthTest: false, transparent: true }));
@@ -100,8 +110,29 @@ export class TankLevel {
     this.reticle.visible = false;
     this.reticleSpin = 0;
     this.scene.add(this.reticle);
-    this.shellGeometry = new THREE.CapsuleGeometry(0.13, 0.5, 4, 8).rotateX(Math.PI / 2);
-    this.shellMaterial = new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffa040, emissiveIntensity: 2.2, roughness: 0.3 });
+
+    // Projectiles: pooled class hierarchy, one instanced mesh set per class.
+    this.projectiles = new ProjectileManager(this.scene);
+    const shellGeo = new THREE.CapsuleGeometry(0.13, 0.5, 4, 8).rotateX(Math.PI / 2);
+    this.projectiles.register(TankShell, new THREE.Mesh(shellGeo, new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffa040, emissiveIntensity: 2.2, roughness: 0.3 })), { max: 24, shadow: false });
+    this.projectiles.register(HomingMissile, rocketGltf?.scene ?? null, { forward: new THREE.Vector3(0, 0, -1), scale: 1.6, max: 32 });
+    const tracerGeo = new THREE.CapsuleGeometry(0.06, 0.9, 2, 6).rotateX(Math.PI / 2);
+    this.projectiles.register(JetBullet, new THREE.Mesh(tracerGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 3, 1.2), toneMapped: false })), { max: 96, shadow: false, prewarm: 48 });
+    this.fighterTemplate = fighterGltf?.scene.getObjectByName('Fighter') ?? null;
+    const bombNode = this.fighterTemplate?.getObjectByName('FighterBomb') ?? null;
+    if (bombNode) {
+      // Bomb template: the fighter's bomb at the fighter's scale, centred on its own origin.
+      const bomb = bombNode.clone(true);
+      bomb.position.set(0, 0, 0);
+      bomb.scale.setScalar(GameConfig.fighter.scale);
+      const holder = new THREE.Group();
+      holder.add(bomb);
+      this.projectiles.register(AerialBomb, holder, { max: 6 });
+    } else {
+      this.projectiles.register(AerialBomb, new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.2, 4, 10).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x5e5a2e })), { max: 6 });
+    }
+    this.fighter = this.fighterTemplate ? new JetFighter(this.fighterTemplate) : null;
+    this.world = this.combatWorld();
     this.aim = new THREE.Vector3(0, 0, 20);
     this.pointer = null;
     this.shake = 0;
@@ -109,6 +140,7 @@ export class TankLevel {
     this.active = false;
     this.dustTimer = 0;
     this.powers = { T: 0, D: 0, R: 0 };
+    this.hp = GameConfig.tank.hp;
     this.buildHud();
 
     this.onPointerMove = (e) => {
@@ -130,7 +162,9 @@ export class TankLevel {
         <div class="th-stat"><span>BROKEN</span><b data-broken>0</b><em>/ ${GameConfig.tankArena.breakGoal}</em></div>
         <div class="th-stat drain"><span>DRAIN</span><b data-drain>0</b><em>/ ${GameConfig.tankArena.drainLimit}</em><i class="th-bar"><i data-drainbar></i></i></div>
         <div class="th-stat"><span>INCOMING</span><b data-left>${GameConfig.tankArena.phaseBlocks}</b></div>
+        <div class="th-stat armor"><span>ARMOR</span><b data-hp>100</b><i class="th-bar"><i data-hpbar></i></i></div>
       </div>
+      <div class="th-hit" data-hit></div>
       <div class="th-powers" data-powers></div>
       <div class="th-banner" data-banner></div>
       <div class="th-title">IRON TRACKS <small>PHASE 1 · THE CHANNEL</small></div>
@@ -142,6 +176,7 @@ export class TankLevel {
     this.hudEl = {
       broken: el.querySelector('[data-broken]'), drain: el.querySelector('[data-drain]'), drainBar: el.querySelector('[data-drainbar]'),
       left: el.querySelector('[data-left]'), powers: el.querySelector('[data-powers]'), banner: el.querySelector('[data-banner]'),
+      hp: el.querySelector('[data-hp]'), hpBar: el.querySelector('[data-hpbar]'), hit: el.querySelector('[data-hit]'),
     };
     (this.element.parentElement ?? document.body).appendChild(el);
   }
@@ -151,8 +186,10 @@ export class TankLevel {
     this.active = true;
     this.paused = false;
     const t = this.tank;
-    t.root.position.set(0, 0, 8);
-    t.heading = 0;
+    const B = GameConfig.tankArena.base;
+    // In the base, facing the road (toward the channel).
+    t.root.position.set(B.x, 0, B.z);
+    t.heading = -Math.sign(B.x) * Math.PI / 2;
     t.elevation = t.aimElevation = -0.12;
     this.lock = null;
     t.speed = 0;
@@ -161,15 +198,19 @@ export class TankLevel {
     t.recoil = 0;
     t.recoilVel = 0;
     t.cooldown = 0;
-    for (const s of this.shells) s.mesh.removeFromParent();
-    this.shells = [];
+    this.projectiles.clear();
     this.lock = null;
     this.time = 0;
-    this.reticle = new THREE.Sprite(new THREE.SpriteMaterial({ map: reticleTexture(), depthTest: false, transparent: true }));
-    this.reticle.renderOrder = 30;
-    this.reticle.visible = false;
-    this.reticleSpin = 0;
-    this.scene.add(this.reticle);
+    this.hp = GameConfig.tank.hp;
+    this.homingTimer = 0;
+    this.hitFlash = 0;
+    this.fighter?.dispose();
+    this.fighterActive = false;
+    this.fighterTimer = GameConfig.fighter.firstDelay;
+    this.fighterSide = 1;
+    this.arena.setGateOpen(false);
+    this.arena.gateT = 0;
+    this.arena.update(0);
     this.blocks.reset();
     this.pile.reset();
     this.supplies.clear();
@@ -183,7 +224,7 @@ export class TankLevel {
     this.powers = { T: 0, D: 0, R: 0 };
     this.state = 'playing';
     this.hudEl.banner.className = 'th-banner';
-    this.aim.set(0, 0, 24);
+    this.aim.set(B.x - Math.sign(B.x) * 20, 0, B.z + 4);
     this.pointer = null;
     this.updateCamera(0, true);
     this.element.addEventListener('pointermove', this.onPointerMove);
@@ -203,23 +244,24 @@ export class TankLevel {
   update(dt) {
     const keys = this.input.keys;
     const k = (...codes) => codes.some((c) => keys.has(c));
-    if (this.state !== 'playing' && k('Enter', 'NumpadEnter')) {
+    if ((this.state === 'lost' || this.state === 'phase2') && k('Enter', 'NumpadEnter')) {
       keys.delete('Enter');
       this.start();
       return;
     }
     const playing = this.state === 'playing';
-    const drive = playing ? {
+    const driving = playing || this.state === 'won';
+    const drive = driving ? {
       throttle: (k('KeyW', 'ArrowUp') ? 1 : 0) - (k('KeyS', 'ArrowDown') ? 1 : 0),
       turn: (k('KeyD', 'ArrowRight') ? 1 : 0) - (k('KeyA', 'ArrowLeft') ? 1 : 0),
     } : { throttle: 0, turn: 0 };
     if (this.pointer) {
       ndc.set(this.pointer.x, this.pointer.y);
       ray.setFromCamera(ndc, this.camera);
-      plane.constant = -this.arena.floorHeight(this.aim.z) - 1;
+      plane.constant = -this.arena.floorAt(this.aim.x, this.aim.z) - 1;
       if (ray.ray.intersectPlane(plane, v1)) this.aim.copy(v1);
     }
-    this.step(dt, drive, playing && (this.fireQueued || keys.has('Space')));
+    this.step(dt, drive, driving && (this.fireQueued || keys.has('Space')));
     this.fireQueued = false;
   }
 
@@ -228,17 +270,21 @@ export class TankLevel {
     const t = this.tank;
     this.time += dt;
     // Smart aim: the turret settles on the locked block, the barrel depresses toward it.
-    const lock = this.state === 'playing' ? this.lockedTarget() : null;
+    const lock = this.state === 'playing' || this.state === 'won' ? this.lockedTarget() : null;
     const target = lock ? this.blockCenter(lock, v3) : this.freeAimPoint(v3);
     t.update(dt, drive, target);
     this.aimBarrel(target);
     this.updateReticle(dt, lock, target);
     for (const key of Object.keys(this.powers)) this.powers[key] = Math.max(0, this.powers[key] - dt);
     if (fire) this.fire();
-    if (this.state === 'playing') this.updateTrains(dt);
+    if (this.state === 'playing') {
+      this.updateTrains(dt);
+      this.updateHoming(dt);
+    }
+    this.updateFighter(dt);
     this.blocks.update(dt);
     this.pile.update(dt);
-    this.updateShells(dt);
+    this.projectiles.update(dt, this.world);
     this.supplies.update(dt, v1.copy(t.position).setY(t.position.y + 1.2), this.state === 'playing');
     this.updateDust(dt);
     this.arena.update(dt);
@@ -247,7 +293,164 @@ export class TankLevel {
     this.pile.render();
     this.updateCamera(dt);
     this.checkEnd();
-    this.updateHud();
+    this.updateHud(dt);
+  }
+
+  // ---- Combat world (what the projectiles see) -------------------------------------------------
+
+  combatWorld() {
+    const self = this;
+    return {
+      effects: this.effects,
+      blockAt: (x, z) => this.blocks.blockAt(x, z),
+      blockTop: (b) => this.arena.floorHeight(b.z) + b.height,
+      damageBlock: (b, amount, at) => this.blocks.damage(b, amount, at),
+      floorAt: (x, z) => this.arena.floorAt(x, z),
+      wallAt: (p) => this.arena.wallAt(p),
+      isWater: (x, z) => this.arena.isWater(x, z),
+      tankHit: (p) => this.tankHit(p),
+      damageTank: (amount, at) => this.damageTank(amount, at),
+      bombBlast: (p, radius, damage) => this.bombBlast(p, radius, damage),
+      flyingEnemies: () => (this.fighterActive && this.fighter.isAlive() ? [this.fighter] : []),
+      closestEnemy: (p) => this.closestEnemy(p),
+      shakeAt(p, amount) {
+        const d = p.distanceTo(self.tank.position);
+        self.shake = Math.max(self.shake, THREE.MathUtils.clamp(amount - d * 0.01, 0.06, amount));
+      },
+    };
+  }
+
+  /** The hull as a box: footprint (oriented) and 0..2.8 above the ground. */
+  tankHit(p) {
+    const t = this.tank;
+    const q = t.position;
+    if (p.y < q.y - 0.2 || p.y > q.y + 2.8) return false;
+    const dx = p.x - q.x;
+    const dz = p.z - q.z;
+    const c = Math.cos(t.heading);
+    const sn = Math.sin(t.heading);
+    return Math.abs(dx * c - dz * sn) <= t.half.x + 0.1 && Math.abs(dx * sn + dz * c) <= t.half.z + 0.1;
+  }
+
+  damageTank(amount, at) {
+    if (this.state !== 'playing' && this.state !== 'won') return;
+    this.hp = Math.max(0, this.hp - amount);
+    this.hitFlash = Math.min(1, this.hitFlash + amount / 25);
+    this.shake = Math.max(this.shake, Math.min(0.5, 0.08 + amount / 60));
+    if (this.hp <= 0 && this.state === 'playing') {
+      this.state = 'lost';
+      const p = this.tank.position;
+      this.effects.explosion(v1.set(p.x, p.y + 1.5, p.z), 2.4, 0x3c4a2a, 22);
+      this.effects.flash(v1, 0xff8040, 120, 0.5, 18);
+      this.showBanner('TANK DESTROYED', 'The fighter got you - keep moving under fire · ENTER to try again', 'lost');
+    }
+  }
+
+  /** A bomb (or the crashing fighter): fireball, crater dust, the tank and blocks in reach hurt. */
+  bombBlast(p, radius, damage) {
+    const fx = this.effects;
+    fx.explosion(p, 2.2, 0x6a5a40, 18);
+    fx.explosion(v2.set(p.x + rnd.spread(1), p.y + 0.8, p.z + rnd.spread(1)), 1.4, null, 0);
+    fx.flash(p, 0xff9040, 140, 0.45, 20);
+    const wet = this.arena.isWater(p.x, p.z);
+    for (let i = 0; i < 26; i++) {
+      fx.smoke.emit({
+        x: p.x + rnd.spread(1.5), y: p.y + 0.2, z: p.z + rnd.spread(1.5), vx: rnd.spread(6), vy: rnd.range(4, 11), vz: rnd.spread(6), drag: 1.4, gravity: 10,
+        life: rnd.range(0.8, 1.5), size0: 0.6, size1: rnd.range(1.8, 2.8),
+        color0: wet ? [1.2, 1.32, 1.42, 0.9] : [0.55, 0.47, 0.36, 0.85], color1: wet ? [1.1, 1.2, 1.3, 0] : [0.65, 0.6, 0.52, 0],
+      });
+    }
+    const d = Math.hypot(p.x - this.tank.position.x, p.z - this.tank.position.z);
+    if (d < radius) this.damageTank(damage * Math.pow(1 - d / radius, 0.6), p);
+    for (const lane of this.blocks.lanes) {
+      for (const b of [...lane]) {
+        if (Math.hypot(b.x - p.x, b.z - p.z) < radius * 0.7) this.blocks.damage(b, 2, v2.set(b.x, p.y + 1, b.z));
+      }
+    }
+    this.shake = Math.max(this.shake, THREE.MathUtils.clamp(0.9 - d * 0.02, 0.2, 0.9));
+  }
+
+  closestEnemy(p) {
+    let best = null;
+    let bd = GameConfig.tank.homingRange;
+    for (const lane of this.blocks.lanes) {
+      for (const b of lane) {
+        const d = Math.hypot(b.x - p.x, b.z - p.z);
+        if (d < bd) {
+          bd = d;
+          best = b;
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Footprint corners (and edge midpoints) on walkable ground. */
+  canStand(x, z, heading) {
+    const t = this.tank;
+    const c = Math.cos(heading);
+    const sn = Math.sin(heading);
+    for (const [u, w] of [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      const lx = u * t.half.x;
+      const lz = w * t.half.z;
+      if (!this.arena.walkable(x + lx * c + lz * sn, z - lx * sn + lz * c)) return false;
+    }
+    return true;
+  }
+
+  // ---- Fighter ---------------------------------------------------------------------------------
+
+  updateFighter(dt) {
+    const F = GameConfig.fighter;
+    const f = this.fighter;
+    if (!f) return;
+    if (this.fighterActive) {
+      f.update(dt, {
+        projectiles: this.projectiles, effects: this.effects, tankPosition: this.tank.position,
+        floorAt: (x, z) => this.arena.floorAt(x, z), armed: this.state === 'playing',
+        crashAt: (p) => this.bombBlast(p, F.bombRadius * 0.8, F.bombDamage * 0.5),
+      });
+      if (f.done) {
+        this.fighterActive = false;
+        f.dispose();
+        this.fighterTimer = rnd.range(F.gapMin, F.gapMax);
+      }
+      return;
+    }
+    if (this.state !== 'playing') return;
+    this.fighterTimer -= dt;
+    if (this.fighterTimer > 0) return;
+    f.start(this.tank.position, this.fighterSide);
+    this.fighterSide = -this.fighterSide;
+    this.scene.add(f.root);
+    this.fighterActive = true;
+  }
+
+  // ---- R: homing missiles ------------------------------------------------------------------------
+
+  updateHoming(dt) {
+    if (this.powers.R <= 0) return;
+    this.homingTimer -= dt;
+    if (this.homingTimer > 0) return;
+    const cfg = GameConfig.tank;
+    const p = this.tank.position;
+    const targets = [];
+    for (const lane of this.blocks.lanes) for (const b of lane) if (Math.hypot(b.x - p.x, b.z - p.z) < cfg.homingRange) targets.push(b);
+    if (this.fighterActive && this.fighter.isAlive() && this.fighter.position.distanceTo(p) < cfg.homingRange * 1.4) {
+      // The fighter is the favourite target while it is in reach.
+      for (let i = 0; i < 4; i++) targets.push(this.fighter);
+    }
+    this.homingTimer = targets.length ? cfg.homingInterval : 0.2;
+    if (!targets.length) return;
+    const pick = targets[Math.floor(rnd.next() * targets.length)];
+    // Launch off a turret side, up and out, then curve down onto the target.
+    const t = this.tank;
+    const side = (this.homingSide = -(this.homingSide ?? 1));
+    t.turret.updateWorldMatrix(true, false);
+    const muzzle = t.turret.localToWorld(v1.set(side * 1.1, 1.0, -0.4));
+    const dir = v2.set(side * 0.7 + rnd.spread(0.5), 1.5, rnd.spread(0.6)).applyAxisAngle(UP, t.gunYaw).normalize();
+    this.projectiles.spawn(HomingMissile, muzzle, dir.multiplyScalar(cfg.missileSpeed * 0.7), { target: pick, damage: cfg.missileDamage });
+    this.effects.muzzleFlash(muzzle, dir.normalize(), [5, 2.4, 0.6, 1], 0.6);
   }
 
   // ---- Trains ----------------------------------------------------------------------------
@@ -383,6 +586,7 @@ export class TankLevel {
     PickupSfx.play(s ? (s.master / 10) * (s.sfx / 10) : 0.64, 0, type === 'H' ? -0.1 : 0);
     if (type === 'H') {
       this.pile.remove(10);
+      this.hp = Math.min(GameConfig.tank.hp, this.hp + 25);
     } else {
       const key = type === 'G' ? 'D' : type;
       this.powers[key] = GameConfig.tankArena.powerTime;
@@ -392,15 +596,24 @@ export class TankLevel {
   }
 
   checkEnd() {
-    if (this.state !== 'playing') return;
     const A = GameConfig.tankArena;
+    if (this.state === 'won' && this.tank.position.x * Math.sign(A.base.x) < -A.phase2X) {
+      this.state = 'phase2';
+      this.showBanner('PHASE 2', 'Coming soon · ENTER to replay phase 1', 'won');
+      return;
+    }
+    if (this.state !== 'playing') return;
     if (this.pile.count >= A.drainLimit) {
       this.state = 'lost';
       this.showBanner('DRAIN OVERFLOW', 'The drain is full · ENTER to try again', 'lost');
     } else if (this.dropped >= A.phaseBlocks && !this.train && this.blocks.count === 0) {
       const won = this.broken >= A.breakGoal;
       this.state = won ? 'won' : 'lost';
-      if (won) this.showBanner('PHASE 1 CLEAR!', `${this.broken} blocks broken · ${this.pile.count} in the drain · ENTER to play again`, 'won');
+      if (won) {
+        // The gate in the right wall opens: the road behind it leads on to phase 2.
+        this.arena.setGateOpen(true);
+        this.showBanner('PHASE 1 CLEAR!', `${this.broken} blocks broken · the gate on the right is open - drive out`, 'won');
+      }
       else this.showBanner('NOT ENOUGH', `Only ${this.broken} / ${A.breakGoal} broken · ENTER to try again`, 'lost');
     }
   }
@@ -420,10 +633,19 @@ export class TankLevel {
     }, seconds * 1000);
   }
 
-  updateHud() {
+  updateHud(dt = 0) {
     const A = GameConfig.tankArena;
     const e = this.hudEl;
     const t = this.tank;
+    const hp = Math.ceil(this.hp);
+    if (hp !== this.hpShown) {
+      this.hpShown = hp;
+      e.hp.textContent = hp;
+      e.hpBar.style.width = `${(this.hp / GameConfig.tank.hp) * 100}%`;
+      e.hp.parentElement.classList.toggle('low', this.hp < 30);
+    }
+    this.hitFlash = Math.max(0, (this.hitFlash ?? 0) - dt * 1.8);
+    e.hit.style.opacity = this.hitFlash.toFixed(3);
     e.broken.textContent = this.broken;
     e.drain.textContent = this.pile.count;
     e.drainBar.style.width = `${Math.min(100, (this.pile.count / A.drainLimit) * 100)}%`;
@@ -446,7 +668,7 @@ export class TankLevel {
   lockedTarget() {
     const cfg = GameConfig.tank;
     const L = this.lock;
-    if (L && this.time - L.at < cfg.lockRefresh && L.block.alive && !L.block.drained) return L.block;
+    if (L && this.time - L.at < cfg.lockRefresh && L.block.serial === L.serial && L.block.alive) return L.block;
     const p = this.tank.position;
     const yaw = Math.atan2(this.aim.x - p.x, this.aim.z - p.z);
     let best = null;
@@ -460,14 +682,14 @@ export class TankLevel {
         const ang = Math.abs(wrap(Math.atan2(dx, dz) - yaw));
         if (ang > cfg.aimCone) continue;
         // Keep the current lock unless something is clearly better (no flicker between neighbours).
-        const score = ang * 12 + d * 0.35 - (L && L.block === b ? 0.6 : 0);
+        const score = ang * 12 + d * 0.35 - (L && L.block === b && L.serial === b.serial ? 0.6 : 0);
         if (score < bestScore) {
           bestScore = score;
           best = b;
         }
       }
     }
-    this.lock = best ? { block: best, at: this.time } : null;
+    this.lock = best ? { block: best, serial: best.serial, at: this.time } : null;
     return best;
   }
 
@@ -484,7 +706,7 @@ export class TankLevel {
     const d = Math.max(1e-3, Math.hypot(dx, dz));
     const r = THREE.MathUtils.clamp(d, 8, 26);
     out.set(p.x + (dx / d) * r, 0, p.z + (dz / d) * r);
-    out.y = this.arena.floorHeight(out.z) + 0.9;
+    out.y = this.arena.floorAt(out.x, out.z) + 0.9;
     return out;
   }
 
@@ -499,7 +721,7 @@ export class TankLevel {
 
   updateReticle(dt, lock, target) {
     const r = this.reticle;
-    r.visible = this.state === 'playing';
+    r.visible = this.state === 'playing' || this.state === 'won';
     if (!r.visible) return;
     this.reticleSpin += dt * (lock ? 2 : 0.8);
     r.position.copy(target);
@@ -528,24 +750,21 @@ export class TankLevel {
     }
     this.shake = Math.max(this.shake, 0.3);
     // Locked: straight at the block's centre (the gunner corrects the last few degrees).
-    const lock = this.lock?.block?.alive ? this.lock.block : null;
+    const lock = this.lock && this.lock.block.serial === this.lock.serial && this.lock.block.alive ? this.lock.block : null;
     const aimDir = lock ? this.blockCenter(lock, new THREE.Vector3()).sub(muzzle).normalize() : dir.clone();
     // Point blank: a block between the barrel's base and the muzzle (pressed against the hull)
     // takes the hit at once.
     const pivot = this.tank.turret.localToWorld(v3.copy(this.tank.barrelHome));
     const close = this.traceBlock(pivot, muzzle);
     if (close) {
-      this.impact(this.blockCenter(close, v1).clone(), this.powers.R > 0, close, 'block');
+      this.blocks.damage(close, cfg.shellDamage, close.aimPoint(v1));
+      this.effects.explosion(v1, 0.9, null, 0);
       return;
     }
     const spreads = this.powers.T > 0 ? [-0.12, 0, 0.12] : [0];
     for (const off of spreads) {
-      const vel = v2.copy(aimDir).applyAxisAngle(UP, off).multiplyScalar(cfg.shellSpeed).clone();
-      const mesh = new THREE.Mesh(this.shellGeometry, this.shellMaterial);
-      mesh.position.copy(muzzle);
-      mesh.lookAt(v1.copy(muzzle).add(vel));
-      this.scene.add(mesh);
-      this.shells.push({ mesh, vel, dist: 0, heavy: this.powers.R > 0 });
+      const vel = v2.copy(aimDir).applyAxisAngle(UP, off).multiplyScalar(cfg.shellSpeed);
+      this.projectiles.spawn(TankShell, muzzle, vel, { damage: cfg.shellDamage });
     }
   }
 
@@ -562,56 +781,6 @@ export class TankLevel {
     return null;
   }
 
-  /** Direct fire: each shell flies straight and stops at the first block, wall or the floor. */
-  updateShells(dt) {
-    const A = GameConfig.tankArena;
-    const halfW = (A.block * A.lanes) / 2;
-    const range = GameConfig.tank.shellRange;
-    for (let i = this.shells.length - 1; i >= 0; i--) {
-      const s = this.shells[i];
-      const p = s.mesh.position;
-      const speed = s.vel.length();
-      const n = Math.max(1, Math.ceil((speed * dt) / 0.5));
-      const h = dt / n;
-      let hit = null;
-      let block = null;
-      for (let k = 0; k < n && !hit; k++) {
-        p.addScaledVector(s.vel, h);
-        s.dist += speed * h;
-        const b = this.blocks.blockAt(p.x, p.z);
-        if (b && p.y <= this.blockCenter(b, v1).y * 2 - this.arena.floorHeight(b.z)) {
-          hit = 'block';
-          block = b;
-        } else if (p.y <= this.arena.floorHeight(p.z) + 0.05) hit = 'floor';
-        else if (Math.abs(p.x) > halfW || p.z > A.topZ + 0.5) hit = 'wall';
-        else if (s.dist > range) hit = 'air';
-      }
-      this.effects.fire.emit({ x: p.x, y: p.y, z: p.z, life: 0.12, size0: 0.45, size1: 0.1, color0: [3, 1.8, 0.6, 1], color1: [1, 0.4, 0.1, 0] });
-      if (!hit) continue;
-      s.mesh.removeFromParent();
-      this.shells.splice(i, 1);
-      this.impact(p, s.heavy, block, hit);
-    }
-  }
-
-  impact(at, heavy, b, kind) {
-    const dmg = GameConfig.tank.shellDamage;
-    if (b) this.blocks.damage(b, dmg * (heavy ? 2 : 1), at);
-    if (heavy) {
-      // Splash: the four neighbours take a hit too.
-      const S = this.blocks.size;
-      for (const [dx, dz] of [[S, 0], [-S, 0], [0, S], [0, -S]]) {
-        const n = this.blocks.blockAt(at.x + dx, at.z + dz);
-        if (n && n !== b) this.blocks.damage(n, dmg, v2.set(n.x, at.y, n.z));
-      }
-    }
-    const debris = kind === 'wall' ? 0xb9b6ad : 0x7a6a52;
-    this.effects.explosion(at, heavy ? 1.3 : 0.9, b ? null : debris, b || kind === 'air' ? 0 : 6);
-    if (kind === 'floor') this.effects.snowPuff(v2.set(at.x, at.y + 0.1, at.z), 6);
-    const d = at.distanceTo(this.tank.position);
-    this.shake = Math.max(this.shake, THREE.MathUtils.clamp(0.4 - d * 0.01, 0.06, 0.4));
-  }
-
   /** Spray behind the tracks while driving (shallow water). */
   updateDust(dt) {
     const t = this.tank;
@@ -621,9 +790,11 @@ export class TankLevel {
     this.dustTimer = 0.3;
     for (const x of t.track.x) {
       v1.set(x, 0.2, -2.3 * Math.sign(t.speed || 1)).applyMatrix4(t.root.matrixWorld);
+      const wet = this.arena.isWater(v1.x, v1.z);
       this.effects.smoke.emit({
-        x: v1.x + rnd.spread(0.3), y: this.arena.floorHeight(v1.z) + 0.3, z: v1.z + rnd.spread(0.3), vx: rnd.spread(0.8), vy: rnd.range(0.8, 1.8), vz: rnd.spread(0.8), drag: 1.8, gravity: 4,
-        life: rnd.range(0.5, 0.9), size0: 0.4, size1: rnd.range(1.2, 1.8), color0: [1.15, 1.3, 1.4, 0.6], color1: [1.1, 1.2, 1.3, 0],
+        x: v1.x + rnd.spread(0.3), y: this.arena.floorAt(v1.x, v1.z) + 0.3, z: v1.z + rnd.spread(0.3), vx: rnd.spread(0.8), vy: rnd.range(0.8, 1.8), vz: rnd.spread(0.8), drag: 1.8, gravity: wet ? 4 : 0.5,
+        life: rnd.range(0.5, 0.9) * (wet ? 1 : 1.5), size0: 0.4, size1: rnd.range(1.2, 1.8) * (wet ? 1 : 1.4),
+        color0: wet ? [1.15, 1.3, 1.4, 0.6] : [0.62, 0.53, 0.4, 0.55], color1: wet ? [1.1, 1.2, 1.3, 0] : [0.7, 0.64, 0.55, 0],
       });
     }
   }
@@ -634,8 +805,10 @@ export class TankLevel {
     const p = this.tank.position;
     const A = GameConfig.tankArena;
     const halfW = (A.block * A.lanes) / 2;
-    // Keep the channel framed: follow x only partly, z fully.
-    v1.set(THREE.MathUtils.clamp(p.x * 0.4, -halfW * 0.3, halfW * 0.3), cfg.height, p.z * cfg.follow - cfg.back);
+    // In the channel follow x only partly (keep it framed); out on the roads / in the base follow.
+    const ax = Math.abs(p.x);
+    const camX = ax <= halfW ? p.x * 0.4 : Math.sign(p.x) * (halfW * 0.4 + (ax - halfW) * 0.9);
+    v1.set(camX, cfg.height, p.z * cfg.follow - cfg.back);
     if (snap) this.camPos.copy(v1);
     else this.camPos.lerp(v1, 1 - Math.exp(-4 * dt));
     this.camera.position.copy(this.camPos);

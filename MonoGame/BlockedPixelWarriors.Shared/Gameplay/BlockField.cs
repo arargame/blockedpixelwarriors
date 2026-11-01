@@ -8,15 +8,16 @@ namespace BlockedPixelWarriors.Gameplay;
 public enum BlockType { Normal, Armored, Supply }
 
 /// <summary>One grid cell's block (alive or not; records are reused).</summary>
-public sealed class Block
+/// <summary>A board block: an Enemy that is a target only (blocks never hurt the heli).</summary>
+public sealed class Block : Enemy
 {
     public int C, R;
     public float X, Z;
     public BlockColor Color;
     public BlockType Type;
-    public float Hp, MaxHp, Flash, Drop, ChainAt;
+    public float Flash, Drop, ChainAt;
     public int ChainDepth;
-    public bool Alive, Cargo;
+    public bool Cargo;
     public int Snow = -1;
     public float RotY, Jitter;
     public Vector3 FallFrom;
@@ -24,6 +25,14 @@ public sealed class Block
     public bool Falling;
     public bool Acid;
     public float AcidTimer;
+
+    public Block()
+    {
+        Alive = false;
+        EnemyKind = "block";
+    }
+
+    public override Vector3 AimPoint => new(X, GameConfig.BlockSize * 0.5f, Z);
 }
 
 /// <summary>

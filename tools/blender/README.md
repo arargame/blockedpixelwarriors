@@ -122,3 +122,24 @@ python tools/blender/build_tank.py --render captures/tank  # + Meshy'nin 10 aç�
 python tools/blender/build_tank.py --card captures/card.png # menü kartı resmi
 ```
 
+# Avcı uçak (tank seviyesi düşmanı)
+
+`build_fighter.py`, Blocked Pixel Panzer'deki FighterJet düşmanını (`Blocked.Shared/Content/Enemies/
+FighterJetTextureAtlasV2.png`, kareler `ref/fighter/`) 3B yapar: süperelips halkalardan loft edilmiş
+tombul gövde (zeytin yeşili, panel çizgileri, perçinler, iki yanda kırmızı yıldızlı rozet, burunda
+kırmızı köpekbalığı ağzı + beyaz dişler + göz), koyu kaporta dudağı, radyal silindirler, her yanda 3
+egzoz; hafif dihedralli eliptik uçlu alçak kanatlar (üst / alt rozet), kanat altında 3 namlulu
+silah paketi ve gövdedeki cephane kutusundan sarkan pirinç mermi şeridi; yuvarlak dikey ve yatay
+kuyruk; 3 çerçeveli cam kubbe, açık arka kokpitte deri kasklı, gözlüklü, atkılı pilot. Pervane
+(zeytin göbek, uçları turuncu 3 pas rengi kanat) ve sprite'taki altın halkalı bulanık disk ayrı
+nesneler (oyun döndürür); karın kancasındaki 500 lb WW2 bombası (ogive burun, tapa, sarı bantlar,
+kutu kuyruk) ayrı nesne — oyun kopyasını bırakır. Dokular PIL ile üretilip .glb'ye gömülür.
+
+Hiyerarşi (three.js eksenleri, burun = +Z): `Fighter` → `FighterBody`, `FighterProp` (+Z etrafında
+döner), `FighterPropDisc`, `FighterBomb`, `FighterGunL/R` (namlu ucu boşlukları).
+
+```bash
+python tools/blender/build_fighter.py                       # fighter.glb + fighter.blend
+python tools/blender/build_fighter.py --render captures/fx  # + sprite açısı, yan, üst, ön, alt, oyun
+```
+

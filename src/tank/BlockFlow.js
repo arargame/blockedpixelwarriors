@@ -4,6 +4,34 @@ import { GameConfig } from '../config/GameConfig.js';
 import { Palette, BLOCK_COLOR_KEYS } from '../config/Palette.js';
 import { fxRandom as rnd } from '../util/Random.js';
 import { armorTexture, supplyTexture } from '../entities/BlockField.js';
+import { Enemy } from '../combat/Enemy.js';
+import { ObjectPool } from '../core/ObjectPool.js';
+
+/**
+ * A block sliding down a lane: a target only (it never hurts the tank). Pooled: `serial` changes
+ * every time the object is reused, so a stale reference (an aim lock) can tell.
+ */
+export class ArenaBlock extends Enemy {
+  constructor() {
+    super({ hp: 1, harmsPlayer: false, kind: 'block' });
+    this.serial = 0;
+  }
+
+  reset(lane, x, z, color, type, hp, rot) {
+    this.serial += 1;
+    Object.assign(this, { lane, x, z, color, type, hp, maxHp: hp, rot, flash: 0, chainAt: 0, chainDepth: 0, alive: true, drained: false });
+    return this;
+  }
+
+  get height() {
+    return GameConfig.tankArena.block * 0.95 * (this.type === 'weak' ? 0.9 : 1);
+  }
+
+  aimPoint(out) {
+    const A = GameConfig.tankArena;
+    return out.set(this.x, A.slope * THREE.MathUtils.clamp(this.z, 0, A.topZ) + this.height / 2, this.z);
+  }
+}
 
 const dummy = new THREE.Object3D();
 const tmp = new THREE.Vector3();
@@ -44,6 +72,7 @@ export class BlockFlow {
     this.cage = this.prep(new THREE.InstancedMesh(overlay, new THREE.MeshStandardMaterial({ map: armorTexture(), transparent: true, alphaTest: 0.4, roughness: 0.35, metalness: 0.75, envMapIntensity: 1.4 }), MAX), true);
     const star = supplyTexture();
     this.star = this.prep(new THREE.InstancedMesh(overlay, new THREE.MeshStandardMaterial({ map: star, emissiveMap: star, emissive: new THREE.Color(1, 0.85, 0.4), emissiveIntensity: 0.9, transparent: true, alphaTest: 0.3, roughness: 0.3, metalness: 0.4 }), MAX), false);
+    this.pool = new ObjectPool(() => new ArenaBlock(), 160);
     this.onDrain = null;
     this.onDestroyed = null;
     /** (block) => residual push the tank could not take (the block is held back by it). */
@@ -62,7 +91,11 @@ export class BlockFlow {
   }
 
   reset() {
-    for (const l of this.lanes) l.length = 0;
+    for (const l of this.lanes) {
+      for (const b of l) this.pool?.release(b);
+      l.length = 0;
+    }
+    for (const a of this.airborne) this.pool?.release(a.b);
     this.airborne.length = 0;
     this.chain.length = 0;
   }
@@ -97,7 +130,7 @@ export class BlockFlow {
   /** A block thrown from a train wagon at `from`, landing on `lane` at z. */
   drop(lane, z, from, color = BLOCK_COLOR_KEYS[Math.floor(Math.random() * 4)], type = BlockFlow.rollType()) {
     const hp = GameConfig.tankArena.hp[type];
-    const b = { lane, x: this.laneX(lane), z, color, type, hp, maxHp: hp, flash: 0, chainAt: 0, alive: true, rot: Math.floor(Math.random() * 4) * (Math.PI / 2) };
+    const b = this.pool.acquire().reset(lane, this.laneX(lane), z, color, type, hp, Math.floor(Math.random() * 4) * (Math.PI / 2));
     this.airborne.push({ b, from: from.clone(), t: 0, dur: 0.7 + Math.random() * 0.15, spin: rnd.spread(6) });
   }
 
@@ -147,6 +180,7 @@ export class BlockFlow {
     const lane = this.lanes[b.lane];
     lane.splice(lane.indexOf(b), 1);
     this.onDestroyed?.(b, depth, tmp.clone());
+    this.pool.release(b);
     // Same-coloured neighbours: back to back in the lane, or side by side in the next lane.
     const S = this.size;
     for (const dl of [-1, 0, 1]) {
@@ -158,7 +192,7 @@ export class BlockFlow {
         if ((dl === 0 && dz <= S * 1.08) || (dl !== 0 && dz <= S * 0.6)) {
           n.chainAt = GameConfig.tankArena.chainDelay;
           n.chainDepth = depth + 1;
-          this.chain.push(n);
+          this.chain.push({ b: n, serial: n.serial });
         }
       }
     }
@@ -169,11 +203,16 @@ export class BlockFlow {
     const S = this.size;
     // Chain reaction.
     for (let i = this.chain.length - 1; i >= 0; i--) {
-      const n = this.chain[i];
+      const { b: n, serial } = this.chain[i];
+      // Gone (destroyed / drained, maybe already reused for a new block): drop the entry.
+      if (n.serial !== serial || !n.alive) {
+        this.chain.splice(i, 1);
+        continue;
+      }
       n.chainAt -= dt;
       if (n.chainAt <= 0) {
         this.chain.splice(i, 1);
-        if (n.alive) this.destroy(n, n.chainDepth);
+        this.destroy(n, n.chainDepth);
       }
     }
     // Airborne blocks land on their lane.
@@ -202,7 +241,9 @@ export class BlockFlow {
       while (lane.length && lane[0].z < -S * 0.15) {
         const b = lane.shift();
         b.drained = true;
+        b.alive = false;
         this.onDrain?.(b);
+        this.pool.release(b);
       }
     }
   }

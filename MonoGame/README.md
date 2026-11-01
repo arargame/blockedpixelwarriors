@@ -104,9 +104,18 @@ node tools/glsl-validate.mjs <dir> # (opsiyonel) EffectPacker --dump çıktısı
   `ui_reticle` ile gösterilir, namlu hedefe eğilir, mermiler düz gider. Sahne `tank_arena` modeli
   + `tank_arena_inst*` (çam / travers / kaya) — su malzemeleri dışa aktarımda `scrollV` taşır, doku
   zamanla akar. Tank `tank_hull / tank_turret / tank_barrel / tank_link` (Blender), paletler
-  instancing ile döner, namlu geri teper, lambalar yanıp söner. HUD: KIRILAN / GİDER (dolum çubuğu)
-  / GELEN sayaçları, aktif güçler, bitiş afişi. Klavye W/S/A/D + fare / tık / SPACE, ENTER yeniden;
-  telefonda sol joystick sürer, dokunma nişan + ateş.
+  instancing ile döner, namlu geri teper, lambalar yanıp söner. Üs + yollar sahnenin parçası;
+  yol orta çizgileri ve kapı menteşeleri `Prefabs.TankArena` ile gelir (yürünebilir alan testi),
+  kapı kanatları `tank_gate_leaf0/1`. HUD: KIRILAN / GİDER (dolum çubuğu) / GELEN / ZIRH sayaçları,
+  aktif güçler, isabette kırmızı kenar, bitiş afişi. Klavye W/S/A/D + fare / tık / SPACE, ENTER
+  yeniden; telefonda sol joystick sürer, dokunma nişan + ateş.
+- **Düşman / mermi sınıfları (web'deki `src/combat/` ile aynı):** `Gameplay/Enemy.cs` soyut taban
+  (`IsAlive`, `AimPoint`, `TakeDamage`, `OnDeath`, `HarmsPlayer`) — `Train`, heli tahtasının
+  `Block`'u, kanalın `TankBlock`'u (havuzdan, `Serial` ile) ve `JetFighter` türer.
+  `Gameplay/TankCombat.cs`: soyut `Projectile` (alt adımlı hareket, `Integrate / Collide / Impact /
+  Trail` kancaları) → `TankShell`, `HomingMissile`, `JetBullet`, `AerialBomb`; `ProjectileManager`
+  her sınıf için `ObjectPool<T>` + tek instance buffer; `ICombatWorld` (TankLevel uygular) mermilerin
+  gördüğü dünya. Uçak `fighter_body / _prop / _disc / _bomb` (Blender), `Prefabs.Fighter`.
 - Kartlar sahnenin post zincirinden sonra tam çözünürlükte çizilir (`Card.glfx`: key + rim ışık,
   RoomEnvironment, clearcoat, fragment başına ACES + sRGB — web'deki ayrı kart canvas'ı gibi).
 
@@ -117,6 +126,7 @@ BlockedPixelWarriors --capture out.png --frames 3 --scenario static|poster|menu|
 # menü: tuş betiği ve dil (save = 2. bölüm kaydı + ilerleme)
 BlockedPixelWarriors --capture menu.png --frames 3 --scenario menu --lang tr --menu down,right,enter
 node tools/staticshot.mjs web.png   # aynı "static" kareyi web sürümünden alır (karşılaştırma)
-# tank: 48 sn tren (tank şeritleri tutar) + --extra sn (varsayılan 30) en alttaki bloğa nişan alan otomatik nişancı
-BlockedPixelWarriors --capture tank.png --frames 3 --scenario tank --extra 30
+# tank: üsten yola, kanala sürüş; sonra en alttaki bloğa nişan alan otomatik nişancı uçak geçene kadar
+# (--extra sn daha). --pick 1: faz kazanıldı, kapı açılır, uzak yoldan çıkış; --pick 2: R füzeleri açık
+BlockedPixelWarriors --capture tank.png --frames 3 --scenario tank [--pick 1|2] [--extra 0.5]
 ```

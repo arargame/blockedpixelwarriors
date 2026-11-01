@@ -125,6 +125,10 @@ public static class GameConfig
         public const float AimCone = 0.32f, LockRefresh = 0.12f;
         /// <summary>Collision footprint half size of the hull (tank space).</summary>
         public const float HalfX = 2.0f, HalfZ = 2.25f;
+        /// <summary>Armour: the fighter's guns and bombs are the only things that hurt the tank.</summary>
+        public const float Hp = 100;
+        /// <summary>R power-up: homing missiles (like the heli's) launched off the turret.</summary>
+        public const float HomingInterval = 0.42f, HomingRange = 44, MissileSpeed = 14, MissileDamage = 2;
         /// <summary>Follow camera: z = tank z * follow - back, looking `ahead` up the channel.</summary>
         public const float CameraHeight = 40, CameraBack = 28, CameraFollow = 0.5f, CameraAhead = 44, CameraFov = 46;
     }
@@ -148,9 +152,28 @@ public static class GameConfig
         public const float ChainDelay = 0.09f;
         public const float DrainZ = -6.2f, DrainRx = 14, DrainRz = 5.2f, DrainDepth = 5, DrainWater = 1.2f;
         public const float PowerTime = 12;
+        /// <summary>
+        /// The way in and out (TankArena.js): +x is the screen's LEFT. A round base at the bottom left,
+        /// a road into the left wall's gap; the right wall's gap has a fence gate that opens when
+        /// phase 1 is won (road lines come with the export: Prefabs.TankArena).
+        /// </summary>
+        public const float GapZ0 = 2.2f, GapZ1 = 11.4f;
+        public const float BaseX = 40, BaseZ = 3, BaseR = 10, RoadWidth = 9.5f, Phase2X = 50;
         public static float Width => Block * Lanes;
         public static float RailY => Slope * TopZ + 3.0f;
         public static float FloorHeight(float z) => Slope * Math.Clamp(z, 0, TopZ);
+    }
+
+    /// <summary>
+    /// The Blocked Pixel Panzer fighter (GameConfig.fighter, JetFighter in TankCombat.cs): a strafing
+    /// pass every 7-20 s, 3-4 s of machine-gun fire, then a bomb aimed at the tank.
+    /// </summary>
+    public static class Fighter
+    {
+        public const float Scale = 1.8f, Altitude = 15, Dive = 4, Speed = 21, Approach = 105, Exit = 110, PassOffset = 1.5f;
+        public const float GapMin = 7, GapMax = 20, FirstDelay = 9, Hp = 6, HitRadius = 3.4f;
+        public const float StrafeMin = 3, StrafeMax = 4, FireRate = 11, BulletSpeed = 62, BulletDamage = 0.7f, Spread = 1.8f;
+        public const float BombGravity = 18, BombRadius = 5.5f, BombDamage = 30;
     }
 
     /// <summary>Upgrade cards (GameConfig.cards).</summary>

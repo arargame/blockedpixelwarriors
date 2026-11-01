@@ -180,6 +180,26 @@ public sealed class PrefabData
     public List<float[]> TerraceAvoid { get; set; }
     /// <summary>Tank level: part matrices, muzzle, track loop.</summary>
     public TankData Tank { get; set; }
+    /// <summary>Tank arena: gate hinges (x, y, z, dir), road centre lines (x, z).</summary>
+    public TankArenaData TankArena { get; set; }
+    /// <summary>The fighter's prop / disc / bomb matrices and gun muzzles (fighter root space).</summary>
+    public FighterData Fighter { get; set; }
+}
+
+public sealed class TankArenaData
+{
+    public int GateSide { get; set; }
+    public List<float[]> Hinges { get; set; }
+    public List<float[]> RoadIn { get; set; }
+    public List<float[]> RoadOut { get; set; }
+}
+
+public sealed class FighterData
+{
+    public float[] PropMatrix { get; set; }
+    public float[] DiscMatrix { get; set; }
+    public float[] BombMatrix { get; set; }
+    public List<float[]> Guns { get; set; }
 }
 
 public sealed class TankData

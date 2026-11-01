@@ -3,6 +3,7 @@ import { GameConfig } from '../config/GameConfig.js';
 import { PineTreeFactory } from '../world/PineTreeFactory.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
 import { Random } from '../util/Random.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
  * Static scenery of the tank level (all in one group, exported to MonoGame as one model):
@@ -77,23 +78,39 @@ export class TankArena {
 
     // ---- Walls along the channel and the headwall under the rail --------------------------
     const wallMat = new THREE.MeshStandardMaterial({ map: concreteTexture(false), roughness: 0.8 });
+    // Side walls, each with a gap near the bottom: the road from the base comes in on the left,
+    // the way on to phase 2 leaves on the right (behind the gate).
+    const G = A.gap;
     for (const side of [-1, 1]) {
-      const g = new THREE.BoxGeometry(1.2, 3.2, L + 1.2);
-      g.translate(side * (W / 2 + 0.6), 0.9, L / 2 + 0.6);
-      slopeY(g, A.slope);
-      planarUV(g, 1 / 3);
-      const wall = new THREE.Mesh(g, wallMat);
-      wall.castShadow = true;
-      wall.receiveShadow = true;
-      this.group.add(wall);
-      const cap = new THREE.BoxGeometry(1.5, 0.25, L + 1.4);
-      cap.translate(side * (W / 2 + 0.6), 2.6, L / 2 + 0.6);
-      slopeY(cap, A.slope);
-      planarUV(cap, 1 / 3);
-      const capMesh = new THREE.Mesh(cap, concrete);
-      capMesh.castShadow = true;
-      this.group.add(capMesh);
+      for (const [z0, z1] of [[-0.0, G.z0], [G.z1, L + 1.2]]) {
+        const len = z1 - z0;
+        const g = new THREE.BoxGeometry(1.2, 3.2, len);
+        g.translate(side * (W / 2 + 0.6), 0.9, z0 + len / 2);
+        slopeY(g, A.slope);
+        planarUV(g, 1 / 3);
+        const wall = new THREE.Mesh(g, wallMat);
+        wall.castShadow = true;
+        wall.receiveShadow = true;
+        this.group.add(wall);
+        const cap = new THREE.BoxGeometry(1.5, 0.25, len + (z0 > 0 ? 0.2 : 0.2));
+        cap.translate(side * (W / 2 + 0.6), 2.6, z0 + len / 2);
+        slopeY(cap, A.slope);
+        planarUV(cap, 1 / 3);
+        const capMesh = new THREE.Mesh(cap, concrete);
+        capMesh.castShadow = true;
+        this.group.add(capMesh);
+      }
+      // Threshold slab across the gap (channel floor to the road).
+      const th = new THREE.BoxGeometry(1.4, 0.3, G.z1 - G.z0);
+      th.translate(side * (W / 2 + 0.6), A.slope * ((G.z0 + G.z1) / 2) - 0.08, (G.z0 + G.z1) / 2);
+      planarUV(th, 1 / A.block);
+      const thMesh = new THREE.Mesh(th, concrete);
+      thMesh.receiveShadow = true;
+      this.group.add(thMesh);
     }
+    this.buildRoads(rng);
+    this.buildBase(rng);
+    this.buildGate();
     const head = new THREE.BoxGeometry(W + 2.4, 3.6, 1.4);
     head.translate(0, top + 1.2, L + 0.7);
     planarUV(head, 1 / 3);
@@ -200,6 +217,7 @@ export class TankArena {
       const z = rng.range(-30, A.railZ + 40);
       if (Math.abs(z - A.railZ) < 5) continue;
       if (Math.abs(x) < D.rx + 4 && z < 4 && z > D.z - D.rz - 4) continue;
+      if (this.nearRoad(x, z, 3.2)) continue;
       trees.push({ x, y: -0.05, z, scale: rng.range(1.1, 1.9), rot: rng.next() * 6, variant: Math.floor(rng.next() * 3) });
     }
     for (let i = 0; i < 40; i++) {
@@ -214,7 +232,10 @@ export class TankArena {
     const rocks = new THREE.InstancedMesh(rockGeo, rockMat, 24);
     for (let i = 0; i < 24; i++) {
       const side = i % 2 ? -1 : 1;
-      dummy.position.set(side * rng.range(W / 2 + 2.2, W / 2 + 9), 0.2, rng.range(-8, A.railZ - 6));
+      let rz = rng.range(-8, A.railZ - 6);
+      const rx = side * rng.range(W / 2 + 2.2, W / 2 + 9);
+      if (this.nearRoad(rx, rz, 1.5)) rz += 16;
+      dummy.position.set(rx, 0.2, rz);
       dummy.rotation.set(rng.next() * 3, rng.next() * 3, 0);
       dummy.scale.set(rng.range(0.6, 1.5), rng.range(0.4, 0.9), rng.range(0.6, 1.4));
       dummy.updateMatrix();
@@ -225,6 +246,277 @@ export class TankArena {
     this.group.add(rocks);
   }
 
+  // ---- Roads, base, gate ------------------------------------------------------------------
+
+  /** Smoothed centre lines of the two dirt roads (sampled points, xz). */
+  roadLines() {
+    if (this.roads) return this.roads;
+    const A = GameConfig.tankArena;
+    const B = A.base;
+    const line = (pts) => {
+      const curve = new THREE.CatmullRomCurve3(pts.map(([x, z]) => new THREE.Vector3(x, 0, z)));
+      return curve.getSpacedPoints(Math.max(8, Math.round(curve.getLength() / 1.2)));
+    };
+    this.roads = {
+      in: line([...A.roadIn, [B.x + B.r * 0.4, B.z + 0.3]]),
+      out: line(A.roadOut),
+    };
+    return this.roads;
+  }
+
+  /** Distance from (x, z) to a sampled road line. */
+  static distToLine(pts, x, z) {
+    let best = Infinity;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const t = THREE.MathUtils.clamp(((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
+      const px = a.x + dx * t - x;
+      const pz = a.z + dz * t - z;
+      best = Math.min(best, px * px + pz * pz);
+    }
+    return Math.sqrt(best);
+  }
+
+  /** Inside the base, on a road (or within `margin` of them). */
+  nearRoad(x, z, margin = 0) {
+    const A = GameConfig.tankArena;
+    const B = A.base;
+    const R = this.roadLines();
+    if (Math.hypot(x - B.x, z - B.z) < B.r + margin) return true;
+    const w = A.roadWidth / 2 + margin;
+    return TankArena.distToLine(R.in, x, z) < w || TankArena.distToLine(R.out, x, z) < w;
+  }
+
+  buildRoads(rng) {
+    const A = GameConfig.tankArena;
+    const tex = dirtTexture();
+    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 });
+    for (const pts of Object.values(this.roadLines())) {
+      const pos = [];
+      const uv = [];
+      const idx = [];
+      let dist = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[Math.max(0, i - 1)];
+        const b = pts[Math.min(pts.length - 1, i + 1)];
+        const tx = b.x - a.x;
+        const tz = b.z - a.z;
+        const l = Math.hypot(tx, tz) || 1;
+        const nx = -tz / l;
+        const nz = tx / l;
+        if (i > 0) dist += pts[i].distanceTo(pts[i - 1]);
+        // Slightly wobbly edges so the road does not look ruled.
+        const w0 = A.roadWidth / 2 + rng.spread(0.35);
+        const w1 = A.roadWidth / 2 + rng.spread(0.35);
+        pos.push(pts[i].x + nx * w0, 0.012, pts[i].z + nz * w0, pts[i].x - nx * w1, 0.012, pts[i].z - nz * w1);
+        uv.push(0, dist / 6, 1, dist / 6);
+        if (i > 0) {
+          const k = i * 2;
+          idx.push(k - 2, k, k - 1, k - 1, k, k + 1);
+        }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      const road = new THREE.Mesh(g, mat);
+      road.receiveShadow = true;
+      this.group.add(road);
+    }
+  }
+
+  /** Round base at the bottom left: packed earth pad, sandbag ring open toward the road, a flag. */
+  buildBase(rng) {
+    const A = GameConfig.tankArena;
+    const B = A.base;
+    const pad = new THREE.Mesh(new THREE.CircleGeometry(B.r, 48), new THREE.MeshStandardMaterial({ map: dirtTexture(true), roughness: 0.95 }));
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.set(B.x, 0.02, B.z);
+    pad.receiveShadow = true;
+    this.group.add(pad);
+    // Sandbags: two staggered courses round the edge, open toward the road.
+    const toRoad = Math.atan2(A.roadIn[A.roadIn.length - 1][1] - B.z, A.roadIn[A.roadIn.length - 1][0] - B.x);
+    const bagGeo = new RoundedBoxGeometry(1.0, 0.42, 0.62, 2, 0.16);
+    const bagMat = new THREE.MeshStandardMaterial({ map: sackTexture(), roughness: 0.95 });
+    const placements = [];
+    const ring = B.r - 0.45;
+    const count = Math.round((2 * Math.PI * ring) / 1.02);
+    for (let layer = 0; layer < 2; layer++) {
+      for (let i = 0; i < count; i++) {
+        const a = ((i + layer * 0.5) / count) * Math.PI * 2;
+        const d = Math.abs(((a - toRoad + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+        if (d < 0.62) continue;
+        placements.push({ a, layer });
+      }
+    }
+    const bags = new THREE.InstancedMesh(bagGeo, bagMat, placements.length);
+    const dummy = new THREE.Object3D();
+    placements.forEach(({ a, layer }, i) => {
+      dummy.position.set(B.x + Math.cos(a) * ring, 0.22 + layer * 0.4, B.z + Math.sin(a) * ring);
+      dummy.rotation.set(0, -a + Math.PI / 2 + rng.spread(0.06), rng.spread(0.04));
+      dummy.scale.set(1, 1 - layer * 0.08, 1);
+      dummy.updateMatrix();
+      bags.setMatrixAt(i, dummy.matrix);
+    });
+    bags.castShadow = true;
+    bags.receiveShadow = true;
+    this.group.add(bags);
+    // Flag pole with a red star flag, a couple of ammo crates and fuel drums.
+    const fx = B.x - B.r * 0.55;
+    const fz = B.z + B.r * 0.55;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 7.5, 10), new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.7, roughness: 0.35 }));
+    pole.position.set(fx, 3.75, fz);
+    pole.castShadow = true;
+    this.group.add(pole);
+    const flagGeo = new THREE.PlaneGeometry(2.6, 1.6, 8, 1);
+    const fp = flagGeo.attributes.position;
+    for (let i = 0; i < fp.count; i++) fp.setZ(i, Math.sin((fp.getX(i) + 1.3) * 2.2) * 0.18 * ((fp.getX(i) + 1.3) / 2.6));
+    flagGeo.translate(1.3, 0, 0);
+    flagGeo.computeVertexNormals();
+    const flag = new THREE.Mesh(flagGeo, new THREE.MeshStandardMaterial({ map: flagTexture(), side: THREE.DoubleSide, roughness: 0.85 }));
+    flag.position.set(fx + 0.1, 6.6, fz);
+    flag.rotation.y = -0.4;
+    flag.castShadow = true;
+    this.group.add(flag);
+    const crateMat = new THREE.MeshStandardMaterial({ map: crateTexture(), roughness: 0.85 });
+    const crateGeo = new THREE.BoxGeometry(1.3, 0.9, 0.9);
+    for (const [dx, dz, dy, ry] of [[-6.2, -4.6, 0, 0.3], [-5.0, -5.4, 0, -0.2], [-5.6, -5.0, 0.9, 0.05], [5.4, -6.2, 0, 1.2]]) {
+      const c = new THREE.Mesh(crateGeo, crateMat);
+      c.position.set(B.x + dx, 0.47 + dy, B.z + dz);
+      c.rotation.y = ry;
+      c.castShadow = true;
+      c.receiveShadow = true;
+      this.group.add(c);
+    }
+    const drumMat = new THREE.MeshStandardMaterial({ color: 0x7a2a1e, roughness: 0.6, metalness: 0.3 });
+    const drumGeo = new THREE.CylinderGeometry(0.42, 0.42, 1.05, 16);
+    for (const [dx, dz] of [[-2.0, 7.2], [-1.1, 7.6], [-1.6, 6.5]]) {
+      const d = new THREE.Mesh(drumGeo, drumMat);
+      d.position.set(B.x + dx, 0.54, B.z + dz);
+      d.castShadow = true;
+      this.group.add(d);
+    }
+  }
+
+  /**
+   * Wooden fence gate across the right-hand gap: two leaves hinged on stout posts at the ends of
+   * the gap, swinging out (+x) when phase 1 is won. Each leaf is its own pivot group (exported to
+   * MonoGame as tank_gate_leaf + hinge list).
+   */
+  buildGate() {
+    const A = GameConfig.tankArena;
+    const G = A.gap;
+    const W = A.block * A.lanes;
+    // The gate is on the side away from the base.
+    this.gateSide = -Math.sign(A.base.x);
+    const x = this.gateSide * (W / 2 + 0.6);
+    const wood = new THREE.MeshStandardMaterial({ map: plankTexture(), roughness: 0.85 });
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x5a4330, roughness: 0.9 });
+    const span = (G.z1 - G.z0) / 2;
+    this.gateLeaves = [];
+    this.gateOpen = false;
+    this.gateT = 0;
+    for (const [hz, dir] of [[G.z0, 1], [G.z1, -1]]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.2, 0.5), postMat);
+      post.position.set(x, 1.4, hz - dir * 0.15);
+      post.receiveShadow = true;
+      post.castShadow = true;
+      this.group.add(post);
+      const pivot = new THREE.Group();
+      pivot.position.set(x, A.slope * hz, hz);
+      pivot.userData = { hinge: [x, A.slope * hz, hz], dir };
+      const leaf = new THREE.Group();
+      const L = span - 0.12;
+      // Frame: two posts, three rails, a diagonal brace; vertical planks between the rails.
+      const parts = [
+        [0.16, 2.3, 0.16, 0, 1.25, dir * 0.08],
+        [0.16, 2.3, 0.16, 0, 1.25, dir * (L - 0.08)],
+        [0.12, 0.2, L, 0, 0.35, dir * L / 2],
+        [0.12, 0.2, L, 0, 1.25, dir * L / 2],
+        [0.12, 0.2, L, 0, 2.15, dir * L / 2],
+      ];
+      for (const [sx, sy, sz, px, py, pz] of parts) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), wood);
+        m.position.set(px, py, pz);
+        m.castShadow = true;
+        leaf.add(m);
+      }
+      const brace = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, Math.hypot(L, 1.8)), wood);
+      brace.position.set(0.04, 1.25, dir * L / 2);
+      brace.rotation.x = dir * Math.atan2(1.8, L);
+      leaf.add(brace);
+      const n = Math.floor(L / 0.32);
+      for (let i = 0; i < n; i++) {
+        const plank = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.9 + (i % 2) * 0.12, 0.26), wood);
+        plank.position.set(-this.gateSide * 0.06, 1.27, dir * (0.25 + i * (L - 0.4) / Math.max(1, n - 1)));
+        plank.castShadow = true;
+        leaf.add(plank);
+      }
+      pivot.add(leaf);
+      pivot.userData.leaf = leaf;
+      this.group.add(pivot);
+      this.gateLeaves.push(pivot);
+    }
+  }
+
+  /** Gate swing (0 closed .. 1 open). */
+  setGateOpen(open) {
+    this.gateOpen = open;
+  }
+
+  /** Ground height anywhere: the sloped channel floor inside, the road / grass outside. */
+  floorAt(x, z) {
+    const A = GameConfig.tankArena;
+    const W = (A.block * A.lanes) / 2;
+    if (Math.abs(x) <= W + 1.3 && z >= 0 && z <= A.topZ) {
+      if (Math.abs(x) <= W) return this.floorHeight(z);
+      // The threshold slabs in the gaps.
+      if (z >= A.gap.z0 && z <= A.gap.z1) return A.slope * ((A.gap.z0 + A.gap.z1) / 2) + 0.07;
+    }
+    return 0.0;
+  }
+
+  isWater(x, z) {
+    const A = GameConfig.tankArena;
+    return Math.abs(x) <= (A.block * A.lanes) / 2 && z >= 0 && z <= A.topZ;
+  }
+
+  /**
+   * Can the tank stand here (a footprint point)? The channel inside, the two wall gaps (the right
+   * one only once the gate is open), the roads and the base.
+   */
+  walkable(x, z) {
+    const A = GameConfig.tankArena;
+    const W = (A.block * A.lanes) / 2;
+    const G = A.gap;
+    const inGap = z > G.z0 + 0.15 && z < G.z1 - 0.15;
+    if (Math.abs(x) <= W && z >= 0.3 && z <= A.topZ - A.block * 2.6) return true;
+    const open = this.gateT > 0.85;
+    const entry = Math.sign(A.base.x);
+    if (Math.abs(x) > W && Math.abs(x) < W + 1.6 && inGap) return Math.sign(x) === entry || open;
+    if (Math.abs(x) <= W + 1.3) return false;      // the walls
+    const B = A.base;
+    if (Math.hypot(x - B.x, z - B.z) < B.r - 0.8) return true;
+    const R = this.roadLines();
+    if (TankArena.distToLine(R.in, x, z) < A.roadWidth / 2) return true;
+    if (Math.sign(x) !== entry && TankArena.distToLine(R.out, x, z) < A.roadWidth / 2) return open;
+    return false;
+  }
+
+  /** A shell hitting a channel wall (inside the wall boxes, below the cap). */
+  wallAt(p) {
+    const A = GameConfig.tankArena;
+    const W = (A.block * A.lanes) / 2;
+    const ax = Math.abs(p.x);
+    if (ax < W || ax > W + 1.35 || p.z < 0 || p.z > A.topZ + 1.2) return false;
+    if (p.y > 2.75 + this.floorHeight(p.z)) return false;
+    return !(p.z > A.gap.z0 && p.z < A.gap.z1);
+  }
+
   /** Channel floor height at z (0 at the dam lip, rising toward the rail). */
   floorHeight(z) {
     const A = GameConfig.tankArena;
@@ -233,6 +525,11 @@ export class TankArena {
 
   update(dt) {
     for (const m of this.waterMaterials) m.map.offset.y += dt * m.userData.scrollV;
+    // Gate leaves swing out (eased) when it opens.
+    this.gateT = THREE.MathUtils.clamp(this.gateT + (this.gateOpen ? dt / 1.6 : -dt / 0.8), 0, 1);
+    const e = this.gateT * this.gateT * (3 - 2 * this.gateT);
+    // Both leaves swing outward (away from the channel).
+    for (const p of this.gateLeaves) p.rotation.y = this.gateSide * p.userData.dir * e * 1.75;
   }
 }
 
@@ -356,6 +653,114 @@ function gravelTexture() {
     g.beginPath();
     g.arc(rng.range(0, S), rng.range(0, S), rng.range(0.8, 2.4), 0, Math.PI * 2);
     g.fill();
+  }
+  return canvasToTexture(c, { srgb: true, repeat: true });
+}
+
+/** Packed dirt road with tyre ruts; `pad` = the base's round pad (no ruts, more gravel). */
+function dirtTexture(pad = false) {
+  const S = 256;
+  const c = createCanvas(S, S);
+  const g = c.getContext('2d');
+  const rng = new Random(pad ? 41 : 31);
+  g.fillStyle = pad ? '#8a7656' : '#86704f';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 2600; i++) {
+    const v = rng.range(-24, 24);
+    g.fillStyle = `rgba(${130 + v},${110 + v},${80 + v * 0.8},${rng.range(0.25, 0.7)})`;
+    const s = rng.range(1, pad ? 4 : 3);
+    g.fillRect(rng.range(0, S), rng.range(0, S), s, s);
+  }
+  if (!pad) {
+    // Ruts along the road (v runs along it), grass creeping in at both edges (u = 0 / 1).
+    for (const u of [0.3, 0.7]) {
+      const grad = g.createLinearGradient((u - 0.08) * S, 0, (u + 0.08) * S, 0);
+      grad.addColorStop(0, 'rgba(60,46,30,0)');
+      grad.addColorStop(0.5, 'rgba(60,46,30,0.4)');
+      grad.addColorStop(1, 'rgba(60,46,30,0)');
+      g.fillStyle = grad;
+      g.fillRect((u - 0.08) * S, 0, 0.16 * S, S);
+    }
+    // Darker, rougher shoulders.
+    for (const [x0, x1] of [[0, 0.07], [0.93, 1]]) {
+      g.fillStyle = 'rgba(92,72,46,0.45)';
+      g.fillRect(x0 * S, 0, (x1 - x0) * S, S);
+    }
+  }
+  return canvasToTexture(c, { srgb: true, repeat: true });
+}
+
+function sackTexture() {
+  const S = 64;
+  const c = createCanvas(S, S);
+  const g = c.getContext('2d');
+  const rng = new Random(17);
+  g.fillStyle = '#b9a47a';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 400; i++) {
+    const v = rng.range(-20, 20);
+    g.fillStyle = `rgba(${170 + v},${150 + v},${110 + v},0.6)`;
+    g.fillRect(rng.range(0, S), rng.range(0, S), 2, 1);
+  }
+  g.strokeStyle = 'rgba(90,72,48,0.6)';
+  for (let y = 4; y < S; y += 6) {
+    g.beginPath();
+    g.moveTo(0, y);
+    g.lineTo(S, y + 1);
+    g.stroke();
+  }
+  return canvasToTexture(c, { srgb: true, repeat: true });
+}
+
+function flagTexture() {
+  const W = 128;
+  const H = 80;
+  const c = createCanvas(W, H);
+  const g = c.getContext('2d');
+  g.fillStyle = '#b02a22';
+  g.fillRect(0, 0, W, H);
+  g.fillStyle = '#f2e6c8';
+  g.beginPath();
+  for (let k = 0; k < 10; k++) {
+    const r = k % 2 === 0 ? 24 : 10;
+    const a = -Math.PI / 2 + (k * Math.PI) / 5;
+    g.lineTo(W / 2 + Math.cos(a) * r, H / 2 + Math.sin(a) * r);
+  }
+  g.closePath();
+  g.fill();
+  return canvasToTexture(c, { srgb: true });
+}
+
+function crateTexture() {
+  const S = 64;
+  const c = createCanvas(S, S);
+  const g = c.getContext('2d');
+  g.fillStyle = '#5d6234';
+  g.fillRect(0, 0, S, S);
+  g.strokeStyle = '#3a3d20';
+  g.lineWidth = 4;
+  g.strokeRect(2, 2, S - 4, S - 4);
+  g.fillStyle = '#e8d78a';
+  g.fillRect(14, 26, 36, 10);
+  return canvasToTexture(c, { srgb: true });
+}
+
+function plankTexture() {
+  const S = 128;
+  const c = createCanvas(S, S);
+  const g = c.getContext('2d');
+  const rng = new Random(23);
+  g.fillStyle = '#8a6440';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 90; i++) {
+    const v = rng.range(-26, 26);
+    g.strokeStyle = `rgba(${110 + v},${78 + v},${48 + v},0.55)`;
+    g.lineWidth = rng.range(0.5, 2);
+    const x = rng.range(0, S);
+    g.beginPath();
+    g.moveTo(x, 0);
+    g.lineTo(x + rng.spread(6), S);
+    g.stroke();
   }
   return canvasToTexture(c, { srgb: true, repeat: true });
 }
