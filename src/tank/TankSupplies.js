@@ -24,8 +24,13 @@ export class TankSupplies {
    * @param {any} effects
    * @param {any} gltf supply.glb
    * @param {(x:number, z:number) => number} floorAt
+   * @param {{ scale?: number, magnetRadius?: number, pickupRadius?: number }} [o] sizes for
+   *   smaller boards (the NEON RAIN tray); defaults are the tank arena's
    */
-  constructor(scene, effects, gltf, floorAt) {
+  constructor(scene, effects, gltf, floorAt, { scale = SCALE, magnetRadius = MAGNET_RADIUS, pickupRadius = PICKUP_RADIUS } = {}) {
+    this.scale = scale;
+    this.magnetRadius = magnetRadius;
+    this.pickupRadius = pickupRadius;
     this.scene = scene;
     this.effects = effects;
     this.floorAt = floorAt;
@@ -71,7 +76,7 @@ export class TankSupplies {
   /** A crate of `type` thrown up out of a destroyed block at `at`. */
   spawn(type, at) {
     const obj = this.build(type);
-    obj.scale.setScalar(SCALE);
+    obj.scale.setScalar(this.scale);
     obj.position.copy(at);
     this.scene.add(obj);
     const item = {
@@ -91,8 +96,8 @@ export class TankSupplies {
       const dx = tankPos.x - p.x;
       const dz = tankPos.z - p.z;
       const dist = Math.hypot(dx, dz);
-      const floor = this.floorAt(p.x, p.z) + 0.33 * SCALE;
-      if (canPickup && it.age > 0.4 && dist < MAGNET_RADIUS) {
+      const floor = this.floorAt(p.x, p.z) + 0.33 * this.scale;
+      if (canPickup && it.age > 0.4 && dist < this.magnetRadius) {
         // Magnet: drawn toward the tank, hopping a little.
         it.pulled = true;
         it.landed = false;
@@ -128,7 +133,7 @@ export class TankSupplies {
       }
       const left = LIFETIME - it.age;
       it.obj.visible = it.pulled || left > 4 || Math.floor(left * 8) % 2 === 0;
-      if (canPickup && dist < PICKUP_RADIUS && Math.abs(it.obj.position.y - tankPos.y - 1) < 3) {
+      if (canPickup && dist < this.pickupRadius && Math.abs(it.obj.position.y - tankPos.y - 1) < 3) {
         this.effects.sparkBurst(it.obj.position, 26, 7, [3, 3, 3, 1]);
         this.effects.flash(it.obj.position, SUPPLY_COLORS[it.type] ?? 0xffffff, 30, 0.3, 6);
         it.obj.removeFromParent();

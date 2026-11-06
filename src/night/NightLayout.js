@@ -39,13 +39,12 @@ export const NIGHT_PROPS = Object.freeze([
 ]);
 
 /**
- * The colour wheel lies on the desk right of the tray, clear of the beam (its rim stays beyond
- * x = -10.38, the beam's outer face is at -10.25), its back edge raised toward the camera so its
- * face and the thick puck's side read as in the art: pose fitted with the Blender model from the
- * art camera (tools/blender/build_color_wheel.py --render). `radius` is the bezel's outer radius
- * in world units (the model is scaled to it).
+ * The colour wheel lies flat on the desk right of the tray, its face to the sky like the board's,
+ * clear of the beam (nearest rim x -10.94, the beam's outer face is at -10.25); the puck's flat
+ * bottom (model y -0.62) rests on the desk top. `radius` is the bezel's outer radius in world
+ * units (the model is scaled to it).
  */
-export const NIGHT_WHEEL = Object.freeze({ pos: [-11.97, 1.51, -1.65], tiltX: -0.45, rotY: 0.1, radius: 1.61 });
+export const NIGHT_WHEEL = Object.freeze({ pos: [-12.55, 0.4007, -1.65], tiltX: 0, rotY: 0, radius: 1.61 });
 
 /** Cubes lying on the desk round the tray (colour, x, z, size, rotation about y). */
 export const DESK_CUBES = Object.freeze([

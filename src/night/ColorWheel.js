@@ -66,7 +66,15 @@ export class ColorWheel {
           if (m.name === 'WaterDrop') return new THREE.MeshStandardMaterial({ name: 'WaterDrop', color: 0x000000, roughness: 0.02, metalness: 0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, envMapIntensity: 1.6 });
           const c = m.clone();
           // The bezel is polished steel: it reads by what it mirrors (the night room is dim).
-          if (/^Wheel(Steel|Chrome)/.test(c.name)) c.envMapIntensity = 2.6;
+          // Brake-disc steel: light machined grey that reads by its own colour, not only by
+          // what it mirrors (a full mirror goes black in the dark room).
+          if (/^Wheel(Steel|Disc)$/.test(c.name)) {
+            c.color.setHex(c.name === 'WheelSteel' ? 0xa7abb1 : 0x7d8188);
+            c.metalness = 0.55;
+            c.roughness = Math.max(c.roughness, 0.32);
+            c.envMapIntensity = 1.1;
+          }
+          if (c.name === 'WheelChrome') c.envMapIntensity = 1.3;
           const w = /^Wedge(Red|Yellow|Green|Blue|Black)$/.exec(m.name)?.[1]?.toLowerCase();
           if (w) {
             c.color.setHex(WEDGE_HEX[w]);
@@ -263,6 +271,6 @@ export class ColorWheel {
     }
     this.applySpin();
     this.light.color.setHex(this.color.hex);
-    this.light.intensity = 0.35 + this.kick * 4;
+    this.light.intensity = 0.12 + this.kick * 2;
   }
 }

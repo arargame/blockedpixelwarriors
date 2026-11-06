@@ -298,7 +298,8 @@ export const GameConfig = Object.freeze({
     minZ: -6,
     maxZ: 9,
     // Where the tank may drive (its hull stays inside) and the line the wall must not cross.
-    tankZone: Object.freeze({ minX: -9, maxX: 9, minZ: -5.9, maxZ: -1.2 }),
+    // The tank drives anywhere on the tray; the blocks are solid (NightLevel.canStand / collideTank).
+    tankZone: Object.freeze({ minX: -9, maxX: 9, minZ: -5.9, maxZ: 9 }),
     deadline: -0.9,
     tankScale: 0.42,
     // The wall: rows of `cols` blocks, `startRows` on the field at the start; it rolls toward the
@@ -326,6 +327,13 @@ export const GameConfig = Object.freeze({
     gemChance: 0.16,
     shellSpeed: 40,
     reload: 0.42,
+    // Supplies (as in the heli level): a broken block drops a T or D crate now and then.
+    //   T  TRIPLE FIRE  every shot goes out three ways (spread `tripleSpread` rad)
+    //   D  8-WAY BURST  plasma orbs fly out all round the tank every `burstInterval` s
+    // Each runs for GameConfig.supply.durationMin..durationMax s.
+    supplyChance: 0.045,
+    tripleSpread: 0.26,
+    burstInterval: 0.42,
     // Spike mines rolling out of the wall now and then (the key art's black balls).
     mine: Object.freeze({ first: 14, every: [11, 20], speed: 1.1, hp: 3, damage: 12, radius: 0.95 }),
   }),

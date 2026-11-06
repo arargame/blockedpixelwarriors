@@ -5,12 +5,11 @@ y 432-670; crops tools/night/ref/wheel.png): Blocked's colour system (AIRepos/Bl
 as a chunky toy dial.
 
 What the art shows, and what is built:
-  - a thick dark puck; under the bezel a ring of short steel segments (like the vented ring of a
-    brake disc), then the dark glossy body down to the desk;
-  - a wide GREY polished steel bezel ring: raised polished outer lip, a flat concentric-brushed
-    band with fine engraved marks (thin recessed ticks and small glyphs, texture: normal +
-    roughness), a thin raised inner lip, then a dark channel round the wedges. No rivets: the
-    white specks of the art are rain drops (WaterDrop, clear water) on the metal and wedges;
+  - everything outside the wedges is a car BRAKE DISC: light/mid grey machined steel with fine
+    concentric turning grooves (normal + roughness), a polished raised outer lip and thin inner
+    lip, a turned steel disc edge below (WheelDisc) and a darker turned channel round the wedges
+    (WheelChannel). NO dots, rivets, engraved marks or segmented rings - the only specks are real
+    rain drops (WaterDrop, clear water) on the metal and the wedges;
   - five glossy domed wedges with dark grooves: red at the top, then clockwise on screen yellow,
     green, blue, black;
   - a polished chrome ring round a black hub with two small white glyphs (left: a rounded box
@@ -20,11 +19,11 @@ What the art shows, and what is built:
 
 Output: assets/models/color_wheel.glb (+ .blend). three.js axes: the dial lies in the local x-z
 plane facing +y (the game tilts it toward the camera); local +z is the top of the dial on screen,
-screen right is -x. The puck's bottom face is at y = -1.1, the bezel's top at y = 0.285.
+screen right is -x. Lies FLAT: the flat bottom is the lowest point at y = -0.62; bezel top 0.287.
 Nodes:
   ColorWheel          root (origin = the dial's centre at the wedge base level)
-    WheelBody         puck, vent ring, bezel, channel floor, bezel drops
-                      (WheelBase, WheelSteel, WheelSteelDark, WaterDrop)
+    WheelBody         disc body, bezel, channel floor, bezel drops
+                      (WheelDisc, WheelSteel, WheelChannel, WaterDrop)
     WheelWedges       the five wedges + their drops (WedgeRed / WedgeYellow / WedgeGreen /
                       WedgeBlue / WedgeBlack, WaterDrop); userData.wedges = JSON [{color, angle}],
                       angle = atan2(x, z) of the wedge centre (radians). Centred on the origin:
@@ -97,44 +96,13 @@ def tex_bezel():
     idx = np.clip((r / TEXR * 5999).astype(int), 0, 5999)
     brush = rings[idx] * (0.8 + 0.2 * np.sin(th * 3 + 1.3))
     h = brush * 0.004
-    eng = np.zeros((S, S), np.float32)
-    band = (r > R_BAND[0] + 0.012) & (r < R_BAND[1] - 0.012)
-    # Engraved marks: 48 positions round the band; a fine radial tick at each and a small glyph
-    # between them (thin recessed lines, as the art's band).
-    n = 36
-    cell = 0.018
-    rm = (R_BAND[0] + R_BAND[1]) / 2
-    for k in range(n):
-        a = 2 * math.pi * k / n
-        # tick
-        da = np.angle(np.exp(1j * (th - a)))
-        tick = (np.abs(da * r) < 0.004) & (np.abs(r - rm) < 0.03)
-        # glyph between ticks
-        g = GLYPHS[k % len(GLYPHS)]
-        ag = a + math.pi / n
-        dag = np.angle(np.exp(1j * (th - ag))) * rm
-        dr = r - rm
-        sel = (np.abs(dag) < 2 * cell) & (np.abs(dr) < 2.2 * cell)
-        if not sel.any():
-            continue
-        cx = np.floor((dag[sel] / cell) + 1.5).astype(int)        # 0..2 across
-        cy = np.floor((-dr[sel] / cell) + 2.0).astype(int)        # 0..3 outward -> down
-        ok = (cx >= 0) & (cx < 3) & (cy >= 0) & (cy < 4)
-        vals = np.zeros(sel.sum(), np.float32)
-        for i in np.nonzero(ok)[0]:
-            vals[i] = 1.0 if g[cy[i]][cx[i]] == "X" else 0.0
-        e2 = eng[sel]
-        eng[sel] = np.maximum(e2, vals * 0.85)
-    from PIL import Image, ImageFilter
-    eng_i = Image.fromarray((eng * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.1))
-    eng = np.asarray(eng_i, np.float32) / 255
-    h = h - eng * 0.02
-    # Colour: grey steel, the band a touch darker than the polished lips, the engraving dark.
+    # Brake-disc turning: fine concentric machining grooves (period ~0.012) over the random rings.
+    # No engraved marks, no dots: only real water drops (geometry) sit on the metal.
+    h = h + 0.0011 * np.sin(2 * math.pi * r / 0.012) + 0.0005 * np.sin(2 * math.pi * r / 0.0047 + 1.7)
     lip = (r > R_BAND[1]) | (r < R_BAND[0])
-    grey = np.where(lip, 0.7, 0.27) + brush * 0.04
-    grey = grey * (1 - eng * 0.75)
-    col = np.stack([grey * 0.97, grey * 0.99, grey * 1.02], -1)
-    rough = np.where(lip, 0.06, 0.14) + np.abs(brush) * 0.04 + eng * 0.35
+    grey = np.where(lip, 0.78, 0.6) + brush * 0.05 + 0.02 * np.sin(2 * math.pi * r / 0.012)
+    col = np.stack([grey * 0.98, grey * 0.99, grey * 1.01], -1)
+    rough = np.where(lip, 0.07, 0.2) + np.abs(brush) * 0.05
     rm_img = np.stack([np.zeros_like(rough), rough, np.ones_like(rough)], -1)
     nrm = bkit.height_to_normal(h, strength=S / (2 * TEXR) * 1.0)
     return bkit.image("WheelSteel", col), bkit.data_image("WheelSteelRM", rm_img), bkit.data_image("WheelSteelN", nrm)
@@ -164,8 +132,8 @@ def tex_wedge_micro():
 def materials():
     col, rmi, nrm = tex_bezel()
     mat("WheelSteel", rough=0.12, metal=1.0, image=col, rough_metal=rmi, normal=nrm)
-    mat("WheelSteelDark", 0x3a3e45, rough=0.25, metal=1.0)
-    mat("WheelBase", 0x0e1013, rough=0.22, metal=0.7, coat=(0.6, 0.08))
+    mat("WheelDisc", 0x9ba1a9, rough=0.26, metal=1.0)        # machined disc edge / body
+    mat("WheelChannel", 0x40454c, rough=0.3, metal=1.0)     # turned channel floor round the wedges
     mat("WheelChrome", 0xd8dde3, rough=0.06, metal=1.0)
     mat("WheelHubFace", 0x0a0b0d, rough=0.12, metal=0.2, coat=(1.0, 0.05))
     mat("WheelGlyph", 0xf2f4f8, rough=0.3, emit=0.5)
@@ -284,16 +252,12 @@ def build():
     materials()
     # Puck: dark glossy body, the vented steel ring under the bezel.
     body = [
-        lathe("WheelPuck", [(0.0, -1.1), (1.30, -1.1), (1.34, -1.07), (1.345, -0.2), (1.335, -0.17), (1.0, -0.17)], "WheelBase", sides=96, caps=(True, False)),
-        lathe("WheelVentCore", [(1.33, -0.18), (1.35, -0.18), (1.35, 0.02), (1.33, 0.02)], "WheelSteelDark", sides=96, caps=(False, False)),
-        # Channel floor round the wedges and the floor under them / round the hub.
-        lathe("WheelFloor", [(0.0, 0.06), (R_CH + 0.01, 0.06), (R_CH + 0.01, 0.0)], "WheelBase", sides=96, caps=(True, False)),
+        # Machined steel disc body under the bezel (like a brake disc's edge), flat bottom at
+        # y = -0.62: the wheel lies FLAT on the desk.
+        lathe("WheelPuck", [(0.0, -0.62), (1.355, -0.62), (1.375, -0.6), (1.375, 0.0), (1.34, 0.02), (1.0, 0.02)], "WheelDisc", sides=128, caps=(True, False)),
+        # Channel floor round the wedges and round the hub: darker turned steel.
+        lathe("WheelFloor", [(0.0, 0.06), (R_CH + 0.01, 0.06), (R_CH + 0.01, 0.0)], "WheelChannel", sides=96, caps=(True, False)),
     ]
-    for i in range(48):
-        t = box(f"Vent{i}", (0, -0.08, 1.36), (0.15, 0.17, 0.05), "WheelSteelDark", bevel=0.01, segs=1)
-        bkit.apply_mods(t)
-        bkit.rotate_y(t, 2 * math.pi * (i + 0.5) / 48)
-        body.append(t)
     # Bezel: inner lip, flat band, raised polished outer lip, outer wall down to the vent ring.
     prof = [(R_CH, 0.06), (R_CH, 0.215), (R_CH + 0.012, 0.243), (R_CH + 0.03, 0.25), (R_BAND[0] - 0.012, 0.243),
             (R_BAND[0], 0.228), (R_BAND[1], 0.228), (R_BAND[1] + 0.012, 0.245), (R_BAND[1] + 0.035, 0.278),
@@ -347,8 +311,11 @@ def build():
 
 
 # Recommended placement (fit to the art, see designer_log.md): root pos / rotY / scale, dial tilt.
-PLACE = dict(pos=(-11.97, 1.51, -1.65), rot_y=-1.0, scale=1.165, tilt_x=-0.45)
-DIAL_SPIN = 1.0   # turn of WheelWedges + WheelHub about local y that puts red back at the top
+# Round 3: the wheel lies FLAT on the desk (tiltX 0). Lowest local y = -0.62 (flat bottom); with
+# bezel radius 1.61 (scale 1.61 / 1.385) it rests at y = -0.32 + 0.62 * scale.
+SCALE = 1.61 / 1.385
+PLACE = dict(pos=(-12.7, -0.32 + 0.62 * SCALE, -1.65), rot_y=0.0, scale=SCALE, tilt_x=0.0)
+DIAL_SPIN = 0.0
 
 
 def render(out_dir, root):
@@ -361,8 +328,8 @@ def render(out_dir, root):
     artcam.context(["DeskTop", "NightTray"])
     artcam.world()
     artcam.lights()
-    box_ = (1400, 400, 1672, 700)
-    p = artcam.render(os.path.join(out_dir, "wheel_art.png"), box=box_, samples=64)
+    box_ = (1380, 380, 1672, 700)
+    p = artcam.render(os.path.join(out_dir, "wheel_art.png"), box=box_, samples=32)
     ref = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "night", "ref", "design_wheel.png")
     artcam.side_by_side(box_, p, ref, height=600)
 

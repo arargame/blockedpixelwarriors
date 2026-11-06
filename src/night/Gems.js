@@ -40,6 +40,30 @@ function ringTexture() {
   return canvasToTexture(c, { srgb: false });
 }
 
+/** Soft radial halo behind a gem (the art's jewel radiates its colour). */
+function haloTexture() {
+  const S = 128;
+  const c = createCanvas(S, S);
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  grd.addColorStop(0, 'rgba(255,255,255,0.9)');
+  grd.addColorStop(0.18, 'rgba(255,255,255,0.55)');
+  grd.addColorStop(0.45, 'rgba(255,255,255,0.14)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, S, S);
+  // Four soft star rays.
+  g.globalCompositeOperation = 'lighter';
+  for (const [w, h] of [[S, 3], [3, S]]) {
+    const r = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+    r.addColorStop(0, 'rgba(255,255,255,0.7)');
+    r.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = r;
+    g.fillRect((S - w) / 2, (S - h) / 2, w, h);
+  }
+  return canvasToTexture(c, { srgb: false });
+}
+
 /**
  * Ammo gems (Blocked's ColorAmmoSupply): the Blender jewel (assets/models/gem.glb) in the colour
  * of the block it came out of. It pops out, settles hovering over the deck in front of the wall
@@ -52,8 +76,13 @@ export class Gems {
     this.items = [];
     this.onCollect = null;
     this.geometry = gltf?.scene.getObjectByName('Gem')?.geometry ?? new THREE.OctahedronGeometry(0.5, 0);
+    // The glowing core inside the crystal (Blender node GemCore, in the Gem's own space).
+    const core = gltf?.scene.getObjectByName('GemCore');
+    this.coreGeometry = core?.geometry ?? null;
+    this.coreMatrix = core ? core.matrix.clone() : null;
     this.materials = {};
     this.ringTex = ringTexture();
+    this.haloTex = haloTexture();
     this.ringGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   }
 
@@ -61,7 +90,10 @@ export class Gems {
     if (!this.materials[color]) {
       const c = new THREE.Color(Palette.blocks[color]);
       this.materials[color] = {
-        gem: new THREE.MeshStandardMaterial({ color: c.clone().multiplyScalar(0.9), emissive: c, emissiveIntensity: 0.9, roughness: 0.04, metalness: 0.45, flatShading: true, envMapIntensity: 3 }),
+        // Glassy facets over a glowing core (slightly see-through so the core shows).
+        gem: new THREE.MeshPhysicalMaterial({ color: c.clone().multiplyScalar(0.9), emissive: c, emissiveIntensity: 0.55, roughness: 0.03, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.02, flatShading: true, envMapIntensity: 3, transparent: true, opacity: 0.86 }),
+        core: new THREE.MeshBasicMaterial({ color: c.clone().lerp(new THREE.Color(1, 1, 1), 0.35).multiplyScalar(2.2), toneMapped: false }),
+        halo: new THREE.SpriteMaterial({ map: this.haloTex, color: c.clone().lerp(new THREE.Color(1, 1, 1), 0.15).multiplyScalar(1.6), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }),
         ring: new THREE.MeshBasicMaterial({ map: this.ringTex, color: new THREE.Color(0xff3aa8).lerp(c, 0.35).multiplyScalar(2.2), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }),
       };
     }
@@ -73,6 +105,12 @@ export class Gems {
     const mats = this.material(color);
     const m = new THREE.Mesh(this.geometry, mats.gem);
     m.scale.setScalar(1.08);
+    if (this.coreGeometry) {
+      const core = new THREE.Mesh(this.coreGeometry, mats.core);
+      core.applyMatrix4(this.coreMatrix);
+      core.renderOrder = -1;
+      m.add(core);
+    }
     m.position.copy(at);
     m.castShadow = true;
     const ring = new THREE.Mesh(this.ringGeo, mats.ring);
@@ -80,8 +118,12 @@ export class Gems {
     ring.position.set(hoverX, 0.62, hoverZ);
     ring.scale.setScalar(0.01);
     ring.renderOrder = 15;
-    this.scene.add(m, ring);
-    const g = { m, ring, color, age: 0, start: at.clone(), hover: new THREE.Vector3(hoverX, 1.0, hoverZ), hoverTime: hover, vel: new THREE.Vector3(), frozen };
+    // The glow round the jewel (a sprite that follows it).
+    const halo = new THREE.Sprite(mats.halo);
+    halo.scale.setScalar(2.6);
+    halo.renderOrder = 14;
+    this.scene.add(m, ring, halo);
+    const g = { m, ring, halo, color, age: 0, start: at.clone(), hover: new THREE.Vector3(hoverX, 1.0, hoverZ), hoverTime: hover, vel: new THREE.Vector3(), frozen };
     if (frozen) {
       g.age = 0.6;
       m.position.copy(g.hover);
@@ -120,17 +162,20 @@ export class Gems {
           this.effects.flash(p, Palette.blocks[g.color], 24, 0.25, 6);
           g.m.removeFromParent();
           g.ring.removeFromParent();
+          g.halo.removeFromParent();
           this.items.splice(i, 1);
           this.onCollect?.(g.color);
           continue;
         }
       }
+      g.halo.position.copy(p);
+      g.halo.material.opacity = 0.85 + Math.sin(g.age * 5) * 0.15;
       // Upright jewel (point up, point down, as in the key art), turning slowly about its axis.
       g.m.quaternion.copy(Q_TILT).multiply(qSpin.setFromAxisAngle(Y_AXIS, g.frozen ? 0 : g.age * 1.1));
       if (!g.frozen && Math.random() < dt * 12) {
         this.effects.fire.emit({
           x: p.x + rnd.spread(0.35), y: p.y + rnd.spread(0.35), z: p.z + rnd.spread(0.3), vy: 0.4,
-          life: rnd.range(0.25, 0.45), size0: 0.22, size1: 0.02, color0: [3, 2.6, 3, 1], color1: [1.5, 1, 1.8, 0],
+          life: rnd.range(0.3, 0.55), size0: 0.2, size1: 0.02, color0: [1.6, 2.4, 4, 1], color1: [0.6, 1.2, 3, 0],
         });
       }
     }
@@ -140,6 +185,7 @@ export class Gems {
     for (const g of this.items) {
       g.m.removeFromParent();
       g.ring.removeFromParent();
+      g.halo.removeFromParent();
     }
     this.items.length = 0;
   }

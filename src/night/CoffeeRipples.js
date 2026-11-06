@@ -11,7 +11,7 @@
  */
 export const COFFEE_TIME = { value: 0 };
 
-const DROPS = 6;
+const DROPS = 9;
 
 export function rippleCoffee(material, { radius = 1.28 } = {}) {
   if (material.userData.coffeeRipples) return material;
@@ -48,6 +48,7 @@ export function rippleCoffee(material, { radius = 1.28 } = {}) {
         varying vec2 vCoffee;
         varying vec3 vCoffeeTx;
         varying vec3 vCoffeeTz;
+        float coffeeCrest = 0.0;
         float coffeeHash(float n) { return fract(sin(n * 91.345) * 47453.21); }
         // Gradient of the ripple height field at p (sum of expanding, fading rings).
         vec2 coffeeRipples(vec2 p) {
@@ -78,9 +79,17 @@ export function rippleCoffee(material, { radius = 1.28 } = {}) {
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
         {
-          vec2 rg = coffeeRipples(vCoffee) * 0.45;
+          vec2 rg = coffeeRipples(vCoffee) * 1.1;
           normal = normalize(normal - vCoffeeTx * rg.x - vCoffeeTz * rg.y);
+          coffeeCrest = length(rg);
         }`,
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        // The ring crests catch the lamp: a warm glint along each wave so the rings read even
+        // where nothing bright is mirrored.
+        totalEmissiveRadiance += vec3(0.55, 0.38, 0.22) * smoothstep(0.25, 0.9, coffeeCrest);`,
       );
   };
   material.customProgramCacheKey = () => 'coffeeRipples';

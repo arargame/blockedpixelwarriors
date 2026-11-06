@@ -61,9 +61,13 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
   duvardan arada dikenli mayınlar yuvarlanır. Her atış iki pembe plazma küresi de savurur. Otomatik
   nişan önce seçili renkteki bloğu alır. **W/S A/D** sür, **← → / Q E** namlu, **↑ ↓ / fare tekerleği /
   1-5** renk, çarka tıkla = sonraki renk, çarkı fareyle / parmakla **çevir** (bırakınca tepedeki
-  dilim seçilir; seçilen renk her zaman tepeye döner), **SPACE** ateş. Islak zeminde düzlemsel yansıma
+  dilim seçilir; seçilen renk her zaman tepeye döner), **SPACE** ateş. Tank tepsinin her yerinde
+  gezer, bloklar katıdır (içinden geçmez, ilerleyen duvar onu iter). Normalde **tek atış**; kırılan
+  bloklardan arada bir supply sandığı düşer: **T** üçlü atış, **D** 8 yöne plazma (1. bölümdeki
+  gibi), 8-15 sn sürer, HUD'da süre çubuğu. Çark masada tepsiyle aynı düzlemde düz yatar. Islak zeminde düzlemsel yansıma
   (`WetReflection`), GPU yağmur ve su halkaları, kahvenin üstünde yağmur halkaları (`CoffeeRipples`,
-  tek shader), şimşek. Pencerenin ardındaki karşı apartman Blender'da sanattaki kameradan alan
+  tek shader), şimşek. Pencerenin ardındaki karşı apartmanın önünde de yağmur yağar (cam shader'ında
+  üç katman akan çizgi). Karşı apartman Blender'da sanattaki kameradan alan
   derinliğiyle render edilir ve cama sanat kamerasından yansıtılır (`setBackdrop`). Sanatla kıyas:
   `node tools/night/compare.mjs` (yan yana, %50 karışım, sanatın kenarları, bölge bölge renk farkı
   tablosu; `PORT=5214` ile ikinci kopya); sanattan kesilmiş referans parçalar `tools/night/ref/`.

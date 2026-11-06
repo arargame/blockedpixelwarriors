@@ -4,6 +4,8 @@ import { GameConfig } from '../config/GameConfig.js';
 import { Palette } from '../config/Palette.js';
 import { EffectsManager } from '../fx/EffectsManager.js';
 import { PlayerTank } from '../tank/PlayerTank.js';
+import { TankSupplies, SUPPLY_COLORS } from '../tank/TankSupplies.js';
+import { PowerUpSystem, POWERUPS } from '../entities/PowerUps.js';
 import { reticleTexture } from '../ui/Reticle.js';
 import { Random, fxRandom as rnd } from '../util/Random.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
@@ -20,6 +22,8 @@ const v1 = new THREE.Vector3();
 const v2 = new THREE.Vector3();
 const v3 = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+/** The hull's footprint on the tray as a circle (world units, tank scale 0.42). */
+const TANK_RADIUS = 0.85;
 const css = (hex) => `#${hex.toString(16).padStart(6, '0')}`;
 const FEED = Object.freeze({ tank: '#7be86a', enemy: '#ff6b6b', grey: '#c9ced6', gold: '#ffd34a' });
 const SCORE = Object.freeze({ block: 10, chain: 5, mine: 50 });
@@ -197,7 +201,7 @@ function orbTrailTexture() {
  * scene, fixed key-art camera, lights and post look (pushed onto the pipeline).
  */
 export class NightLevel {
-  constructor({ tankGltf, deskGltf, wheelGltf, gemGltf, backdrop, textures, materials, renderer, input, quality, hud, environment }) {
+  constructor({ tankGltf, deskGltf, wheelGltf, gemGltf, supplyGltf, backdrop, textures, materials, renderer, input, quality, hud, environment }) {
     const N = GameConfig.night;
     this.input = input;
     this.ui = hud ?? null;
@@ -239,6 +243,12 @@ export class NightLevel {
 
     this.gems = new Gems(this.scene, this.effects, gemGltf);
     this.gems.onCollect = (color) => this.onGem(color);
+    // T / D supply crates (the tank level's Blender crate, sized for the tray); they land on top
+    // of a block if they fall on one.
+    this.supplies = new TankSupplies(this.scene, this.effects, supplyGltf, (x, z) => (this.wall.blockAt(x, z) ? this.wall.size : 0), { scale: 0.75, magnetRadius: 4.2, pickupRadius: 1.5 });
+    this.supplies.onPickup = (type, item) => this.onSupply(type, item);
+    this.powerups = new PowerUpSystem();
+    this.burstTimer = 0;
 
     this.tank = new PlayerTank(tankGltf);
     this.tank.root.scale.setScalar(N.tankScale);
@@ -248,6 +258,8 @@ export class NightLevel {
     this.tank.bounds = { minX: Z.minX, maxX: Z.maxX, minZ: Z.minZ, maxZ: Z.maxZ };
     this.tank.heightAt = () => 0;
     this.tank.collide = () => this.collideTank();
+    // Blocks are solid: the hull can't drive into the wall (it slides along it).
+    this.tank.canStand = (x, z) => !this.blockOverlap(x, z, TANK_RADIUS);
     // The muzzle's glow on the hull (the key art's tank shines green in its own laser light).
     this.tankGlow = new THREE.PointLight(0xb8ffb0, 6, 7, 1.6);
     this.tankGlow.position.set(0, 4, 2);
@@ -466,6 +478,9 @@ export class NightLevel {
     this.wall.reset();
     this.wheel.reset(N.startAmmo);
     this.gems.clear();
+    this.supplies.clear();
+    this.powerups.clear();
+    this.burstTimer = 0;
     this.clearShots();
     this.clearMines();
     this.clearLoose();
@@ -524,6 +539,7 @@ export class NightLevel {
     this.clearMines();
     for (const [x, z] of P.mines) this.spawnMine(x, z, true);
     this.gems.clear();
+    this.supplies.clear();
     this.gems.spawn(P.gem.color, new THREE.Vector3(P.gem.x, 1, P.gem.z), P.gem.x, P.gem.z, { frozen: true });
     const t = this.tank;
     t.root.position.set(P.tank.x, 0, P.tank.z);
@@ -676,6 +692,17 @@ export class NightLevel {
       if (off < GameConfig.tank.autoFireAngle) autoShot = true;
     }
     if (playing && (fire || autoShot)) this.fire(autoShot && !fire ? lock : null);
+    // Supplies: crates to pick up, the timed weapons ticking down (shown in the HUD's skill feed).
+    this.supplies.update(dt, t.position, playing);
+    if (playing) {
+      this.powerups.update(dt);
+      this.burstTimer -= dt;
+      if (this.powerups.has('D') && this.burstTimer <= 0) {
+        this.burstTimer = GameConfig.night.burstInterval;
+        this.fireBurst();
+      }
+    }
+    this.ui?.setSkills(this.powerups.active);
 
     this.updateShots(dt);
     this.updateMines(dt);
@@ -759,9 +786,10 @@ export class NightLevel {
   }
 
   /**
-   * Fires. A coloured shell is a laser of that colour (instant, up to the first block); a plain
-   * one a white flak comet. Auto shots use the selected colour only on a block of that colour
-   * (plain otherwise, no colour wasted). Every shot throws two plasma orbs to the sides.
+   * Fires one shot: a coloured shell is a laser of that colour (instant, up to the first block),
+   * a plain one a white flak comet. Auto shots use the selected colour only on a block of that
+   * colour (plain otherwise, no colour wasted). With TRIPLE FIRE (T) the shot goes out three
+   * ways for the one shell.
    */
   fire(lock) {
     const N = GameConfig.night;
@@ -777,13 +805,24 @@ export class NightLevel {
     this.effects.flash(muzzle, col.block ? col.hex : 0xffe6c0, 50, 0.2, 10);
     this.shake = Math.max(this.shake, 0.15);
     const aimDir = lock ? this.targetPoint(lock, v1).sub(muzzle).normalize() : dir.clone();
-    if (col.block) this.laser(muzzle, aimDir, col);
-    else this.addComet(muzzle, aimDir.multiplyScalar(N.shellSpeed));
-    for (const side of [-1, 1]) {
-      const d = aimDir.clone().applyAxisAngle(UP, side * (0.35 + rnd.next() * 0.25));
-      d.y = 0;
-      this.addOrb(muzzle.clone(), d.normalize().multiplyScalar(22));
+    const angles = this.powerups.has('T') ? [0, -N.tripleSpread, N.tripleSpread] : [0];
+    for (const a of angles) {
+      const d = a ? aimDir.clone().applyAxisAngle(UP, a) : aimDir.clone();
+      if (col.block) this.laser(muzzle, d, col);
+      else this.addComet(muzzle, d.multiplyScalar(N.shellSpeed));
     }
+  }
+
+  /** 8-WAY BURST (D): plasma orbs out all round the tank, a little turned each volley. */
+  fireBurst() {
+    const t = this.tank;
+    const from = v2.copy(t.position).setY(1.1);
+    this.burstTurn = ((this.burstTurn ?? 0) + 0.2) % (Math.PI / 4);
+    for (let i = 0; i < 8; i++) {
+      const a = t.heading + this.burstTurn + (i / 8) * Math.PI * 2;
+      this.addOrb(from.clone(), new THREE.Vector3(Math.sin(a), 0, Math.cos(a)).multiplyScalar(20));
+    }
+    this.effects.flash(from, 0xff4ad0, 26, 0.18, 6);
   }
 
   /** Laser: straight to the first block (or mine, or the tray's far side), damage at once. */
@@ -1067,9 +1106,45 @@ export class NightLevel {
     this.mines.length = 0;
   }
 
-  /** Mines push the tank (solid). */
+  /**
+   * Calls `fn(push x, push z, depth)` for every standing block the tank's footprint circle
+   * (centre x, z, radius r) overlaps - the push that takes the circle out of that block - and
+   * returns how many there were.
+   */
+  blockOverlap(x, z, r, fn = null) {
+    const w = this.wall;
+    const h = w.size / 2;
+    let n = 0;
+    for (const row of w.rows) {
+      if (Math.abs(row.z - z) > h + r || row.rise < 0.5) continue;
+      for (const b of row.cells) {
+        if (!b) continue;
+        const bx = w.colX(b.col);
+        const qx = THREE.MathUtils.clamp(x, bx - h, bx + h);
+        const qz = THREE.MathUtils.clamp(z, row.z - h, row.z + h);
+        const dx = x - qx;
+        const dz = z - qz;
+        const d = Math.hypot(dx, dz);
+        if (d >= r) continue;
+        n++;
+        if (!fn) return n;
+        // Centre inside the block: out through the near face toward the tank's side (-z).
+        if (d < 1e-4) fn(0, -1, row.z - h - z + r);
+        else fn(dx / d, dz / d, r - d);
+      }
+    }
+    return n;
+  }
+
+  /** Mines and blocks push the tank (both solid; an advancing wall shoves it back). */
   collideTank() {
     const p = this.tank.root.position;
+    for (let k = 0; k < 3; k++) {
+      if (!this.blockOverlap(p.x, p.z, TANK_RADIUS, (nx, nz, depth) => {
+        p.x += nx * depth;
+        p.z += nz * depth;
+      })) break;
+    }
     for (const m of this.mines) {
       if (!m.alive) continue;
       const dx = p.x - m.root.position.x;
@@ -1101,7 +1176,20 @@ export class NightLevel {
       const hz = THREE.MathUtils.clamp((front ? front.z : at.z) - 2.2, N.deadline + 0.8, N.maxZ - 1);
       this.gems.spawn(b.color, at, THREE.MathUtils.clamp(at.x, N.minX + 1, N.maxX - 1), hz);
     }
+    if (this.state === 'playing' && rnd.next() < N.supplyChance) {
+      // A T or D crate out of the block, thrown toward the tank's side so it doesn't vanish in
+      // the wall.
+      const item = this.supplies.spawn(rnd.next() < 0.5 ? 'T' : 'D', v1.copy(at).setY(1.6));
+      item.vel.z -= 3.5;
+    }
     if (this.broken % 100 === 0) this.ui?.kill('TANK', FEED.tank, `${this.broken} BLOCKS`, FEED.grey, `/ ${N.goal}`, FEED.gold);
+  }
+
+  onSupply(type, item) {
+    this.powerups.activate(type);
+    const def = POWERUPS[type];
+    this.ui?.kill('TANK', FEED.tank, def?.name ?? type, css(SUPPLY_COLORS[type] ?? 0xffffff));
+    this.effects.sparkBurst(item.obj.position, 26, 6, [3, 3, 3, 1]);
   }
 
   onBreach(blocks) {

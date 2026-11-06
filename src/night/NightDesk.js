@@ -254,7 +254,7 @@ export class NightDesk {
     cam.updateMatrixWorld(true);
     const viewProj = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uMap: { value: texture }, uViewProj: { value: viewProj }, uGain: { value: 0.62 }, uDesat: { value: 0 } },
+      uniforms: { uMap: { value: texture }, uViewProj: { value: viewProj }, uGain: { value: 0.62 }, uDesat: { value: 0 }, uTime: { value: 0 } },
       vertexShader: /* glsl */ `
         uniform mat4 uViewProj;
         varying vec4 vArt;
@@ -268,7 +268,29 @@ export class NightDesk {
         uniform sampler2D uMap;
         uniform float uGain;
         uniform float uDesat;
+        uniform float uTime;
         varying vec4 vArt;
+        float rainHash(float n) { return fract(sin(n * 127.1) * 43758.5453); }
+        // Rain over the street: three layers of thin falling streaks (far ones finer, slower and
+        // dimmer), each lit by what is behind it - the plate itself stays still, the rain moves.
+        float streetRain(vec2 uv) {
+          float r = 0.0;
+          for (int k = 0; k < 3; k++) {
+            float fk = float(k);
+            float cols = 110.0 + fk * 70.0;
+            vec2 p = vec2(uv.x + uv.y * 0.035, uv.y);
+            float id = floor(p.x * cols);
+            float h = rainHash(id + fk * 31.7);
+            if (h < 0.35) continue;
+            float fx = abs(fract(p.x * cols) - 0.5);
+            float line = 1.0 - smoothstep(0.04, 0.16, fx);
+            float speed = (1.1 + h * 0.9) * (1.0 - fk * 0.22);
+            float seg = fract(p.y * (2.2 + h * 1.5) + uTime * speed + h * 9.0);
+            float drop = smoothstep(0.0, 0.03, seg) * (1.0 - smoothstep(0.03, 0.22, seg));
+            r += line * drop * (1.0 - fk * 0.28);
+          }
+          return r;
+        }
         void main() {
           vec2 uv = vArt.xy / vArt.w * 0.5 + 0.5;
           // Beyond the art frame (the mirrored view in the wet deck): clamp to the edge.
@@ -276,6 +298,7 @@ export class NightDesk {
           // Optional wash toward a cold grey-blue (the plate is calibrated to the art: off).
           float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
           c = mix(c, vec3(l) * vec3(0.85, 0.95, 1.15), uDesat);
+          c += vec3(0.62, 0.72, 0.9) * streetRain(uv) * (0.06 + l * 0.9);
           gl_FragColor = vec4(c * uGain, 1.0);
           #include <colorspace_fragment>
         }
@@ -359,14 +382,15 @@ export class NightDesk {
     this.bolt = new THREE.DirectionalLight(0xc8d8ff, 0);
     this.bolt.position.set(-10, 30, 30);
     // Soft light on the crates and the dial (window glow from the right).
-    this.side = new THREE.PointLight(0x9ab4ff, 22, 16, 1.6);
+    this.side = new THREE.PointLight(0x9ab4ff, 9, 14, 1.6);
     // Warm lamp spill on the desk round the mug and the lamp's foot.
     this.deskWarm = new THREE.PointLight(0xffa860, 20, 12, 1.5);
     this.deskWarm.position.set(11, 3, 4.5);
-    this.side.position.set(-12.5, 5, -1);
+    // Cold rim from the window over the right side of the desk (kept soft: no glare on the wheel).
+    this.side.position.set(-13.5, 7, 3);
     // Warm glow of the blast at the tray's right end on the crate fronts (the art's lit crates).
-    this.crateFill = new THREE.PointLight(0xffb27a, 26, 11, 1.4);
-    this.crateFill.position.set(-11.2, 3.6, 0.2);
+    this.crateFill = new THREE.PointLight(0xffb27a, 16, 9, 1.4);
+    this.crateFill.position.set(-12.2, 4.2, 4.2);
     this.group.add(this.crateFill);
     this.group.add(this.deskWarm, this.side, this.fill, this.hemi, this.key, this.key.target, this.bulbLight, this.cold, this.cold.target, this.pink, this.blue, this.bolt);
     this.rainLights.push(
@@ -401,6 +425,7 @@ export class NightDesk {
     this.flash = Math.max(0, this.flash - dt * 6);
     this.bolt.intensity = this.flash * 4;
     this.hemi.intensity = 0.6 + this.flash * 2;
+    if (this.backdrop) this.backdrop.uniforms.uTime.value = this.time;
     if (this.backdrop) this.backdrop.uniforms.uGain.value = 0.62 + this.flash * 1.0;
     else this.window.material.color.setScalar(2.4 + this.flash * 3);
     // Neon flicker on the pink spill.
