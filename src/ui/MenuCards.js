@@ -1,6 +1,6 @@
 import railArtUrl from '../../assets/textures/menu/rail.jpg?url';
 import tankArtUrl from '../../assets/textures/menu/tank.jpg?url';
-import lockedBUrl from '../../assets/textures/menu/locked_b.jpg?url';
+import nightArtUrl from '../../assets/textures/menu/night.jpg?url';
 import { CARD_W, CARD_H, SERIF, drawRichText } from './UpgradeCards.js';
 import { menuText } from './MenuText.js';
 
@@ -21,7 +21,7 @@ export const MENU_ROWS = Object.freeze([
     cards: [
       { id: 'rail', scenario: true, art: railArtUrl, focus: 0.55, jewel: 0xff4a3a, glow: 0xffb050, title: 'railTitle', kind: 'railKind', text: 'railText' },
       { id: 'tank', level: 'tank', art: tankArtUrl, focus: 0.5, jewel: 0x7be86a, glow: 0xffb050, title: 'tankTitle', kind: 'tankKind', text: 'tankText' },
-      { id: 'locked3', locked: true, art: lockedBUrl, emblem: 'lock', tint: '#ff4a2a', jewel: 0x7d8796, glow: 0xff9a7a, title: 'lockedTitle', kind: 'locked3Kind', text: 'lockedText' },
+      { id: 'night', level: 'night', art: nightArtUrl, focus: 0.42, jewel: 0xff2fa8, glow: 0x6fd8ff, title: 'nightTitle', kind: 'nightKind', text: 'nightText', cap: 'nightCap' },
     ],
   },
   {

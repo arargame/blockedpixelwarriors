@@ -20,7 +20,7 @@ gri olur; menü renkli kalır. Solda logo ve **OYNA · AYARLAR · OYUNDAN ÇIK**
 satırın kartları sağa-sola kayar (←/→, kaydırma, tekerlek). **ENTER** / dokunma kartı açar, **ESC** geri.
 
 - **OYNA:** senaryo kartları (yükseltme kartı modeli, fiyonksuz). **RAILBREAKER** (heli vs tren) oynanır;
-  yanında **IRON TRACKS** (tank seviyesi, faz 1: kanal) ve kilitli "yakında" kartı. Kartın altında bölüm ışıkları: **DEPO → TERAS → BOSS**, ulaşılan
+  yanında **IRON TRACKS** (tank seviyesi, faz 1: kanal) ve **NEON RAIN** (senaryo 03, şimdilik yalnızca web). Kartın altında bölüm ışıkları: **DEPO → TERAS → BOSS**, ulaşılan
   bölümler yanar (teras kontrol noktasına ulaşınca 2 ışık). Kart açılınca brifing + **YENİ OYUN** /
   **DEVAM ET · BÖLÜM 2**.
 - **AYARLAR:** Ses (genel / müzik / efekt; şimdilik yalnızca toplama sesi çalar: genel x efekt), Grafik (kalite
@@ -49,6 +49,20 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
   Hauler'ı yok et** gerekir (sıra fark etmez; Hauler önce düşerse yenisi gelir).
 - **Ses:** destek / elmas / CRT toplanınca Blocked Pixel Panzer'in toplama sesi (`PickupSfx`, aynı
   sentez: C5-E5-G5-C6 arpej) çalar.
+- **NEON RAIN (senaryo 03, yalnızca web — MonoGame sonra):** menüdeki key art'ın kendisi oyun sahnesi:
+  yağmurlu gece yarısı, cam kenarında ıslak masa, solda pirinç masa lambası (sıcak ana ışık, gölgeler),
+  kahve kupası, sağda çelik cephane sandıkları, renk çarkı, kalem ve tank eskizi, köşelerde odak dışı
+  saksı bitkileri, arkada yağmurlu camın ardında neon şehir. Kamera sanattaki tepsi köşelerinden
+  çözüldü (`src/night/NightLayout.js`). Tahta tepsinin içinde renkli bloklardan bir duvar tanka doğru
+  ilerler; çizgiye ulaşan sıra zırhı yer. **Renk çarkı** (Blocked'ın çarkı): siyah dilim sonsuz düz
+  mermi (beyaz alev kuyruklu), kırmızı / sarı / yeşil / mavi mermiler cephaneli; bloğun renginde lazer tek
+  atışta kırar, düz ya da yanlış renk üç atış ister. Kırılan blok aynı renkteki komşularını zincirleme
+  patlatır; bazı bloklardan o renkte mücevher çıkar (halkada asılı kalır, tanka uçar, +8 cephane);
+  duvardan arada dikenli mayınlar yuvarlanır. Her atış iki pembe plazma küresi de savurur. Otomatik
+  nişan önce seçili renkteki bloğu alır. **W/S A/D** sür, **← → / Q E** namlu, **↑ ↓ / fare tekerleği /
+  1-5** renk, çarka tıkla = sonraki renk, **SPACE** ateş. Islak zeminde düzlemsel yansıma
+  (`WetReflection`), GPU yağmur ve su halkaları, şimşek. Sanatla kıyas: `node tools/night/compare.mjs`
+  (yan yana, %50 karışım, sanatın kenarları, bölge bölge renk farkı tablosu).
 - **Tank seviyesi (IRON TRACKS) · Faz 1 — Kanal:** kamera kanala yukarıdan, arkadan bakar. En üstte
   kanalı enlemesine kesen rayda trenler sırayla sağdan / soldan geçer; her vagon geçtiği şeride
   bazen blok bırakır, bazen boşluk, bazen üst üste iki tane. Kanal beton, tabanında akan sığ su var

@@ -26,6 +26,7 @@ import { reticleTexture } from '../ui/Reticle.js';
 import { CrtDevices } from '../entities/CrtDevices.js';
 import { PickupSfx } from '../audio/PickupSfx.js';
 import { TankLevel } from '../tank/TankLevel.js';
+import { NightLevel } from '../night/NightLevel.js';
 
 const SCORE = Object.freeze({ block: 10, cargo: 25, turret: 100, crane: 150, gem: 500, mine: 50, supply: 50, delivery: 100, crt: 250 });
 /** Stage flow: depot (stage 1 board) -> transit (fly up the line) -> terrace (stage 2) -> done. */
@@ -228,6 +229,7 @@ export class Game {
       onPlay: (mode) => {
         this.hud.root.classList.remove('menu-mode');
         if (mode === 'tank') this.startTankLevel();
+        else if (mode === 'night') this.startNightLevel();
         else if (mode === 'continue') this.continueRun();
         else this.startRun();
       },
@@ -272,7 +274,7 @@ export class Game {
       resume: () => this.resume(),
       restart: () => {
         this.resume();
-        if (this.tankMode) this.tankLevel.start();
+        if (this.tankMode) this.level.start();
         else this.startRun();
       },
       mainMenu: () => {
@@ -299,18 +301,54 @@ export class Game {
       environment: this.scene.environment, rocketGltf: this.options.rocketGltf, fighterGltf: this.options.fighterGltf,
       supplyGltf: this.options.supplyGltf, cards: this.cards, hud: this.hud,
     });
+    this.enterLevel(this.tankLevel);
+  }
+
+  /** Scenario 03 NEON RAIN (menu card): the tank in the key art's desk tray, own scene + look. */
+  startNightLevel() {
+    if (!this.options.tankGltf) return this.showMenu();
+    this.nightLevel ??= new NightLevel({
+      tankGltf: this.options.tankGltf, deskGltf: this.options.nightDeskGltf, wheelGltf: this.options.colorWheelGltf, gemGltf: this.options.gemGltf,
+      textures: this.textures, materials: this.materials, renderer: this.pipeline.renderer, input: this.input, quality: this.pipeline.quality, hud: this.hud,
+      environment: this.scene.environment,
+    });
+    this.enterLevel(this.nightLevel);
+    this.nightLevel.pushLook(this.pipeline);
+  }
+
+  /**
+   * NEON RAIN key-art still (?night&poster, used by tools/night/compare.mjs): the night level
+   * staged at the key-art moment, a few frames simulated for the rain and the effects, HUD off.
+   */
+  renderNightPoster(frames = 8) {
+    this.menu.hide();
+    this.hud.root.classList.remove('menu-mode');
+    this.startNightLevel();
+    const L = this.nightLevel;
+    L.stagePoster();
+    for (let i = 0; i < frames; i++) {
+      L.step(1 / 60, { throttle: 0, turn: 0, turret: 0 }, false);
+      this.pipeline.render(1 / 60);
+    }
+    window.__posterReady = true;
+  }
+
+  /** A level with its own scene (tank / night): the heli game steps aside, the HUD stays. */
+  enterLevel(level) {
     this.tankMode = true;
+    this.level = level;
     this.state = GameState.PLAYING;
     this.cards.cancel();
     this.hud.root.classList.add('tank-mode');
-    this.pipeline.setView(this.tankLevel.scene, this.tankLevel.camera);
-    this.tankLevel.start();
+    this.pipeline.setView(level.scene, level.camera);
+    level.start();
   }
 
   stopTankLevel() {
     if (!this.tankMode) return;
     this.tankMode = false;
-    this.tankLevel.stop();
+    this.level.stop();
+    this.level = null;
     this.hud.root.classList.remove('tank-mode');
     // Hand the shared HUD back to the heli game.
     this.hud.setWaveLabel('WAVE');
@@ -1319,7 +1357,7 @@ export class Game {
     this.time = (this.time ?? 0) + dt;
     this.input.update();
     if (this.tankMode) {
-      this.tankLevel.update(dt);
+      this.level.update(dt);
       // Skill cards (every 200 broken blocks): the picker drives the grey wash while it is up.
       this.cards.update(dt);
       this.menu.update(dt);

@@ -816,3 +816,14 @@ body {
 .tank-hud .th-stick { position: absolute; display: none; transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.55); background: rgba(15, 22, 30, 0.3); }
 .tank-hud .th-stick.on { display: block; }
 .tank-hud .th-stick i { position: absolute; left: 50%; top: 50%; width: 46%; height: 46%; margin: -23% 0 0 -23%; border-radius: 50%; background: rgba(255, 255, 255, 0.75); }
+/* Night level: the colour wheel's chips (bottom right) - WHITE endless, then each colour's ammo. */
+.night-hud .nw-chips { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); display: flex; gap: 6px; pointer-events: auto; }
+.night-hud .nw-chip { position: relative; display: flex; align-items: center; gap: 6px; padding: 5px 10px 5px 7px; border-radius: 18px; border: 2px solid rgba(255, 255, 255, 0.18); background: rgba(10, 14, 24, 0.62); color: #fff; font: inherit; font-size: 15px; cursor: pointer; transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.2s; touch-action: none; }
+.night-hud .nw-chip i { width: 16px; height: 16px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px var(--c); }
+.night-hud .nw-chip small { position: absolute; top: -9px; right: 6px; font-size: 9px; opacity: 0.55; font-family: system-ui, sans-serif; }
+.night-hud .nw-chip.on { border-color: var(--c); box-shadow: 0 0 14px var(--c), inset 0 0 8px rgba(255, 255, 255, 0.12); transform: translateY(-3px) scale(1.08); }
+.night-hud .nw-chip.off { opacity: 0.32; }
+@media (pointer: coarse) {
+  .night-hud .nw-chips { bottom: 180px; }
+  .night-hud .nw-chip small { display: none; }
+}

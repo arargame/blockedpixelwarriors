@@ -16,8 +16,8 @@ export class Hud {
           <div class="tank-panel" data-tankpanel>
             <div class="train-head"><span data-tp-title>THE CHANNEL</span><span class="train-pct" data-tp-pct></span></div>
             <div class="tp-rows">
-              <div class="tp-row"><span class="tp-label">BROKEN</span><div class="tp-bar broken"><i data-tp-broken></i></div><span class="tp-num" data-tp-broken-num>0</span></div>
-              <div class="tp-row"><span class="tp-label">DRAIN</span><div class="tp-bar drain"><i data-tp-drain></i></div><span class="tp-num" data-tp-drain-num>0</span></div>
+              <div class="tp-row"><span class="tp-label" data-tp-l1>BROKEN</span><div class="tp-bar broken"><i data-tp-broken></i></div><span class="tp-num" data-tp-broken-num>0</span></div>
+              <div class="tp-row"><span class="tp-label" data-tp-l2>DRAIN</span><div class="tp-bar drain"><i data-tp-drain></i></div><span class="tp-num" data-tp-drain-num>0</span></div>
             </div>
           </div>
           <div class="train-panel" data-train>
@@ -232,10 +232,10 @@ export class Hud {
   /**
    * Tank level, top centre (where the heli game shows the train): blocks broken toward the goal
    * and the drain filling toward its limit, plus the blocks still to come.
-   * @param {{title:string, broken:number, goal:number, drain:number, drainLimit:number, incoming:number}} t
+   * @param {{title:string, broken:number, goal:number, drain:number, drainLimit:number, incoming:number, labels?:string[], incomingText?:string}} t
    */
   setTankPanel(t) {
-    const key = `${t.title}|${t.broken}|${t.drain}|${t.incoming}`;
+    const key = `${t.title}|${t.broken}|${t.drain}|${t.incoming}|${t.labels?.join()}`;
     if (key === this.tankPanelKey) return;
     this.tankPanelKey = key;
     this.tankPanelEls ??= {
@@ -243,10 +243,13 @@ export class Hud {
       broken: this.root.querySelector('[data-tp-broken]'), brokenNum: this.root.querySelector('[data-tp-broken-num]'),
       drain: this.root.querySelector('[data-tp-drain]'), drainNum: this.root.querySelector('[data-tp-drain-num]'),
       row: this.root.querySelector('[data-tankpanel]'),
+      l1: this.root.querySelector('[data-tp-l1]'), l2: this.root.querySelector('[data-tp-l2]'),
     };
     const e = this.tankPanelEls;
     e.title.textContent = t.title;
-    e.pct.textContent = `INCOMING ${t.incoming}`;
+    e.pct.textContent = t.incomingText ?? `INCOMING ${t.incoming}`;
+    e.l1.textContent = t.labels?.[0] ?? 'BROKEN';
+    e.l2.textContent = t.labels?.[1] ?? 'DRAIN';
     e.broken.style.transform = `scaleX(${Math.min(1, t.broken / t.goal)})`;
     e.brokenNum.textContent = `${t.broken}/${t.goal}`;
     const d = Math.min(1, t.drain / t.drainLimit);

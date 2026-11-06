@@ -286,6 +286,50 @@ export const GameConfig = Object.freeze({
   }),
 
   /** Upgrade cards (src/ui/UpgradeCards.js). */
+  // Scenario 03 NEON RAIN: the tank in a wooden toy tray on a wet desk by a rainy window at
+  // midnight (the key art, assets/textures/menu/night.jpg). A wall of coloured blocks rolls
+  // toward the tank and the colour wheel (Blocked's casino wheel) picks the shell colour. Field
+  // and tray: keep in step with tools/blender/build_night_desk.py.
+  night: Object.freeze({
+    cols: 12,
+    block: 1.5,
+    minX: -9,
+    maxX: 9,
+    minZ: -6,
+    maxZ: 9,
+    // Where the tank may drive (its hull stays inside) and the line the wall must not cross.
+    tankZone: Object.freeze({ minX: -9, maxX: 9, minZ: -5.9, maxZ: -1.2 }),
+    deadline: -0.9,
+    tankScale: 0.42,
+    // The wall: rows of `cols` blocks, `startRows` on the field at the start; it rolls toward the
+    // tank at `speed` m/s (+ `speedGrowth` per broken block, up to `speedMax`) and a new row rises
+    // at the top whenever there is room, `totalRows` in all.
+    startRows: 4,
+    totalRows: 42,
+    speed: 0.09,
+    speedGrowth: 0.0004,
+    speedMax: 0.26,
+    // Every block has `blockHp`; a shell of the block's colour deals `matchDamage` (one shot),
+    // a plain (black wedge) or wrong-colour shell `plainDamage`. A destroyed block takes its
+    // same-coloured neighbours (up / down / left / right) with it (`chainDelay` s apart).
+    blockHp: 3,
+    matchDamage: 3,
+    plainDamage: 1,
+    chainDelay: 0.06,
+    goal: 360,
+    // A row reaching the deadline breaks on the tank's line: `breachDamage` armour per block.
+    breachDamage: 4,
+    // Colour wheel ammo: plain shells are endless, colours start with `startAmmo`, a gem adds
+    // `gemAmmo`.
+    startAmmo: 10,
+    gemAmmo: 8,
+    gemChance: 0.16,
+    shellSpeed: 40,
+    reload: 0.42,
+    // Spike mines rolling out of the wall now and then (the key art's black balls).
+    mine: Object.freeze({ first: 14, every: [11, 20], speed: 1.1, hp: 3, damage: 12, radius: 0.95 }),
+  }),
+
   cards: Object.freeze({
     // Seconds after a train is destroyed before the cards come up.
     offerDelay: 1.6,

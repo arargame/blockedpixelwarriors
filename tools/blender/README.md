@@ -155,3 +155,30 @@ ayrı nesne (`SupplyLetterT/D/R/H/G`), oyun birini gösterir. Ön yüz -z'de (oy
 python tools/blender/build_supply.py                          # supply.glb + supply.blend
 python tools/blender/build_supply.py --render captures/supply # + her renk / harf için render
 ```
+
+# NEON RAIN (senaryo 03) kiti — key art'tan parça parça
+
+Hedef `assets/textures/menu/night.jpg` (yağmurlu gece yarısı, cam kenarında ıslak masa, pirinç masa
+lambası, tahta oyuncak tepsi). Her parça sanatla yan yana kıyaslanarak (`tools/night/compare.mjs`)
+ayarlanır. Ortak yardımcılar `bkit.py`'de (three.js koordinatlarında kutu / silindir / torna — açık
+kabuklar için `caps` — / UV'li torna / boru / 3B metin, doku, malzeme, glTF, oyun kamerasıyla Cycles
+önizleme).
+
+- `build_night_desk.py` → `night_desk.glb`: `NightTray` (vernikli kalın kirişler, köşe dikmeleri ve
+  parlak kubbe cıvatalar, kiriş üstü vidalar, alan x -9..9, z -6..9), `DeskTop` (koyu ceviz masa),
+  `DeskLamp` (pirinç taban + gövde + dirsek + kol, siyah emaye kubbe abajur, parlayan iç ve ampul;
+  `LampLight` ampul), `Mug` (beyaz emaye, gri ağız, kahve, piksel tank logosu), `Crate` (perçinli çelik
+  cephane sandığı, kabartma piksel tank), `Pencil`, `SketchPaper` (tank eskizi), `Plant` (saksıda
+  pothos), `SpikeMine` (voksel dikenli top).
+- `build_color_wheel.py` → `color_wheel.glb`: sanattaki oyuncak çark — kalın koyu gövde, iki sıra
+  perçinli parlak çelik çerçeve, tırtıllı kenar, beş kubbeli dilim (üstte kırmızı, saat yönünde sarı,
+  yeşil, mavi, siyah), çelik halkalı siyah göbek ve iki beyaz işaret. `userData.wedges` dilim açıları.
+- `build_gem.py` → `gem.glb`: sanattaki dik duran mücevher ikonu (düz tabla, taç, sivri alt; faset
+  noktalarının dışbükey zarfı, düz gölgeleme).
+
+```bash
+python tools/blender/build_night_desk.py --render captures/night   # + oyun kamerasından önizleme
+python tools/blender/build_color_wheel.py --render captures/night
+python tools/blender/build_gem.py --render captures/night
+node tools/night/compare.mjs captures/night g1                     # oyun karesi vs key art
+```

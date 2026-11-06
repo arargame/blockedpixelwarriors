@@ -564,7 +564,7 @@ export class MainMenu {
       const cap = def.locked ? `${this.t('locked')} · ${this.t('comingSoon')}` : this.t('stageOf', { n: Math.max(at, Math.min(2, p.best)) });
       html += `<div class="mf-cap${def.locked ? ' locked' : ''}">${cap}</div>`;
     } else if (def?.level) {
-      html += `<div class="mf-cap">${this.t('prototype')}</div>`;
+      html += `<div class="mf-cap">${this.t(def.cap ?? 'prototype')}</div>`;
     } else if (def?.panel === 'sound') {
       html += `<div class="mf-vals">${['master', 'music', 'sfx'].map((k) => `<span class="mf-val"><b>${this.t(k)}</b>${meter(s[k], 10, 'mini')}</span>`).join('')}</div>`;
     } else if (def?.panel === 'graphics') {
