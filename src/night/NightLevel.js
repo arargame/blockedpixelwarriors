@@ -5,7 +5,7 @@ import { Palette } from '../config/Palette.js';
 import { EffectsManager } from '../fx/EffectsManager.js';
 import { PlayerTank } from '../tank/PlayerTank.js';
 import { reticleTexture } from '../ui/Reticle.js';
-import { fxRandom as rnd } from '../util/Random.js';
+import { Random, fxRandom as rnd } from '../util/Random.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
 import { WetReflection } from './WetReflection.js';
 import { NightTextures } from './NightTextures.js';
@@ -26,53 +26,147 @@ const SCORE = Object.freeze({ block: 10, chain: 5, mine: 50 });
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const shellOf = (id) => SHELL_COLORS.find((c) => c.id === id);
 
-/** Spiky white streak (the key art's plain flak shells), pointing along +x. */
+/**
+ * The key art's plain flak shell: a white teardrop head ringed with small irregular spikes (a
+ * splash of light), soft grey shading inside, a short tapering tail behind it; the head points
+ * along +x (the sprite's centre sits on the head).
+ */
 function cometTexture() {
   const W = 256;
   const H = 128;
   const c = createCanvas(W, H);
   const g = c.getContext('2d');
-  g.translate(W * 0.78, H / 2);
-  const grd = g.createLinearGradient(-W * 0.78, 0, W * 0.2, 0);
-  grd.addColorStop(0, 'rgba(255,255,255,0)');
-  grd.addColorStop(0.7, 'rgba(255,255,255,0.75)');
-  grd.addColorStop(1, 'rgba(255,255,255,1)');
-  g.fillStyle = grd;
+  const r = new Random(311);
+  const hx = W * 0.72;
+  const hy = H / 2;
+  const R = H * 0.3;
+  // Outline: a circle at the head drawn out into a tail toward -x, with jagged little spikes.
+  const pts = [];
+  const n = 64;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const back = Math.max(0, -Math.cos(a));
+    // Teardrop: the back half stretches toward the tail, narrowing.
+    const len = R * (1 + back * back * 3.2);
+    const wid = R * (1 - back * 0.55);
+    const spike = 1 + (i % 2 ? 0.22 + r.next() * 0.18 : -0.05) * (1 - back * 0.5);
+    pts.push([hx + Math.cos(a) * len * (Math.cos(a) > 0 ? spike : 1), hy + Math.sin(a) * wid * spike]);
+  }
+  const body = g.createLinearGradient(hx - R * 4, 0, hx + R, 0);
+  body.addColorStop(0, 'rgba(255,255,255,0)');
+  body.addColorStop(0.45, 'rgba(225,230,240,0.75)');
+  body.addColorStop(0.8, 'rgba(255,255,255,1)');
+  body.addColorStop(1, 'rgba(255,255,255,1)');
+  g.fillStyle = body;
   g.beginPath();
-  g.moveTo(W * 0.2, 0);
-  // Jagged flame edges.
-  for (let i = 0; i <= 14; i++) {
-    const x = W * 0.2 - (i / 14) * W * 0.98;
-    const r = (1 - i / 14) * H * 0.34 + 3;
-    g.lineTo(x, -r * (i % 2 ? 1.25 : 0.7));
-  }
-  for (let i = 14; i >= 0; i--) {
-    const x = W * 0.2 - (i / 14) * W * 0.98;
-    const r = (1 - i / 14) * H * 0.34 + 3;
-    g.lineTo(x, r * (i % 2 ? 0.7 : 1.25));
-  }
+  pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
   g.closePath();
   g.fill();
-  const core = g.createRadialGradient(W * 0.12, 0, 0, W * 0.12, 0, H * 0.3);
-  core.addColorStop(0, 'rgba(255,255,255,1)');
+  // Soft grey inner shading and a hot white core.
+  const shade = g.createRadialGradient(hx - R * 0.3, hy + R * 0.25, 0, hx - R * 0.3, hy + R * 0.25, R * 1.4);
+  shade.addColorStop(0, 'rgba(120,128,150,0.35)');
+  shade.addColorStop(1, 'rgba(120,128,150,0)');
+  g.globalCompositeOperation = 'source-atop';
+  g.fillStyle = shade;
+  g.fillRect(0, 0, W, H);
+  g.globalCompositeOperation = 'lighter';
+  const core = g.createRadialGradient(hx + R * 0.2, hy - R * 0.1, 0, hx + R * 0.2, hy - R * 0.1, R * 0.8);
+  core.addColorStop(0, 'rgba(255,255,255,0.9)');
   core.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = core;
-  g.fillRect(-W, -H, W * 2, H * 2);
+  g.fillRect(0, 0, W, H);
+  // A thin dotted streak behind (the art's faint trace toward the tank).
+  g.fillStyle = 'rgba(220,235,255,0.55)';
+  for (let x = hx - R * 4; x > 4; x -= 9) g.fillRect(x, hy - 1, 4, 2);
   return canvasToTexture(c, { srgb: false });
 }
 
-/** Glowing orb: white-hot core, coloured halo. */
+/** Starburst: a hot white-yellow core with long and short spiky rays (orange toward the tips). */
+function burstTexture() {
+  const S = 256;
+  const c = createCanvas(S, S);
+  const g = c.getContext('2d');
+  const r = new Random(53);
+  const m = S / 2;
+  g.globalCompositeOperation = 'lighter';
+  const glow = g.createRadialGradient(m, m, 0, m, m, m);
+  glow.addColorStop(0, 'rgba(255,255,240,1)');
+  glow.addColorStop(0.12, 'rgba(255,240,170,1)');
+  glow.addColorStop(0.3, 'rgba(255,170,60,0.55)');
+  glow.addColorStop(1, 'rgba(255,90,20,0)');
+  g.fillStyle = glow;
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 26; i++) {
+    const a = (i / 26) * Math.PI * 2 + r.spread(0.08);
+    const len = m * (i % 2 ? 0.45 + r.next() * 0.2 : 0.75 + r.next() * 0.25);
+    const w = 0.05 + r.next() * 0.04;
+    const ray = g.createLinearGradient(m, m, m + Math.cos(a) * len, m + Math.sin(a) * len);
+    ray.addColorStop(0, 'rgba(255,255,230,1)');
+    ray.addColorStop(0.5, 'rgba(255,200,90,0.8)');
+    ray.addColorStop(1, 'rgba(255,110,30,0)');
+    g.fillStyle = ray;
+    g.beginPath();
+    g.moveTo(m + Math.cos(a - w) * 10, m + Math.sin(a - w) * 10);
+    g.lineTo(m + Math.cos(a) * len, m + Math.sin(a) * len);
+    g.lineTo(m + Math.cos(a + w) * 10, m + Math.sin(a + w) * 10);
+    g.closePath();
+    g.fill();
+  }
+  return canvasToTexture(c, { srgb: false });
+}
+
+/**
+ * The key art's plasma orb: a white-hot core in a magenta ring, a thin blue corona; the trail
+ * (orbTrailTexture) is drawn as its own sprite behind it.
+ */
 function orbTexture() {
   const S = 128;
   const c = createCanvas(S, S);
   const g = c.getContext('2d');
-  const grd = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
-  grd.addColorStop(0, 'rgba(255,255,255,1)');
-  grd.addColorStop(0.22, 'rgba(255,255,255,1)');
-  grd.addColorStop(0.32, 'rgba(255,255,255,0.75)');
-  grd.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = grd;
+  const m = S / 2;
+  const halo = g.createRadialGradient(m, m, 0, m, m, m);
+  halo.addColorStop(0, 'rgba(255,255,255,1)');
+  halo.addColorStop(0.12, 'rgba(255,245,255,1)');
+  halo.addColorStop(0.2, 'rgba(255,90,220,1)');
+  halo.addColorStop(0.34, 'rgba(235,30,180,0.9)');
+  halo.addColorStop(0.44, 'rgba(150,50,255,0.4)');
+  halo.addColorStop(0.62, 'rgba(60,110,255,0.16)');
+  halo.addColorStop(1, 'rgba(40,90,255,0)');
+  g.fillStyle = halo;
   g.fillRect(0, 0, S, S);
+  return canvasToTexture(c, { srgb: false });
+}
+
+/** Orb trail: cyan-blue jagged feather tapering away from the orb (orb at +x, tail toward -x). */
+function orbTrailTexture() {
+  const W = 256;
+  const H = 64;
+  const c = createCanvas(W, H);
+  const g = c.getContext('2d');
+  const r = new Random(97);
+  const hy = H / 2;
+  g.globalCompositeOperation = 'lighter';
+  for (let k = 0; k < 3; k++) {
+    const grd = g.createLinearGradient(0, 0, W, 0);
+    grd.addColorStop(0, 'rgba(40,120,255,0)');
+    grd.addColorStop(0.55, `rgba(60,170,255,${0.35 + k * 0.15})`);
+    grd.addColorStop(0.92, k === 2 ? 'rgba(220,250,255,1)' : 'rgba(90,210,255,0.9)');
+    grd.addColorStop(1, 'rgba(90,210,255,0)');
+    g.fillStyle = grd;
+    g.beginPath();
+    g.moveTo(W * 0.96, hy);
+    const w0 = H * (0.42 - k * 0.12);
+    for (let i = 0; i <= 18; i++) {
+      const t = i / 18;
+      g.lineTo(W * (0.96 - t * 0.94), hy - w0 * (1 - t) * (i % 2 ? 1 : 0.45 + r.next() * 0.3));
+    }
+    for (let i = 18; i >= 0; i--) {
+      const t = i / 18;
+      g.lineTo(W * (0.96 - t * 0.94), hy + w0 * (1 - t) * (i % 2 ? 0.45 + r.next() * 0.3 : 1));
+    }
+    g.closePath();
+    g.fill();
+  }
   return canvasToTexture(c, { srgb: false });
 }
 
@@ -103,7 +197,7 @@ function orbTexture() {
  * scene, fixed key-art camera, lights and post look (pushed onto the pipeline).
  */
 export class NightLevel {
-  constructor({ tankGltf, deskGltf, wheelGltf, gemGltf, textures, materials, renderer, input, quality, hud, environment }) {
+  constructor({ tankGltf, deskGltf, wheelGltf, gemGltf, backdrop, textures, materials, renderer, input, quality, hud, environment }) {
     const N = GameConfig.night;
     this.input = input;
     this.ui = hud ?? null;
@@ -127,6 +221,7 @@ export class NightLevel {
     this.reflection = new WetReflection(renderer, { enabled: !low, scale: 0.5 });
     this.nightTextures = new NightTextures();
     this.desk = new NightDesk(deskGltf, this.nightTextures, this.reflection, materials, { shadowMap: low ? 1024 : 2048 });
+    if (backdrop) this.desk.setBackdrop(backdrop);
     this.scene.add(this.desk.group);
 
     const debris = new THREE.MeshStandardMaterial({ color: 0x8a8070, roughness: 0.6 });
@@ -165,7 +260,7 @@ export class NightLevel {
     this.mineTemplate = deskGltf?.scene.getObjectByName('SpikeMine') ?? null;
     this.mines = [];
 
-    this.rain = new Rain(this.scene, { drops: low ? 3500 : 8000, ripples: low ? 320 : 700, box: new THREE.Vector3(44, 30, 30) });
+    this.rain = new Rain(this.scene, { drops: low ? 5000 : 10000, ripples: low ? 320 : 700, box: new THREE.Vector3(44, 30, 30) });
     this.rain.setLights(this.desk.rainLights);
     this.reflection.hidden = [...this.desk.floors, this.rain.streaks, this.rain.ripples];
 
@@ -174,6 +269,8 @@ export class NightLevel {
     this.beams = [];
     this.cometTex = cometTexture();
     this.orbTex = orbTexture();
+    this.orbTrailTex = orbTrailTexture();
+    this.burstTex = burstTexture();
     this.shots = [];
     this.loose = [];
 
@@ -190,6 +287,9 @@ export class NightLevel {
     this.raycaster = new THREE.Raycaster();
     this.buildHud();
     this.onPointerDown = (e) => this.pointerDown(e);
+    this.onPointerMove = (e) => this.pointerMove(e);
+    this.onPointerUp = (e) => this.pointerUp(e);
+    this.dragPlane = new THREE.Plane();
     this.onWheel = (e) => {
       if (!this.active || this.paused) return;
       this.wheel.next(e.deltaY > 0 ? 1 : -1);
@@ -289,21 +389,27 @@ export class NightLevel {
       grade: g && { exp: g.uExposure.value, sat: g.uSaturation.value, con: g.uContrast.value, vig: g.uVignette.value, sun: g.uSunStrength.value, tint: g.uTint.value.clone() },
       bloom: b && { s: b.strength, r: b.radius, t: b.threshold },
       lensK: pipeline.lensPass?.uniforms.uK.value,
+      fringe: pipeline.lensPass?.uniforms.uFringe.value,
     };
     // The key art is a plain perspective (no lens barrel).
-    if (pipeline.lensPass) pipeline.lensPass.uniforms.uK.value = 0;
+    // The key art is a plain perspective: no lens barrel, no colour fringes.
+    if (pipeline.lensPass) {
+      pipeline.lensPass.uniforms.uK.value = 0;
+      pipeline.lensPass.uniforms.uFringe.value = 0;
+    }
     if (g) {
-      g.uExposure.value = 1.0;
-      g.uSaturation.value = 1.45;
+      // Mid-tone exposure of the art (its frame mean is ~92, 87, 82).
+      g.uExposure.value = 1.3;
+      g.uSaturation.value = 1.35;
       g.uContrast.value = 1.12;
       g.uVignette.value = 0.95;
       g.uSunStrength.value = 0;
       g.uTint.value.setRGB(1.0, 0.98, 1.02);
     }
     if (b) {
-      b.strength = 0.55;
-      b.radius = 0.45;
-      b.threshold = 1.0;
+      b.strength = 0.36;
+      b.radius = 0.4;
+      b.threshold = 1.25;
     }
   }
 
@@ -321,6 +427,7 @@ export class NightLevel {
       g.uTint.value.copy(L.grade.tint);
     }
     if (p.lensPass && L.lensK !== undefined) p.lensPass.uniforms.uK.value = L.lensK;
+    if (p.lensPass && L.fringe !== undefined) p.lensPass.uniforms.uFringe.value = L.fringe;
     if (p.bloomPass && L.bloom) {
       p.bloomPass.strength = L.bloom.s;
       p.bloomPass.radius = L.bloom.r;
@@ -384,6 +491,9 @@ export class NightLevel {
   stop() {
     this.active = false;
     this.element.removeEventListener('pointerdown', this.onPointerDown);
+    window.removeEventListener('pointermove', this.onPointerMove);
+    window.removeEventListener('pointerup', this.onPointerUp);
+    this.wheelDrag = null;
     this.element.removeEventListener('wheel', this.onWheel);
     this.hud.style.display = 'none';
     this.popLook();
@@ -420,27 +530,23 @@ export class NightLevel {
     t.heading = P.tank.heading;
     t.turretYaw = 0;
     this.wheel.select('green');
-    // Frozen shots: the green laser up the middle, the orb fan, the flak comets.
+    // The dial as in the art: red at the top.
+    this.wheel.holdSpin(0);
+    // Frozen shots, measured off the art (art px projected onto the shot height y = 1.1): the
+    // green laser up the middle, the fan of eight orbs, the five flak comets (sizes as drawn).
     this.clearShots();
     t.update(0, { throttle: 0, turn: 0, turret: 0 }, null);
     t.root.updateMatrixWorld(true);
     const muzzle = t.muzzle.getWorldPosition(new THREE.Vector3());
-    this.addBeam(muzzle, new THREE.Vector3(P.tank.x - 0.1, 1.2, 4.4), shellOf('green').hex, 99);
-    for (let i = 0; i < 8; i++) {
-      const side = i % 2 ? 1 : -1;
-      const k = Math.floor(i / 2);
-      const a = side * (0.2 + k * 0.17);
-      const d = 3.5 + k * 1.6;
-      const p = new THREE.Vector3(P.tank.x + Math.sin(a) * d * 1.3, 1.1, P.tank.z + 2 + Math.cos(a) * d);
-      this.addOrb(p, new THREE.Vector3(Math.sin(a), 0, Math.cos(a)).multiplyScalar(20), true);
+    this.addBeam(muzzle, new THREE.Vector3(0.17, 1.2, 4.48), shellOf('green').hex, 99);
+    const from = new THREE.Vector3(P.tank.x, 1.1, P.tank.z);
+    const outward = (x, z, speed) => new THREE.Vector3(x, 1.1, z).sub(from).setY(0).normalize().multiplyScalar(speed);
+    for (const [x, z] of P.orbs) this.addOrb(new THREE.Vector3(x, 1.1, z), outward(x, z, 20), true);
+    for (const [x, z, size] of P.comets) this.addComet(new THREE.Vector3(x, 1.1, z), outward(x, z, 30), true, size);
+    for (const [x, y, z, size, color] of P.bursts) {
+      this.addBurst(new THREE.Vector3(x, y, z), size, true);
+      this.effects.shatter(new THREE.Vector3(x, y, z), Palette.blocks[color], 18, 1.2, [0.2, 0.5]);
     }
-    for (const [x, z, a] of [[3.1, -0.6, -0.55], [-3.6, -1.2, 0.6], [2.0, -2.4, -0.75], [-2.0, -2.6, 0.7], [-6.3, -4.5, 1.35]]) {
-      this.addComet(new THREE.Vector3(x, 1.1, z), new THREE.Vector3(Math.sin(a), 0, Math.cos(a)).multiplyScalar(30), true);
-    }
-    this.effects.explosion(new THREE.Vector3(6.2, 1.4, 3.6), 1.1, null, 0);
-    this.effects.explosion(new THREE.Vector3(-5.7, 1.6, 6.1), 1.3, null, 0);
-    this.effects.shatter(new THREE.Vector3(-5.7, 1.6, 6.1), Palette.blocks.red, 18, 1.2, [0.2, 0.5]);
-    this.effects.shatter(new THREE.Vector3(6.2, 1.4, 3.6), Palette.blocks.yellow, 14, 1.2, [0.2, 0.5]);
     this.hud.style.display = 'none';
     if (this.ui) this.ui.root.style.display = 'none';
   }
@@ -452,11 +558,54 @@ export class NightLevel {
       const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       this.raycaster.setFromCamera(ndc, this.camera);
       if (this.raycaster.intersectObject(this.wheel.root, true).length) {
-        this.wheel.next();
+        // On the dial: a tap steps the colour, a drag turns the dial by hand.
+        const a = this.dialAngle(e);
+        if (a !== null) {
+          this.wheelDrag = { id: e.pointerId, start: a, last: a, turned: 0, moved: false };
+          this.wheel.beginDrag();
+          window.addEventListener('pointermove', this.onPointerMove);
+          window.addEventListener('pointerup', this.onPointerUp);
+        } else this.wheel.next();
         return;
       }
     }
     if (e.pointerType === 'mouse' && e.button === 0) this.fireQueued = true;
+  }
+
+  /** Angle of the pointer round the dial's centre, in the dial's plane (null off the plane). */
+  dialAngle(e) {
+    const r = this.element.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hit = this.raycaster.ray.intersectPlane(this.wheel.plane(this.dragPlane), new THREE.Vector3());
+    return hit ? this.wheel.angleAt(hit) : null;
+  }
+
+  pointerMove(e) {
+    const d = this.wheelDrag;
+    if (!d || e.pointerId !== d.id) return;
+    const a = this.dialAngle(e);
+    if (a === null) return;
+    let step = a - d.last;
+    if (step > Math.PI) step -= Math.PI * 2;
+    if (step < -Math.PI) step += Math.PI * 2;
+    d.last = a;
+    d.turned += step;
+    if (Math.abs(d.turned) > 0.08) d.moved = true;
+    if (d.moved) this.wheel.dragTo(d.turned);
+  }
+
+  pointerUp(e) {
+    const d = this.wheelDrag;
+    if (!d || e.pointerId !== d.id) return;
+    this.wheelDrag = null;
+    window.removeEventListener('pointermove', this.onPointerMove);
+    window.removeEventListener('pointerup', this.onPointerUp);
+    if (d.moved) this.wheel.endDrag();
+    else {
+      this.wheel.dragging = false;
+      this.wheel.next();
+    }
   }
 
   edge(code) {
@@ -535,6 +684,7 @@ export class NightLevel {
     this.desk.update(dt);
     this.effects.update(dt);
     this.updateCamera(dt);
+    this.rain.setView(this.camera, this.renderer?.domElement.height ?? 941);
     this.rain.update(dt, v1.set(0, 0, 3), this.desk.flash);
     if (!this.poster) this.updateHud(dt);
     this.checkEnd();
@@ -669,10 +819,10 @@ export class NightLevel {
 
   addBeam(from, to, hex, life) {
     const c = new THREE.Color(hex);
-    const core = new THREE.Mesh(this.beamGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 1, 1).lerp(c, 0.25).multiplyScalar(6), toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const core = new THREE.Mesh(this.beamGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 1, 1).lerp(c, 0.6).multiplyScalar(5), toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
     const glow = new THREE.Mesh(this.beamGeo, new THREE.MeshBasicMaterial({ color: c.clone().multiplyScalar(2.5), toneMapped: false, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
     const len = from.distanceTo(to);
-    for (const [m, w] of [[core, 0.05], [glow, 0.22]]) {
+    for (const [m, w] of [[core, 0.035], [glow, 0.17]]) {
       m.position.copy(from);
       m.quaternion.setFromUnitVectors(UP, v1.copy(to).sub(from).normalize());
       m.scale.set(w, len, w);
@@ -683,25 +833,38 @@ export class NightLevel {
   }
 
   /** Plain flak shell: a white spiky comet. */
-  addComet(pos, vel, frozen = false) {
+  addComet(pos, vel, frozen = false, size = 1) {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.cometTex, color: new THREE.Color(1.3, 1.3, 1.35), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
-    s.scale.set(2.2, 1.0, 1);
-    s.center.set(0.78, 0.5);
+    s.scale.set(2.0 * size, 1.0 * size, 1);
+    s.center.set(0.72, 0.5);
     s.position.copy(pos);
     s.renderOrder = 17;
     this.scene.add(s);
     this.shots.push({ kind: 'comet', mesh: s, pos: pos.clone(), vel: vel.clone(), life: 1.4, frozen, damage: GameConfig.night.plainDamage, shell: null });
   }
 
-  /** Pink plasma orb (blue trail). */
-  addOrb(pos, vel, frozen = false) {
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.orbTex, color: new THREE.Color(2.2, 0.6, 1.8), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
-    s.scale.setScalar(0.7);
+  /** A block blowing apart: the art's white-yellow starburst (spiky rays round a hot core). */
+  addBurst(pos, size = 1, frozen = false) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.burstTex, color: new THREE.Color(2.2, 1.9, 1.5), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    s.scale.setScalar(2.6 * size);
+    s.material.rotation = rnd.next() * Math.PI;
     s.position.copy(pos);
-    s.renderOrder = 17;
+    s.renderOrder = 18;
     this.scene.add(s);
-    const trail = new THREE.Mesh(this.beamGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(0.12, 0.45, 1.9), toneMapped: false, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
-    trail.renderOrder = 16;
+    this.shots.push({ kind: 'burst', mesh: s, pos: pos.clone(), vel: new THREE.Vector3(), life: 0.35, max: 0.35, size, frozen, damage: 0, shell: null });
+  }
+
+  /** Pink plasma orb (blue feather trail). */
+  addOrb(pos, vel, frozen = false) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.orbTex, color: new THREE.Color(1.15, 1.0, 1.2), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    s.scale.setScalar(0.95);
+    s.position.copy(pos);
+    s.renderOrder = 18;
+    this.scene.add(s);
+    const trail = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.orbTrailTex, color: new THREE.Color(1.6, 1.6, 1.8), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    trail.scale.set(1.25, 0.32, 1);
+    trail.center.set(0.95, 0.5);
+    trail.renderOrder = 17;
     this.scene.add(trail);
     this.shots.push({ kind: 'orb', mesh: s, trail, pos: pos.clone(), vel: vel.clone(), life: 1.2, frozen, damage: GameConfig.night.plainDamage, shell: null });
   }
@@ -725,6 +888,18 @@ export class NightLevel {
     for (let i = this.shots.length - 1; i >= 0; i--) {
       const s = this.shots[i];
       let done = false;
+      if (s.kind === 'burst') {
+        if (!s.frozen) s.life -= dt;
+        const k = Math.max(0, s.life / s.max);
+        s.mesh.material.opacity = s.frozen ? 1 : k;
+        if (!s.frozen) s.mesh.scale.setScalar(2.6 * s.size * (1.25 - 0.45 * k));
+        if (s.life <= 0) {
+          s.mesh.removeFromParent();
+          s.mesh.material.dispose();
+          this.shots.splice(i, 1);
+        }
+        continue;
+      }
       if (!s.frozen) {
         s.life -= dt;
         const steps = Math.max(1, Math.ceil((s.vel.length() * dt) / 0.3));
@@ -756,16 +931,15 @@ export class NightLevel {
         continue;
       }
       s.mesh.position.copy(s.pos);
+      // Sprite rotation: the velocity's direction on screen (heads point the way they fly).
+      v1.copy(s.pos).project(this.camera);
+      v2.copy(s.pos).add(s.vel).project(this.camera);
+      const screenAngle = Math.atan2((v2.y - v1.y) / this.camera.aspect, v2.x - v1.x);
       if (s.kind === 'comet') {
-        // Sprite rotation: the velocity's direction on screen.
-        v1.copy(s.pos).project(this.camera);
-        v2.copy(s.pos).add(s.vel).project(this.camera);
-        s.mesh.material.rotation = Math.atan2((v2.y - v1.y) / this.camera.aspect, v2.x - v1.x) + Math.PI;
+        s.mesh.material.rotation = screenAngle;
       } else if (s.trail) {
-        const back = v1.copy(s.vel).normalize().multiplyScalar(-1.6);
-        s.trail.position.copy(s.pos).add(back);
-        s.trail.quaternion.setFromUnitVectors(UP, v2.copy(s.vel).normalize());
-        s.trail.scale.set(0.13, 1.6, 0.13);
+        s.trail.position.copy(s.pos);
+        s.trail.material.rotation = screenAngle;
         if (!s.frozen && rnd.next() < 0.6) {
           this.effects.fire.emit({ x: s.pos.x, y: s.pos.y, z: s.pos.z, life: rnd.range(0.15, 0.3), size0: 0.4, size1: 0.05, color0: [0.6, 1.4, 4, 1], color1: [0.2, 0.4, 1.5, 0] });
         }
@@ -802,10 +976,20 @@ export class NightLevel {
         o.receiveShadow = true;
       }
     });
+    if (!this.mineTuned) {
+      // Neutral gunmetal greys as in the art (the Blender lavender reads magenta under the neon).
+      this.mineTuned = true;
+      const greys = { MineBlock: 0x2b2c30, MineMid: 0x585a60, MineLight: 0x9a9ca2 };
+      this.mineTemplate.traverse((o) => {
+        for (const m of o.isMesh ? [o.material].flat() : []) if (greys[m.name]) m.color.setHex(greys[m.name]);
+      });
+    }
     root.position.set(x, 0, z);
     root.scale.setScalar(0.95);
     this.scene.add(root);
-    const m = { isMine: true, root, alive: true, hp: GameConfig.night.mine.hp, frozen, spin: 0, serial: 0 };
+    // The ball turns about its own centre (MineBall), not the bottom pivot of the root.
+    const ball = root.getObjectByName('MineBall') ?? root;
+    const m = { isMine: true, root, ball, alive: true, hp: GameConfig.night.mine.hp, frozen, spin: 0, serial: 0 };
     this.mines.push(m);
     return m;
   }
@@ -865,8 +1049,9 @@ export class NightLevel {
       const vz = (dz / Math.max(d, 1e-3)) * M.speed;
       m.root.position.x += vx * dt;
       m.root.position.z += vz * dt;
-      m.root.rotation.x += (vz / M.radius) * dt;
-      m.root.rotation.z -= (vx / M.radius) * dt;
+      // Rolling: the drawn ball's radius (Blender R 0.62 x 0.95).
+      m.ball.rotation.x += (vz / 0.59) * dt;
+      m.ball.rotation.z -= (vx / 0.59) * dt;
       if (d < M.radius + 1.3) {
         this.killMine(m, false);
         this.hp = Math.max(0, this.hp - M.damage);
@@ -905,6 +1090,8 @@ export class NightLevel {
     this.broken += 1;
     this.score += SCORE.block + (chain.size >= 3 ? SCORE.chain * chain.size : 0);
     this.shake = Math.max(this.shake, depth > 0 ? 0.1 : 0.16);
+    // The art's starburst over the breaking block (smaller down a chain).
+    if (this.shots.length < 60) this.addBurst(v1.copy(at).setY(at.y + 0.4), depth > 0 ? 0.6 : 0.85);
     if (chain.size > this.bestChain) this.bestChain = chain.size;
     for (const n of [5, 10, 15, 20]) {
       if (chain.size === n) this.ui?.kill('CHAIN', css(Palette.blocks[b.color]), `×${n}`, FEED.gold, `+${SCORE.chain * n}`, FEED.gold);

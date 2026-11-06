@@ -54,15 +54,16 @@ export class BlockWall {
     this.meshes = {};
     for (const key of BLOCK_COLOR_KEYS) {
       const m = new THREE.MeshPhysicalMaterial({
-        color: new THREE.Color(Palette.blocks[key]).multiplyScalar(1.05),
+        // Deep, saturated wet cubes (the art's), not washed pastel under the lamp and the sky.
+        color: new THREE.Color(Palette.blocks[key]).multiplyScalar(0.86),
         map,
         normalMap,
         normalScale: new THREE.Vector2(1.2, 1.2),
         roughness: 0.3,
         metalness: 0,
-        clearcoat: 1,
+        clearcoat: 0.75,
         clearcoatRoughness: 0.08,
-        envMapIntensity: 0.8,
+        envMapIntensity: 0.55,
         emissive: new THREE.Color(Palette.blocks[key]),
         emissiveIntensity: 0.06,
       });

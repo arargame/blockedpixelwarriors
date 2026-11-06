@@ -65,15 +65,53 @@ def image(name, rgb):
     return im
 
 
-def mat(name, hexv=0xffffff, rough=0.55, metal=0.0, emit=0.0, image=None, emit_hex=None, normal=None, alpha=None):
+def height_to_normal(h, strength=1.0):
+    """Height field (rows top->bottom = v 1->0, cols = u 0->1) -> tangent-space normal map
+    (OpenGL / glTF convention, +v = green)."""
+    h = np.asarray(h, np.float32)
+    du = (np.roll(h, -1, 1) - np.roll(h, 1, 1)) * 0.5 * strength
+    dv = -(np.roll(h, -1, 0) - np.roll(h, 1, 0)) * 0.5 * strength
+    n = np.stack([-du, -dv, np.ones_like(h)], -1)
+    n /= np.linalg.norm(n, axis=-1, keepdims=True)
+    return n * 0.5 + 0.5
+
+
+def data_image(name, rgb):
+    """Like image(), tagged Non-Color (normal / roughness-metal maps)."""
+    im = image(name, rgb)
+    im.colorspace_settings.name = "Non-Color"
+    return im
+
+
+def mat(name, hexv=0xffffff, rough=0.55, metal=0.0, emit=0.0, image=None, emit_hex=None, normal=None, alpha=None,
+        rough_metal=None, coat=None, transmission=None, ior=None, normal_strength=1.0, spec=None):
     """Principled material; `image` drives the base colour, `emit` > 0 makes it glow (emit_hex or
-    the base colour), `normal` is a normal-map image."""
+    the base colour), `normal` is a normal-map image, `rough_metal` a glTF metallicRoughness image
+    (G = roughness, B = metallic), coat = (weight, roughness) clearcoat, transmission = 0..1
+    (water / glass, with ior)."""
     if name in MATS:
         return MATS[name]
     m = bpy.data.materials.new(name)
     m.use_nodes = True
     nt = m.node_tree
     b = nt.nodes["Principled BSDF"]
+    if rough_metal is not None:
+        rt = nt.nodes.new("ShaderNodeTexImage")
+        rt.image = rough_metal
+        rough_metal.colorspace_settings.name = "Non-Color"
+        sep = nt.nodes.new("ShaderNodeSeparateColor")
+        nt.links.new(rt.outputs["Color"], sep.inputs["Color"])
+        nt.links.new(sep.outputs["Green"], b.inputs["Roughness"])
+        nt.links.new(sep.outputs["Blue"], b.inputs["Metallic"])
+    if coat is not None:
+        b.inputs["Coat Weight"].default_value = coat[0]
+        b.inputs["Coat Roughness"].default_value = coat[1]
+    if transmission is not None:
+        b.inputs["Transmission Weight"].default_value = transmission
+    if ior is not None:
+        b.inputs["IOR"].default_value = ior
+    if spec is not None:
+        b.inputs["Specular IOR Level"].default_value = spec
     if image is not None:
         tex = nt.nodes.new("ShaderNodeTexImage")
         tex.image = image
@@ -89,6 +127,7 @@ def mat(name, hexv=0xffffff, rough=0.55, metal=0.0, emit=0.0, image=None, emit_h
         nt_.image = normal
         normal.colorspace_settings.name = "Non-Color"
         nm = nt.nodes.new("ShaderNodeNormalMap")
+        nm.inputs["Strength"].default_value = normal_strength
         nt.links.new(nt_.outputs["Color"], nm.inputs["Color"])
         nt.links.new(nm.outputs["Normal"], b.inputs["Normal"])
     if emit:
@@ -380,14 +419,15 @@ def empty(name, p, parent=None):
     return e
 
 
-def export(roots, path):
+def export(roots, path, image_format="AUTO"):
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     bpy.ops.object.select_all(action="DESELECT")
     for r in roots:
         r.select_set(True)
         for c in r.children_recursive:
             c.select_set(True)
-    bpy.ops.export_scene.gltf(filepath=os.path.abspath(path), export_format="GLB", export_yup=True, use_selection=True, export_extras=True)
+    bpy.ops.export_scene.gltf(filepath=os.path.abspath(path), export_format="GLB", export_yup=True, use_selection=True, export_extras=True,
+                              export_image_format=image_format, export_jpeg_quality=90)
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(path[:-4] + ".blend"))
 
@@ -433,3 +473,51 @@ def preview(out_png, target=(0, 0, 0), cam=(6, 5, 8), lens=40, res=(900, 600), s
         c.data.angle_y = math.radians(vfov)
     sc.render.filepath = os.path.abspath(out_png)
     bpy.ops.render.render(write_still=True)
+
+
+def uv_planar(o, half=1.0, plane="xz", centre=(0, 0)):
+    """Planar UVs from three.js coordinates: plane 'xz' = top-down (u = x, v = z), 'xy' = front
+    (u = -x so the image reads left to right on screen, v = y); square of side 2*half about centre."""
+    me = o.data
+    layer = me.uv_layers.new(name="UVMap")
+    for poly in me.polygons:
+        for li in poly.loop_indices:
+            bx, by, bz = me.vertices[me.loops[li].vertex_index].co
+            x, y, z = bx, bz, -by          # Blender -> three.js
+            if plane == "xz":
+                u, v = (x - centre[0]) / half, (z - centre[1]) / half
+            else:
+                u, v = -(x - centre[0]) / half, (y - centre[1]) / half
+            layer.data[li].uv = ((u + 1) / 2, (v + 1) / 2)
+    return o
+
+
+def drops(name, items, material, sides=8, rings=3, flat=0.6):
+    """Water droplets: `items` = [(pos, normal, radius)] in three.js coordinates; each drop is a
+    flattened spherical cap sitting on the surface (one mesh)."""
+    verts, faces = [], []
+    for pos, nrm, r in items:
+        n = Vector(nrm).normalized()
+        ref = Vector((0, 1, 0)) if abs(n.y) < 0.9 else Vector((1, 0, 0))
+        t1 = n.cross(ref).normalized()
+        t2 = n.cross(t1).normalized()
+        p0 = Vector(pos)
+        base = len(verts)
+        for k in range(rings):
+            a = (math.pi / 2) * k / rings
+            rr, hh = r * math.cos(a), r * flat * math.sin(a)
+            for i in range(sides):
+                ang = 2 * math.pi * i / sides
+                verts.append(tuple(p0 + (t1 * math.cos(ang) + t2 * math.sin(ang)) * rr + n * hh))
+        top = len(verts)
+        verts.append(tuple(p0 + n * r * flat))
+        for k in range(rings - 1):
+            for i in range(sides):
+                j = (i + 1) % sides
+                a, b = base + k * sides, base + (k + 1) * sides
+                faces.append((a + i, a + j, b + j, b + i))
+        last = base + (rings - 1) * sides
+        for i in range(sides):
+            faces.append((last + i, last + (i + 1) % sides, top))
+    o = mesh(name, verts, faces, material, smooth=True)
+    return o

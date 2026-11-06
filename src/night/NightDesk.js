@@ -4,7 +4,8 @@ import { GameConfig } from '../config/GameConfig.js';
 import { LAYERS } from '../core/RenderPipeline.js';
 import { Random } from '../util/Random.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
-import { NIGHT_PROPS, DESK_CUBES, NIGHT_WINDOW, DESK_Y } from './NightLayout.js';
+import { COFFEE_TIME, rippleCoffee } from './CoffeeRipples.js';
+import { NIGHT_PROPS, DESK_CUBES, NIGHT_WINDOW, DESK_Y, NIGHT_CAMERA } from './NightLayout.js';
 
 const v1 = new THREE.Vector3();
 
@@ -65,18 +66,42 @@ export class NightDesk {
       for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
         if (!m || m.userData.tuned) continue;
         m.userData.tuned = true;
-        if (m.name === 'LampBulb') m.emissiveIntensity = 14;
-        if (m.name === 'ShadeInside') m.emissiveIntensity = 2.6;
+        if (m.name === 'LampBulb') m.emissiveIntensity = 7;
+        if (m.name === 'ShadeInside') m.emissiveIntensity = 0.8;
         if (/^(LampBulb|ShadeInside|ShadeEnamel)$/.test(m.name)) m.side = THREE.DoubleSide;
         if (m.name === 'TrayWood') {
-          m.roughness = 0.3;
+          // The Blender roughness map drives it (three.js multiplies the factor in).
+          m.roughness = m.roughnessMap ? 1 : 0.3;
           m.envMapIntensity = 0.7;
         }
         if (m.name === 'DeskWood') {
-          m.roughness = 0.28;
+          m.roughness = m.roughnessMap ? 1 : 0.28;
           this.deskMaterial = m;
         }
         if (m.name === 'MugEnamel') m.roughness = 0.14;
+        // The art's sketch paper is a warm grey in the shade, not white.
+        if (m.name === 'SketchPaper') m.color.setRGB(0.72, 0.62, 0.5);
+        if (/^Brass/.test(m.name)) m.envMapIntensity = 1.8;
+        // Rain drops on the props: only their glints show - a black gloss added on top (no
+        // white beads, no glTF transmission pass).
+        if (m.name === 'WaterDrop') {
+          if ('transmission' in m) m.transmission = 0;
+          m.color.set(0x000000);
+          m.map = null;
+          m.roughness = 0.02;
+          m.metalness = 0;
+          m.transparent = true;
+          m.opacity = 1;
+          m.blending = THREE.AdditiveBlending;
+          m.depthWrite = false;
+          m.envMapIntensity = 1.6;
+        }
+        // Rain rings on the coffee (radius of the Blender coffee disc).
+        if (m.name === 'Coffee') {
+          o.geometry.computeBoundingBox();
+          const b = o.geometry.boundingBox;
+          rippleCoffee(m, { radius: (b.max.x - b.min.x) / 2 || 1.28 });
+        }
       }
     });
     if (this.deskMaterial) this.reflection.wet(this.deskMaterial, { wetMap: this.textures.wet(), wetScale: 1 / 18, strength: 0.9, puddle: 0.9, darken: 0.35 });
@@ -96,7 +121,8 @@ export class NightDesk {
     m.normalMap = field.normalMap.clone();
     m.normalMap.repeat.copy(m.map.repeat);
     m.normalMap.needsUpdate = true;
-    this.reflection.wet(m, { wetMap: this.textures.wet(), wetScale: 1 / 9, strength: 1.3, puddle: 1, darken: 0.55 });
+    // The art's deck reads blue-cyan under its water film (mean ~74,115,149): a cold sheen.
+    this.reflection.wet(m, { wetMap: this.textures.wet(), wetScale: 1 / 9, strength: 1.3, puddle: 1, darken: 0.4, sheen: new THREE.Color(0.07, 0.15, 0.25) });
     const deck = new THREE.Mesh(new THREE.PlaneGeometry(fw, fd).rotateX(-Math.PI / 2), m);
     deck.position.set((N.minX + N.maxX) / 2, 0, (N.minZ + N.maxZ) / 2);
     deck.receiveShadow = true;
@@ -116,7 +142,8 @@ export class NightDesk {
     for (const p of NIGHT_PROPS) {
       const o = this.piece(p.name);
       o.position.set(...p.pos);
-      o.rotation.y = p.rotY ?? 0;
+      if (p.quat) o.quaternion.set(...p.quat);
+      else o.rotation.y = p.rotY ?? 0;
       o.scale.setScalar(p.scale ?? 1);
       if (p.layer === 'fore') {
         o.traverse((m) => {
@@ -213,11 +240,59 @@ export class NightDesk {
     this.window = plane;
   }
 
+  /**
+   * The street outside (tools/blender/build_night_backdrop.py: the apartment block across the
+   * street, rendered from the art camera with a macro lens's bokeh) on the window plane. The
+   * render is projected from the art camera, so from the game camera it lines up pixel for
+   * pixel; the wet reflections see the same street mirrored.
+   */
+  setBackdrop(texture) {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const cam = new THREE.PerspectiveCamera(NIGHT_CAMERA.fov, 1672 / 941, 0.1, 400);
+    cam.position.set(...NIGHT_CAMERA.position);
+    cam.quaternion.set(...NIGHT_CAMERA.quaternion);
+    cam.updateMatrixWorld(true);
+    const viewProj = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uMap: { value: texture }, uViewProj: { value: viewProj }, uGain: { value: 0.62 }, uDesat: { value: 0 } },
+      vertexShader: /* glsl */ `
+        uniform mat4 uViewProj;
+        varying vec4 vArt;
+        void main() {
+          vec4 w = modelMatrix * vec4(position, 1.0);
+          vArt = uViewProj * w;
+          gl_Position = projectionMatrix * viewMatrix * w;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D uMap;
+        uniform float uGain;
+        uniform float uDesat;
+        varying vec4 vArt;
+        void main() {
+          vec2 uv = vArt.xy / vArt.w * 0.5 + 0.5;
+          // Beyond the art frame (the mirrored view in the wet deck): clamp to the edge.
+          vec3 c = texture2D(uMap, clamp(uv, 0.002, 0.998)).rgb;
+          // Optional wash toward a cold grey-blue (the plate is calibrated to the art: off).
+          float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+          c = mix(c, vec3(l) * vec3(0.85, 0.95, 1.15), uDesat);
+          gl_FragColor = vec4(c * uGain, 1.0);
+          #include <colorspace_fragment>
+        }
+      `,
+      depthWrite: true,
+    });
+    this.window.material.dispose();
+    this.window.material = mat;
+    this.backdrop = mat;
+  }
+
   /** Water beading on the beam tops and the desk round the tray. */
   buildDroplets() {
     const N = GameConfig.night;
     const geo = new THREE.SphereGeometry(1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x6f8296, roughness: 0.02, metalness: 0.2, envMapIntensity: 2.5, transparent: true, opacity: 0.55 });
+    // Only the beads' glints show (black gloss added on top): no grey rings on the wood.
+    const mat = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.02, metalness: 0, envMapIntensity: 1.8, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
     const spots = [];
     const r = this.rng;
     const beam = 1.25;
@@ -259,7 +334,7 @@ export class NightDesk {
     const bulb = this.lamp?.getObjectByName('LampLight')?.getWorldPosition(new THREE.Vector3()) ?? new THREE.Vector3(9.4, 7.6, 4);
     // (LampAim is where the shade opening faces; the light itself falls on the tray's left half.)
     const aim = new THREE.Vector3(3.5, 0, 4.5);
-    this.key = new THREE.SpotLight(0xffbe72, 190, 60, 0.95, 0.7, 1.35);
+    this.key = new THREE.SpotLight(0xffbe72, 85, 60, 0.95, 0.7, 1.35);
     this.key.position.copy(bulb);
     this.key.target.position.copy(aim);
     this.key.castShadow = true;
@@ -268,38 +343,45 @@ export class NightDesk {
     this.key.shadow.normalBias = 0.03;
     this.key.shadow.camera.near = 1;
     this.key.shadow.camera.far = 50;
-    this.bulbLight = new THREE.PointLight(0xffb05a, 14, 14, 1.6);
+    this.bulbLight = new THREE.PointLight(0xffb05a, 18, 16, 1.5);
     this.bulbLight.position.copy(bulb);
     // Cold window light from the back right, and the neon's pink over the field.
     this.cold = new THREE.SpotLight(0x6cc0ff, 160, 80, 0.75, 0.9, 1.4);
     this.cold.position.set(-14, 16, 16);
     this.cold.target.position.set(-2, 0, 2);
-    this.pink = new THREE.PointLight(0xff3aa8, 22, 14, 1.6);
-    this.pink.position.set(2.5, 5, 0.5);
-    this.blue = new THREE.PointLight(0x2f8cff, 34, 22, 1.5);
-    this.blue.position.set(-4, 4.5, -2.5);
+    this.pink = new THREE.PointLight(0xff3aa8, 5, 18, 1.4);
+    this.pink.position.set(2.5, 7.5, 0.5);
+    this.blue = new THREE.PointLight(0x2f8cff, 12, 26, 1.3);
+    this.blue.position.set(-4, 7.5, -2.5);
     // Soft fill from the room behind the camera (the art's desk and front beam are not black).
-    this.fill = new THREE.DirectionalLight(0xffd2b0, 1.4);
+    this.fill = new THREE.DirectionalLight(0xffd2b0, 2.2);
     this.fill.position.set(6, 20, -30);
     this.bolt = new THREE.DirectionalLight(0xc8d8ff, 0);
     this.bolt.position.set(-10, 30, 30);
     // Soft light on the crates and the dial (window glow from the right).
     this.side = new THREE.PointLight(0x9ab4ff, 22, 16, 1.6);
     // Warm lamp spill on the desk round the mug and the lamp's foot.
-    this.deskWarm = new THREE.PointLight(0xffa860, 30, 14, 1.5);
+    this.deskWarm = new THREE.PointLight(0xffa860, 20, 12, 1.5);
     this.deskWarm.position.set(11, 3, 4.5);
     this.side.position.set(-12.5, 5, -1);
+    // Warm glow of the blast at the tray's right end on the crate fronts (the art's lit crates).
+    this.crateFill = new THREE.PointLight(0xffb27a, 26, 11, 1.4);
+    this.crateFill.position.set(-11.2, 3.6, 0.2);
+    this.group.add(this.crateFill);
     this.group.add(this.deskWarm, this.side, this.fill, this.hemi, this.key, this.key.target, this.bulbLight, this.cold, this.cold.target, this.pink, this.blue, this.bolt);
     this.rainLights.push(
       { position: bulb.clone().add(v1.set(-1.5, -3, -1)), reach: 9, color: new THREE.Color(0xffa24a).multiplyScalar(1.4) },
       { position: new THREE.Vector3(-8, 8, 10), reach: 14, color: new THREE.Color(0x58b8ff).multiplyScalar(0.8) },
       { position: new THREE.Vector3(2.5, 5, 0.5), reach: 8, color: new THREE.Color(0xff3aa8).multiplyScalar(0.6) },
       { position: new THREE.Vector3(-4, 4.5, -2.5), reach: 8, color: new THREE.Color(0x2f8cff).multiplyScalar(0.6) },
+      // The street's glow through the window: the rain catches it all across the top.
+      { position: new THREE.Vector3(0, 9, 11), reach: 18, color: new THREE.Color(0x9cc8ff).multiplyScalar(0.55) },
     );
   }
 
   update(dt) {
     this.time += dt;
+    COFFEE_TIME.value += dt;
     // Lightning: two or three quick flickers every 10 - 22 s.
     this.lightningTimer -= dt;
     if (this.lightningTimer <= 0) {
@@ -319,9 +401,10 @@ export class NightDesk {
     this.flash = Math.max(0, this.flash - dt * 6);
     this.bolt.intensity = this.flash * 4;
     this.hemi.intensity = 0.6 + this.flash * 2;
-    this.window.material.color.setScalar(2.4 + this.flash * 3);
+    if (this.backdrop) this.backdrop.uniforms.uGain.value = 0.62 + this.flash * 1.0;
+    else this.window.material.color.setScalar(2.4 + this.flash * 3);
     // Neon flicker on the pink spill.
-    this.pink.intensity = 26 * (0.9 + 0.1 * Math.sin(this.time * 7.3) * Math.sin(this.time * 2.1));
+    this.pink.intensity = 6 * (0.9 + 0.1 * Math.sin(this.time * 7.3) * Math.sin(this.time * 2.1));
   }
 }
 

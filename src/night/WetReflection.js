@@ -110,9 +110,10 @@ export class WetReflection {
    * Makes a MeshStandardMaterial wet: darker and glossier where `wetMap` (red channel, tiled every
    * `wetScale` world units) says puddle, with the mirror view added on top.
    * @param {THREE.MeshStandardMaterial} material
-   * @param {{ wetMap: THREE.Texture, wetScale?: number, strength?: number, puddle?: number }} o
+   * `sheen` (a colour) is the water film's own cold glow, added under the reflection.
+   * @param {{ wetMap: THREE.Texture, wetScale?: number, strength?: number, puddle?: number, darken?: number, sheen?: THREE.Color }} o
    */
-  wet(material, { wetMap, wetScale = 0.08, strength = 1, puddle = 1, darken = 1 }) {
+  wet(material, { wetMap, wetScale = 0.08, strength = 1, puddle = 1, darken = 1, sheen = null }) {
     const u = this.uniforms;
     material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, u, {
@@ -121,6 +122,7 @@ export class WetReflection {
         uReflectStrength: { value: strength },
         uPuddle: { value: puddle },
         uDarken: { value: darken },
+        uSheen: { value: sheen ?? new THREE.Color(0, 0, 0) },
       });
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vWetWorld;')
@@ -137,6 +139,7 @@ export class WetReflection {
           uniform float uReflectStrength;
           uniform float uPuddle;
           uniform float uDarken;
+          uniform vec3 uSheen;
           float wetMask() {
             float w = texture2D(tWet, vWetWorld.xz * uWetScale).r;
             return smoothstep(0.35, 0.75, w) * uPuddle;
@@ -159,6 +162,8 @@ export class WetReflection {
             float ndv = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
             float fres = 0.22 + 0.78 * pow(1.0 - ndv, 3.0);
             outgoingLight += refl * uReflectOn * uReflectStrength * mix(0.28, 1.0, wetK) * fres;
+            // The water film's cold sheen (the night sky over the glass, the key art's blue floor).
+            outgoingLight += uSheen * mix(0.6, 1.0, wetK) * (0.35 + 0.65 * fres);
           }
           #include <opaque_fragment>`);
     };

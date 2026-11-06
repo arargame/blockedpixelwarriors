@@ -4,30 +4,38 @@ import { fxRandom as rnd } from '../util/Random.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
 
 const v1 = new THREE.Vector3();
+const qSpin = new THREE.Quaternion();
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+// The jewel's up axis tipped back along the art camera's up vector (~53 deg): from the tray camera
+// it then reads side-on, point up and point down, as the key art draws it.
+const Q_TILT = new THREE.Quaternion(0.4437, 0, 0.0483, 0.8949).normalize();
 
 /** Glowing target ring under a hovering gem (the key art's pink halo), painted once. */
 function ringTexture() {
   const S = 256;
   const c = createCanvas(S, S);
   const g = c.getContext('2d');
-  const grd = g.createRadialGradient(S / 2, S / 2, S * 0.1, S / 2, S / 2, S / 2);
-  grd.addColorStop(0, 'rgba(255,255,255,0.35)');
-  grd.addColorStop(0.45, 'rgba(255,255,255,0.06)');
+  // Thin glowing ellipses with tick marks (no filled disc), as in the art.
+  const grd = g.createRadialGradient(S / 2, S / 2, S * 0.2, S / 2, S / 2, S / 2);
+  grd.addColorStop(0, 'rgba(255,255,255,0)');
+  grd.addColorStop(0.7, 'rgba(255,255,255,0.12)');
   grd.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = grd;
   g.fillRect(0, 0, S, S);
   g.strokeStyle = 'rgba(255,255,255,1)';
-  g.lineWidth = 6;
-  g.beginPath();
-  g.arc(S / 2, S / 2, S * 0.36, 0, Math.PI * 2);
-  g.stroke();
-  g.lineWidth = 2.5;
-  g.beginPath();
-  g.arc(S / 2, S / 2, S * 0.44, 0, Math.PI * 2);
-  g.stroke();
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    g.fillRect(S / 2 + Math.cos(a) * S * 0.44 - 4, S / 2 + Math.sin(a) * S * 0.44 - 4, 8, 8);
+  for (const [r, w] of [[0.3, 2.5], [0.38, 1.6], [0.45, 1.2]]) {
+    g.lineWidth = w;
+    g.beginPath();
+    g.arc(S / 2, S / 2, S * r, 0, Math.PI * 2);
+    g.stroke();
+  }
+  g.lineWidth = 2;
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    g.beginPath();
+    g.moveTo(S / 2 + Math.cos(a) * S * 0.39, S / 2 + Math.sin(a) * S * 0.39);
+    g.lineTo(S / 2 + Math.cos(a) * S * 0.43, S / 2 + Math.sin(a) * S * 0.43);
+    g.stroke();
   }
   return canvasToTexture(c, { srgb: false });
 }
@@ -64,11 +72,12 @@ export class Gems {
   spawn(color, at, hoverX, hoverZ, { hover = 2.2, frozen = false } = {}) {
     const mats = this.material(color);
     const m = new THREE.Mesh(this.geometry, mats.gem);
-    m.scale.setScalar(1.55);
+    m.scale.setScalar(1.08);
     m.position.copy(at);
     m.castShadow = true;
     const ring = new THREE.Mesh(this.ringGeo, mats.ring);
-    ring.position.set(hoverX, 0.03, hoverZ);
+    // The ring floats round the jewel's waist (the art's halo is centred on it).
+    ring.position.set(hoverX, 0.62, hoverZ);
     ring.scale.setScalar(0.01);
     ring.renderOrder = 15;
     this.scene.add(m, ring);
@@ -116,8 +125,8 @@ export class Gems {
           continue;
         }
       }
-      // Upright jewel leaning back toward the camera (the key art's icon view), swaying.
-      g.m.rotation.set(-0.7, Math.sin(g.age * 1.7) * 0.4, 0);
+      // Upright jewel (point up, point down, as in the key art), turning slowly about its axis.
+      g.m.quaternion.copy(Q_TILT).multiply(qSpin.setFromAxisAngle(Y_AXIS, g.frozen ? 0 : g.age * 1.1));
       if (!g.frozen && Math.random() < dt * 12) {
         this.effects.fire.emit({
           x: p.x + rnd.spread(0.35), y: p.y + rnd.spread(0.35), z: p.z + rnd.spread(0.3), vy: 0.4,

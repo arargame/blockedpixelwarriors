@@ -164,21 +164,35 @@ ayarlanır. Ortak yardımcılar `bkit.py`'de (three.js koordinatlarında kutu / 
 kabuklar için `caps` — / UV'li torna / boru / 3B metin, doku, malzeme, glTF, oyun kamerasıyla Cycles
 önizleme).
 
-- `build_night_desk.py` → `night_desk.glb`: `NightTray` (vernikli kalın kirişler, köşe dikmeleri ve
-  parlak kubbe cıvatalar, kiriş üstü vidalar, alan x -9..9, z -6..9), `DeskTop` (koyu ceviz masa),
-  `DeskLamp` (pirinç taban + gövde + dirsek + kol, siyah emaye kubbe abajur, parlayan iç ve ampul;
-  `LampLight` ampul), `Mug` (beyaz emaye, gri ağız, kahve, piksel tank logosu), `Crate` (perçinli çelik
-  cephane sandığı, kabartma piksel tank), `Pencil`, `SketchPaper` (tank eskizi), `Plant` (saksıda
-  pothos), `SpikeMine` (voksel dikenli top).
-- `build_color_wheel.py` → `color_wheel.glb`: sanattaki oyuncak çark — kalın koyu gövde, iki sıra
-  perçinli parlak çelik çerçeve, tırtıllı kenar, beş kubbeli dilim (üstte kırmızı, saat yönünde sarı,
-  yeşil, mavi, siyah), çelik halkalı siyah göbek ve iki beyaz işaret. `userData.wedges` dilim açıları.
-- `build_gem.py` → `gem.glb`: sanattaki dik duran mücevher ikonu (düz tabla, taç, sivri alt; faset
-  noktalarının dışbükey zarfı, düz gölgeleme).
+Her parça sanattaki kameradan (`artcam.py`: sanat kamerası, projeksiyon / ters projeksiyon, kırpma,
+yan yana kıyas) render edilip `tools/night/ref/design_*.png` olarak sanatın aynı bölgesiyle yan yana
+konur; yerleşimler de bu kameradan oturtulur (bazı parçalar sanatın daha alçak göz noktasını
+yakalamak için hafif yatırılır — sabit kamerada doğru görünür).
+
+- `build_night_desk.py` → `night_desk.glb`: `NightTray` (düz damarlı, yıpranmış ıslak ahşap kirişler,
+  köşe dikmeleri, tek parlamalı çelik kubbe cıvatalar, kirişlerde su damlaları), `DeskTop` (koyu
+  ıslak tahta masa), `DeskLamp` (parlak pirinç kubbe taban, üst üste bilezikli düz pirinç boru, siyah
+  ayna emaye kubbe abajur, içte görünen ampul; `LampLight` / `LampAim`), `Mug` (sanattan **piksel
+  piksel çıkarılmış** tank ikonu — `TANK_ICON` 27 × 24, kanıt `design_icon_trace.png`; kahve diski
+  `Coffee`), `CrateStack` (üst üste iki kömür grisi çelik sandık: kalın pahlı çerçeveler, üsttekinde
+  yuva, alttakinin önünde boyalı tank ikonu), `Pencil` (doğal sedir, kısa yontulmuş uç, siyah grafit),
+  `SketchPaper` (kâğıtta kurşun kalemle tank ikonu, kıvrık kenar), `PlantBox` (koyu ahşap saksıda
+  pothos) ve `Plant`, `SpikeMine` (gri piksel yamalı parlak küre, diken yok; `MineBall` merkez).
+- `build_color_wheel.py` → `color_wheel.glb`: sanattaki çark — kalın koyu gövde, fren diski gibi
+  geniş gri çelik çerçeve (parlak dış dudak, oyma işaretler; perçin / benek yok), seyrek şeffaf su
+  damlaları, beş kubbeli dilim (üstte kırmızı, saat yönünde amber, yeşil, mavi, siyah), krom halkalı
+  siyah göbek. `WheelWedges` + `WheelHub` döner (oyun seçili rengi tepeye çevirir, fareyle / parmakla
+  çevrilir); `userData.wedges` dilim açıları.
+- `build_gem.py` → `gem.glb`: dik duran fasetli kare çift piramit (sanattaki mücevher);
+  `preview_gem.py` önizleme.
+- `build_night_backdrop.py` → `assets/textures/night/backdrop.jpg`: karşı apartman (koyu cephe,
+  pencere sıraları, balkonlar, camgöbeği neon çizgi, pembe tabela, soğuk bokeh) sanat kamerasından,
+  güçlü alan derinliğiyle render edilir; oyun bunu cama sanat kamerasından yansıtır.
 
 ```bash
 python tools/blender/build_night_desk.py --render captures/night   # + oyun kamerasından önizleme
 python tools/blender/build_color_wheel.py --render captures/night
 python tools/blender/build_gem.py --render captures/night
+python tools/blender/build_night_backdrop.py                       # pencere arkası (Cycles)
 node tools/night/compare.mjs captures/night g1                     # oyun karesi vs key art
 ```

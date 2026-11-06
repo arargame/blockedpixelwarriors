@@ -77,7 +77,8 @@ export class NightTextures {
       const S = 256;
       const r = new Random(91);
       const seeds = [];
-      const n = 15;
+      // Finer, more irregular mosaic than a plain cell pattern (the art's faces carry ~25 chips).
+      const n = 26;
       for (let i = 0; i < n; i++) seeds.push([r.next() * S, r.next() * S, 0.82 + r.next() * 0.2]);
       // Tile the seeds (wrap) so the face edges match.
       const pts = [];
@@ -106,19 +107,34 @@ export class NightTextures {
         }
       }
       const noise = new ValueNoise2D(new Random(92), 32);
+      // Water beads on the face: small domes that catch the lamp and the window as glints.
+      const drops = new Float32Array(S * S);
+      for (let k = 0; k < 34; k++) {
+        const cx = r.next() * S;
+        const cy = r.next() * S;
+        const rad = 1.5 + r.next() ** 2 * 3.5;
+        for (let y = Math.floor(cy - rad); y <= cy + rad; y++) {
+          for (let x = Math.floor(cx - rad); x <= cx + rad; x++) {
+            const d = Math.hypot(x - cx, y - cy) / rad;
+            if (d < 1) drops[((y + S) % S) * S + ((x + S) % S)] = Math.max(drops[((y + S) % S) * S + ((x + S) % S)], Math.sqrt(1 - d * d));
+          }
+        }
+      }
       return this.build(S, (x, y, h, out) => {
         const i = y * S + x;
         const e = edge[i];
         const rim = Math.min(x, y, S - 1 - x, S - 1 - y);
         let v = val[i] * (0.9 + 0.1 * noise.sample(x / 6, y / 6));
-        if (e < 2.2) v *= 0.22 + 0.25 * (e / 2.2);
-        else if (e < 4) v *= 1.08;
+        // Thin, deep cracks with a bright chipped lip beside them.
+        if (e < 1.7) v *= 0.16 + 0.3 * (e / 1.7);
+        else if (e < 3.2) v *= 1.12;
+        v *= 1 + drops[i] * 0.35;
         if (rim < 5) v *= 0.45 + rim * 0.1;
         out[0] = out[1] = out[2] = v;
       }, (x, y) => {
         const i = y * S + x;
         const e = edge[i];
-        return Math.min(1, e / 6) * (0.85 + 0.15 * noise.sample(x / 9, y / 9)) - Math.max(0, 1 - cell[i] / 60) * 0.05;
+        return Math.min(1, e / 5) * (0.85 + 0.15 * noise.sample(x / 9, y / 9)) - Math.max(0, 1 - cell[i] / 45) * 0.05 + drops[i] * 0.35;
       }, 3.2);
     });
   }

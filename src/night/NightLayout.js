@@ -9,8 +9,8 @@
  *          solvePnP with the field 18 x 15 and the beams' top at y = 1.05): position,
  *          orientation (with the art's slight dutch roll) and vertical field of view
  * props    the desk pieces (night_desk.glb / color_wheel.glb / gem.glb node names): position of
- *          the piece's origin, rotation about y, uniform scale; measured by projecting the art's
- *          pixels back onto the desk
+ *          the piece's origin, rotation about y (or a quaternion), uniform scale; measured by
+ *          projecting the art's pixels back onto the desk
  * poster   the key-art moment: block layout (rows top to bottom, columns screen-left to right:
  *          R G T Y, . = empty), loose cubes, the mines, the gem, the tank
  */
@@ -23,19 +23,29 @@ export const NIGHT_CAMERA = Object.freeze({
 export const DESK_Y = -0.32;
 
 export const NIGHT_PROPS = Object.freeze([
-  { name: 'DeskLamp', pos: [15.0, DESK_Y, 8.4], rotY: 0, scale: 0.75 },
-  { name: 'Mug', pos: [12.5, DESK_Y, 2.4], rotY: 0.54, scale: 1 },
-  { name: 'Crate', pos: [-14.1, DESK_Y, 2.7], rotY: 0.22, scale: 1 },
-  { name: 'Crate', pos: [-16.2, DESK_Y, 7.4], rotY: -0.08, scale: 1.3 },
-  { name: 'SketchPaper', pos: [-12.4, DESK_Y + 0.01, -6.0], rotY: 0.3, scale: 1 },
-  { name: 'Pencil', pos: [-18.95, DESK_Y + 0.05, -1.37], rotY: 0.4, scale: 1 },
-  { name: 'Plant', pos: [-14.6, DESK_Y, 9.6], rotY: 0.6, scale: 1.0, layer: 'fore' },
+  { name: 'DeskLamp', pos: [15.015, DESK_Y, 8.563], rotY: 0, scale: 1 },
+  // The mug and the crates are fitted to the art from its camera (the art draws them from a
+  // lower eye point than the tray's, so they lean back to read as drawn): `quat` (x, y, z, w)
+  // replaces rotY.
+  { name: 'Mug', pos: [13.537, 0.674, 1.901], quat: [0.225, 0.2551, 0.1853, 0.9219], scale: 0.99 },
+  { name: 'CrateStack', pos: [-14.835, 0.087, 2.092], quat: [0.0633, -0.5021, -0.1079, 0.8557], scale: 1 },
+  // (The sketch on the paper is baked for exactly this transform.)
+  { name: 'SketchPaper', pos: [-12.13, DESK_Y, -7.78], rotY: -0.73, scale: 1 },
+  { name: 'Pencil', pos: [-18.83, -0.316, -0.41], rotY: 0.5, scale: 1 },
+  // Pothos in a wooden planter behind the crates (top right, out of focus).
+  { name: 'PlantBox', pos: [-13.55, DESK_Y, 8.04], rotY: 0.5, scale: 0.5, layer: 'fore' },
   // Foreground plant at the bottom left, out of focus (blurred layer).
   { name: 'Plant', pos: [12.8, DESK_Y, -5.8], rotY: 2.2, scale: 0.72, layer: 'fore' },
 ]);
 
-/** The colour wheel lies on the desk right of the tray, tilted up toward the camera. */
-export const NIGHT_WHEEL = Object.freeze({ pos: [-11.9, 0.9, -1.3], tiltX: -0.65, rotY: 0.1, scale: 1.46 });
+/**
+ * The colour wheel lies on the desk right of the tray, clear of the beam (its rim stays beyond
+ * x = -10.38, the beam's outer face is at -10.25), its back edge raised toward the camera so its
+ * face and the thick puck's side read as in the art: pose fitted with the Blender model from the
+ * art camera (tools/blender/build_color_wheel.py --render). `radius` is the bezel's outer radius
+ * in world units (the model is scaled to it).
+ */
+export const NIGHT_WHEEL = Object.freeze({ pos: [-11.97, 1.51, -1.65], tiltX: -0.45, rotY: 0.1, radius: 1.61 });
 
 /** Cubes lying on the desk round the tray (colour, x, z, size, rotation about y). */
 export const DESK_CUBES = Object.freeze([
@@ -78,7 +88,13 @@ export const NIGHT_POSTER = Object.freeze({
     ['green', 3.0, 0.0, 1.6, 0.5, [0, 0.2, 0]],
     ['teal', 6.9, 0.0, -1.8, 0.7, [0, 0.6, 0]],
   ]),
-  mines: Object.freeze([[6.1, -0.9], [-6.9, -3.5]]),
+  mines: Object.freeze([[6.06, -0.57], [-6.98, -3.33]]),
+  // Shots and blasts, art px projected to world (x, z) at the shot height y = 1.1.
+  orbs: Object.freeze([[1.45, 1.97], [-1.16, 1.93], [0.01, 0.66], [2.22, 0.1], [-2.14, -0.28], [-4.84, -0.24], [1.42, -1.12], [-1.34, -1.33]]),
+  // Flak comets: x, z, size (art widths 99, 57, 44, 81, 136 px).
+  comets: Object.freeze([[4.1, -1.06, 1.23], [2.13, -2.79, 0.72], [-1.48, -3.2, 0.55], [-3.22, -2.21, 1.02], [-4.37, -4.93, 1.7]]),
+  // Blocks blowing apart: x, y, z, size, shard colour (art cores at px (1210, 345) and (430, 465)).
+  bursts: Object.freeze([[-7.13, 1.4, 3.23, 1.1, 'red'], [6.74, 1.6, 1.88, 0.95, 'yellow']]),
   gem: Object.freeze({ color: 'red', x: -3.2, z: 0.9 }),
   tank: Object.freeze({ x: 0.2, z: -3.3, heading: 0 }),
 });

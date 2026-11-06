@@ -60,9 +60,13 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
   patlatır; bazı bloklardan o renkte mücevher çıkar (halkada asılı kalır, tanka uçar, +8 cephane);
   duvardan arada dikenli mayınlar yuvarlanır. Her atış iki pembe plazma küresi de savurur. Otomatik
   nişan önce seçili renkteki bloğu alır. **W/S A/D** sür, **← → / Q E** namlu, **↑ ↓ / fare tekerleği /
-  1-5** renk, çarka tıkla = sonraki renk, **SPACE** ateş. Islak zeminde düzlemsel yansıma
-  (`WetReflection`), GPU yağmur ve su halkaları, şimşek. Sanatla kıyas: `node tools/night/compare.mjs`
-  (yan yana, %50 karışım, sanatın kenarları, bölge bölge renk farkı tablosu).
+  1-5** renk, çarka tıkla = sonraki renk, çarkı fareyle / parmakla **çevir** (bırakınca tepedeki
+  dilim seçilir; seçilen renk her zaman tepeye döner), **SPACE** ateş. Islak zeminde düzlemsel yansıma
+  (`WetReflection`), GPU yağmur ve su halkaları, kahvenin üstünde yağmur halkaları (`CoffeeRipples`,
+  tek shader), şimşek. Pencerenin ardındaki karşı apartman Blender'da sanattaki kameradan alan
+  derinliğiyle render edilir ve cama sanat kamerasından yansıtılır (`setBackdrop`). Sanatla kıyas:
+  `node tools/night/compare.mjs` (yan yana, %50 karışım, sanatın kenarları, bölge bölge renk farkı
+  tablosu; `PORT=5214` ile ikinci kopya); sanattan kesilmiş referans parçalar `tools/night/ref/`.
 - **Tank seviyesi (IRON TRACKS) · Faz 1 — Kanal:** kamera kanala yukarıdan, arkadan bakar. En üstte
   kanalı enlemesine kesen rayda trenler sırayla sağdan / soldan geçer; her vagon geçtiği şeride
   bazen blok bırakır, bazen boşluk, bazen üst üste iki tane. Kanal beton, tabanında akan sığ su var

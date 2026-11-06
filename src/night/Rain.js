@@ -40,13 +40,16 @@ export class Rain {
       uTime: { value: 0 },
       uCenter: { value: new THREE.Vector3() },
       uBox: { value: box },
-      uWind: { value: new THREE.Vector2(0.18, -0.08) },
+      uWind: { value: new THREE.Vector2(0.06, -0.03) },
       uSpeed: { value: 26 },
       uLen: { value: 0.75 },
-      uWidth: { value: 0.013 },
+      uWidth: { value: 0.008 },
+      // World size of one screen pixel per unit of distance (setView): streaks never get
+      // thinner than ~1.3 px, so they cannot vanish between pixels.
+      uPixel: { value: 0.0006 },
       uLights: { value: this.lights },
       uLightCol: { value: this.lightCol },
-      uAmbient: { value: new THREE.Color(0.05, 0.065, 0.1) },
+      uAmbient: { value: new THREE.Color(0.13, 0.16, 0.2) },
       uFlash: { value: 0 },
       uGround: { value: ground },
     };
@@ -75,6 +78,8 @@ export class Rain {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      // The billboard's winding depends on the fall axis and the view: draw both faces.
+      side: THREE.DoubleSide,
       vertexShader: /* glsl */ `
         attribute vec4 aSeed;
         uniform float uTime;
@@ -84,6 +89,7 @@ export class Rain {
         uniform float uSpeed;
         uniform float uLen;
         uniform float uWidth;
+        uniform float uPixel;
         uniform float uGround;
         varying vec2 vUv;
         varying vec3 vLight;
@@ -99,7 +105,8 @@ export class Rain {
           vec3 toCam = normalize(cameraPosition - base);
           vec3 side = normalize(cross(dir, toCam));
           float len = uLen * aSeed.w;
-          vec3 p = base + side * position.x * uWidth * (0.8 + aSeed.w * 0.4) - dir * position.y * len;
+          float w = max(uWidth * (0.8 + aSeed.w * 0.4), length(cameraPosition - base) * uPixel * 1.3);
+          vec3 p = base + side * position.x * w - dir * position.y * len;
           vUv = uv;
           vLight = rainLight(base);
           // Fade near the box edges and right at the ground.
@@ -116,7 +123,7 @@ export class Rain {
           float across = 1.0 - abs(vUv.x - 0.5) * 2.0;
           float along = smoothstep(0.0, 0.35, vUv.y) * (1.0 - smoothstep(0.75, 1.0, vUv.y));
           float a = across * across * along * vFade;
-          gl_FragColor = vec4(vLight * a * 1.6, a);
+          gl_FragColor = vec4(vLight * a * 2.6, a);
         }
       `,
     });
@@ -202,6 +209,11 @@ export class Rain {
         this.lightCol[i].setRGB(0, 0, 0);
       }
     }
+  }
+
+  /** The camera the rain is seen through and the drawing buffer's height in pixels. */
+  setView(camera, heightPx) {
+    this.uniforms.uPixel.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(1, heightPx);
   }
 
   update(dt, center, flash = 0) {
