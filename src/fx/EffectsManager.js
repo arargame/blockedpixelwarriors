@@ -93,6 +93,18 @@ export class EffectsManager {
     this.flash(p, 0xff9a3c, 45 * scale, 0.45, 9 * scale);
   }
 
+  /**
+   * Light blast: a hot glow pop, sparks and the flash light - no fireballs, no smoke. For scenes
+   * that blow things up all the time (NEON RAIN's block wall), where a full explosion() per block
+   * piles up overdraw.
+   */
+  blast(position, scale = 1, tint = [3, 1.9, 0.8, 1]) {
+    const p = position;
+    this.fire.emit({ x: p.x, y: p.y, z: p.z, life: 0.18, size0: 1.6 * scale, size1: 3.2 * scale, color0: tint, color1: [tint[0] * 0.5, tint[1] * 0.25, tint[2] * 0.1, 0] });
+    this.sparkBurst(p, Math.round(12 * scale), 10 * scale, tint);
+    this.flash(p, 0xff9a3c, 30 * scale, 0.3, 7 * scale);
+  }
+
   sparkBurst(position, count, speed, color = [4, 2.6, 0.9, 1]) {
     for (let i = 0; i < count; i++) {
       v.set(rnd.spread(1), rnd.range(-0.2, 1), rnd.spread(1)).normalize().multiplyScalar(rnd.range(0.35, 1) * speed);

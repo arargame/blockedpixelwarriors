@@ -1,76 +1,73 @@
 import * as THREE from 'three';
 import { fxRandom as rnd } from '../util/Random.js';
+import { POWERUPS, letterTexture } from '../entities/PowerUps.js';
 
 const v1 = new THREE.Vector3();
 
-/** Crate paint per supply letter (the Blender crate's paint is near-white and tinted). */
-export const SUPPLY_COLORS = Object.freeze({ T: 0xff8a1e, D: 0x2f7ff0, R: 0xd8302a, H: 0x36b84a, G: 0x9a4ae0 });
+/**
+ * Crate colour per supply letter: the helicopter level's letter crates (POWERUPS css / colour),
+ * plus NEON RAIN's B (bouncing balls), in its neon pink.
+ */
+const CRATE_CSS = Object.freeze({ ...Object.fromEntries(Object.entries(POWERUPS).map(([k, d]) => [k, d.css])), B: '#ff7ad9' });
+export const SUPPLY_COLORS = Object.freeze({ ...Object.fromEntries(Object.entries(POWERUPS).map(([k, d]) => [k, d.color])), B: 0xf04fc4 });
 
 const MAGNET_RADIUS = 6.5;
 const MAGNET_ACCEL = 34;
 const PICKUP_RADIUS = 2.6;
 const LIFETIME = 18;
 const SCALE = 1.4;
+const CRATE = 0.85;
 
 /**
- * Tank-level supplies: the Blender crate (assets/models/supply.glb, tools/blender/build_supply.py)
- * in the type's colour with its glowing letter, smaller than a block. A destroyed supply block
- * throws one up; it lands on the floor, bobs and sparkles, is pulled toward the tank when it comes
- * close and collected on contact. Unpicked crates blink and vanish after LIFETIME seconds.
+ * Tank-level supplies: the helicopter level's crates (entities/PowerUps.js SupplyCrates - a
+ * coloured voxel box with a bevelled rim and the big white letter on every face), smaller than a
+ * block. A destroyed supply block throws one up; it lands on the floor, bobs and sparkles, is
+ * pulled toward the tank when it comes close and collected on contact. Unpicked crates blink and
+ * vanish after LIFETIME seconds.
  */
 export class TankSupplies {
   /**
    * @param {THREE.Scene} scene
    * @param {any} effects
-   * @param {any} gltf supply.glb
+   * @param {any} _gltf unused (the old Blender crate); kept so call sites stay the same
    * @param {(x:number, z:number) => number} floorAt
-   * @param {{ scale?: number, magnetRadius?: number, pickupRadius?: number }} [o] sizes for
-   *   smaller boards (the NEON RAIN tray); defaults are the tank arena's
+   * @param {{ scale?: number, magnetRadius?: number, pickupRadius?: number, glow?: number, puff?: boolean }} [o]
+   *   sizes for smaller boards (the NEON RAIN tray); defaults are the tank arena's. `glow`: the
+   *   letter's emissive strength (the heli level's 0.12; a dark scene wants more); `puff`: a dust puff
+   *   where a crate lands
    */
-  constructor(scene, effects, gltf, floorAt, { scale = SCALE, magnetRadius = MAGNET_RADIUS, pickupRadius = PICKUP_RADIUS } = {}) {
+  constructor(scene, effects, _gltf, floorAt, { scale = SCALE, magnetRadius = MAGNET_RADIUS, pickupRadius = PICKUP_RADIUS, glow = 0.12, puff = true } = {}) {
+    this.puff = puff;
     this.scale = scale;
     this.magnetRadius = magnetRadius;
     this.pickupRadius = pickupRadius;
+    this.glow = glow;
     this.scene = scene;
     this.effects = effects;
     this.floorAt = floorAt;
-    this.template = gltf?.scene.getObjectByName('SupplyCrate') ?? null;
+    this.geometry = new THREE.BoxGeometry(CRATE, CRATE, CRATE);
     this.items = [];
     this.materials = {};
     /** (type, item) => void */
     this.onPickup = null;
-    if (this.template) {
-      this.template.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true;
-          o.receiveShadow = true;
-        }
-      });
-    }
   }
 
-  /** Paint material of a type (the crate's near-white paint times the type colour). */
-  paint(type, base) {
+  /** The letter crate material of a type (made once, shared). */
+  material(type) {
     if (!this.materials[type]) {
-      const m = base.clone();
-      m.color = new THREE.Color(SUPPLY_COLORS[type] ?? 0xffffff);
-      this.materials[type] = m;
+      const map = letterTexture(type, CRATE_CSS[type] ?? '#cccccc');
+      this.materials[type] = new THREE.MeshStandardMaterial({
+        map, roughness: 0.45, metalness: 0.1, emissive: new THREE.Color(SUPPLY_COLORS[type] ?? 0xffffff), emissiveMap: map, emissiveIntensity: this.glow,
+      });
     }
     return this.materials[type];
   }
 
   build(type) {
-    if (!this.template) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 0.56, 0.64), new THREE.MeshStandardMaterial({ color: SUPPLY_COLORS[type] ?? 0xffffff, emissive: 0x222222 }));
-      m.castShadow = true;
-      return m;
-    }
-    const obj = this.template.clone(true);
-    obj.traverse((o) => {
-      if (o.name.startsWith('SupplyLetter')) o.visible = o.name === `SupplyLetter${type}`;
-      if (o.isMesh && o.material?.name === 'SupplyPaint') o.material = this.paint(type, o.material);
-    });
-    return obj;
+    const m = new THREE.Mesh(this.geometry, this.material(type));
+    m.castShadow = true;
+    m.receiveShadow = true;
+    return m;
   }
 
   /** A crate of `type` thrown up out of a destroyed block at `at`. */
@@ -96,7 +93,7 @@ export class TankSupplies {
       const dx = tankPos.x - p.x;
       const dz = tankPos.z - p.z;
       const dist = Math.hypot(dx, dz);
-      const floor = this.floorAt(p.x, p.z) + 0.33 * this.scale;
+      const floor = this.floorAt(p.x, p.z) + (CRATE / 2) * this.scale;
       if (canPickup && it.age > 0.4 && dist < this.magnetRadius) {
         // Magnet: drawn toward the tank, hopping a little.
         it.pulled = true;
@@ -116,7 +113,7 @@ export class TankSupplies {
           it.vel.set(0, 0, 0);
           it.landed = true;
           it.pulled = false;
-          this.effects.snowPuff(v1.set(p.x, floor - 0.2, p.z), 5);
+          if (this.puff) this.effects.snowPuff(v1.set(p.x, floor - 0.2, p.z), 5);
         }
       }
       const bob = it.landed ? Math.sin(it.age * 3) * 0.12 + 0.12 : 0;

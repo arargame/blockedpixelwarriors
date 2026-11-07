@@ -257,7 +257,7 @@ export class SupplyCrates {
 }
 
 /** Crate face: coloured voxel panel with bevelled rim and a big white letter. */
-function letterTexture(letter, css) {
+export function letterTexture(letter, css) {
   const S = 128;
   const canvas = createCanvas(S, S);
   const ctx = canvas.getContext('2d');
@@ -305,7 +305,7 @@ function buildFirstAidKit(materials) {
 }
 
 /** Octagonal crystal (Blocked Pixel Panzer 3D Mesh3D.CreateGem): pavilion, girdle, crown. */
-function buildGemGeometry() {
+export function buildGemGeometry() {
   const pos = [];
   const tri = (a, b, c) => pos.push(...a, ...b, ...c);
   const N = 8;

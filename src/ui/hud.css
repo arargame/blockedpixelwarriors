@@ -823,6 +823,8 @@ body {
 .night-hud .nw-chip small { position: absolute; top: -9px; right: 6px; font-size: 9px; opacity: 0.55; font-family: system-ui, sans-serif; }
 .night-hud .nw-chip.on { border-color: var(--c); box-shadow: 0 0 14px var(--c), inset 0 0 8px rgba(255, 255, 255, 0.12); transform: translateY(-3px) scale(1.08); }
 .night-hud .nw-chip.off { opacity: 0.32; }
+.night-hud .nw-chip[data-c="black"] i { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55), 0 0 8px rgba(255, 255, 255, 0.25); }
+.night-hud .nw-chip.on[data-c="black"] { border-color: #e6e6ee; box-shadow: 0 0 14px rgba(255, 255, 255, 0.35), inset 0 0 8px rgba(255, 255, 255, 0.12); }
 @media (pointer: coarse) {
   .night-hud .nw-chips { bottom: 180px; }
   .night-hud .nw-chip small { display: none; }

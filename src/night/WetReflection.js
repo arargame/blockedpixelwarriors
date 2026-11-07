@@ -49,6 +49,10 @@ export class WetReflection {
   update(scene, camera, time) {
     this.uniforms.uTime.value = time;
     if (!this.enabled) return;
+    // The mirror is blurred and rippled: refreshing it every other frame is invisible and halves
+    // its cost (it renders the whole desk scene a second time). `every = 1` forces each frame.
+    this.frame = (this.frame ?? 0) + 1;
+    if (this.frame % (this.every ?? 2) !== 0 && this.target.width > 4) return;
     const r = this.renderer;
     const size = r.getDrawingBufferSize(new THREE.Vector2());
     const w = Math.max(4, Math.round(size.x * this.scale));

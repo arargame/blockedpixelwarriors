@@ -10,12 +10,13 @@
  *            red    POWER     5 damage (a heavy red beam)
  *            green  ACID      2 damage, the block turns green and keeps losing HP for a while
  *            blue   RAPID     3 damage, the gun fires twice as fast
- *            black  CRITICAL  10 damage - the skull shot, "CRITICAL!" and a little screen shake
+ *            black  CRITICAL  10 damage (a black wedge; its skull shot glows violet)
+ *                              - the skull shot, "CRITICAL!" and a little screen shake
  */
 export const NIGHT_BLOCKS = Object.freeze({
   red: 0xe01d22,
   green: 0x36c225,
-  blue: 0x1f6fe0,
+  blue: 0x2a9ff2, // light blue (Blocked's wheel), not navy
   yellow: 0xf6bd10,
   beige: 0xd9c49a,
 });
@@ -31,7 +32,7 @@ export const SHELL_COLORS = Object.freeze([
   Object.freeze({ id: 'red', block: 'red', hex: NIGHT_BLOCKS.red, chip: NIGHT_BLOCKS.red, name: 'POWER', wedge: 'red', damage: 5, gem: 20 }),
   Object.freeze({ id: 'green', block: 'green', hex: NIGHT_BLOCKS.green, chip: NIGHT_BLOCKS.green, name: 'ACID', wedge: 'green', damage: 2, acid: true, gem: 20 }),
   Object.freeze({ id: 'blue', block: 'blue', hex: NIGHT_BLOCKS.blue, chip: NIGHT_BLOCKS.blue, name: 'RAPID', wedge: 'blue', damage: 3, rate: 2, gem: 80 }),
-  Object.freeze({ id: 'black', block: null, hex: 0x8a4cff, chip: 0x2a2433, name: 'CRITICAL', wedge: 'black', damage: 10, critical: true, gem: 20 }),
+  Object.freeze({ id: 'black', block: null, hex: 0x8a4cff, chip: 0x0d0d10, name: 'CRITICAL', wedge: 'black', damage: 10, critical: true, gem: 20 }),
 ]);
 
 export const shellOf = (id) => SHELL_COLORS.find((c) => c.id === id);

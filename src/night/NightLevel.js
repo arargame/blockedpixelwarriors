@@ -201,9 +201,11 @@ function orbTrailTexture() {
  * Aiming is the tank level's auto aim (the selected colour's blocks first, then the closest to
  * the line, mines before anything); Q / E or the left / right arrows (phones: the two buttons)
  * turn the barrel instead.
- * Controls: W/S drive, A/D turn the hull, Q/E or left/right arrows the barrel, up/down arrows or
- * the mouse wheel step the colour wheel, 1-5 pick a colour, click / tap the dial (or the chips)
- * for the next colour, SPACE fires at will. ESC pause menu, ENTER restarts a finished game. Own
+ * Controls: W/S drive, A/D turn the hull, Q/E or left/right arrows the barrel; the colour wheel
+ * as in Blocked (desktop and phones): SPACE, the mouse wheel or up/down arrows step it, 1-5 pick a
+ * colour, tap the hub for the next one or a wedge for that one, drag the rim to turn it, flick it
+ * to spin (it settles on a wedge), wind it up and let go for the fountain fire; the gun fires by
+ * itself at the lock (a click fires too). ESC pause menu, ENTER restarts a finished game. Own
  * scene, fixed key-art camera, lights and post look (pushed onto the pipeline).
  */
 export class NightLevel {
@@ -247,11 +249,11 @@ export class NightLevel {
     this.wheel = new ColorWheel(wheelGltf, this.scene);
     this.wheel.place(NIGHT_WHEEL);
 
-    this.gems = new Gems(this.scene, this.effects, gemGltf);
+    this.gems = new Gems(this.scene, this.effects, textures);
     this.gems.onCollect = (color) => this.onGem(color);
     // T / D supply crates (the tank level's Blender crate, sized for the tray); they land on top
     // of a block if they fall on one.
-    this.supplies = new TankSupplies(this.scene, this.effects, supplyGltf, (x, z) => (this.wall.blockAt(x, z) ? this.wall.size : 0), { scale: 0.75, magnetRadius: 4.2, pickupRadius: 1.5 });
+    this.supplies = new TankSupplies(this.scene, this.effects, supplyGltf, (x, z) => (this.wall.blockAt(x, z) ? this.wall.size : 0), { scale: 0.95, magnetRadius: 4.2, pickupRadius: 1.5, glow: 0.3, puff: false });
     this.supplies.onPickup = (type, item) => this.onSupply(type, item);
     this.powerups = new PowerUpSystem();
     this.burstTimer = 0;
@@ -365,7 +367,7 @@ export class NightLevel {
     el.className = 'tank-hud night-hud';
     el.innerHTML = `
       <div class="th-banner" data-banner></div>
-      <div class="th-keys"><b>W S</b> drive · <b>A D</b> turn hull · <b>← →</b> / <b>Q E</b> barrel · <b>↑ ↓</b> / <b>wheel</b> / <b>1-5</b> colour · <b>SPACE</b> fire · <b>ESC</b> menu</div>
+      <div class="th-keys"><b>W S</b> drive · <b>A D</b> turn hull · <b>← →</b> / <b>Q E</b> barrel · <b>SPACE</b> / <b>↑ ↓</b> / <b>wheel</b> / <b>1-5</b> colour · drag / flick / wind the dial · <b>ESC</b> menu</div>
       <div class="nw-chips" data-chips>${SHELL_COLORS.map((c, i) => `<button class="nw-chip" data-c="${c.id}" style="--c:${css(c.chip)}"><i></i><b>${c.infinite ? '∞' : '0'}</b><small>${i + 1}</small></button>`).join('')}</div>
       <div class="th-touch">
         <button class="th-btn" data-tl aria-label="barrel left">&#9664;</button>
@@ -532,6 +534,7 @@ export class NightLevel {
     this.element.removeEventListener('pointerdown', this.onPointerDown);
     window.removeEventListener('pointermove', this.onPointerMove);
     window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointercancel', this.onPointerUp);
     this.wheelDrag = null;
     this.element.removeEventListener('wheel', this.onWheel);
     this.hud.style.display = 'none';
@@ -546,6 +549,7 @@ export class NightLevel {
   stagePoster() {
     const P = NIGHT_POSTER;
     this.poster = true;
+    this.reflection.every = 1;
     this.wall.stage(P.rows);
     this.wall.paused = true;
     this.clearLoose();
@@ -591,48 +595,55 @@ export class NightLevel {
     if (this.ui) this.ui.root.style.display = 'none';
   }
 
+  /**
+   * Pointer on the canvas: on the colour wheel (within its rim, + a little slack) it is Blocked's
+   * wheel gesture - tap the hub for the next colour, tap a wedge for that colour, drag to spin /
+   * flick / wind up (ColorWheel.beginPress); a press there never starts the move stick. Elsewhere
+   * a mouse click fires.
+   */
   pointerDown(e) {
     if (!this.active || this.paused) return;
     if (this.wheel.root) {
-      const r = this.element.getBoundingClientRect();
-      const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-      this.raycaster.setFromCamera(ndc, this.camera);
-      if (this.raycaster.intersectObject(this.wheel.root, true).length) {
-        // On the dial: a tap steps the colour, a drag turns the dial by hand.
-        const a = this.dialAngle(e);
-        if (a !== null) {
-          this.wheelDrag = { id: e.pointerId, start: a, last: a, turned: 0, moved: false };
-          this.wheel.beginDrag();
-          window.addEventListener('pointermove', this.onPointerMove);
-          window.addEventListener('pointerup', this.onPointerUp);
-        } else this.wheel.next();
+      const hit = this.dialHit(e);
+      if (hit && this.wheel.radiusAt(hit) <= 1.18) {
+        // Not a joystick press (Input claimed it first).
+        if (this.input.pointerId === e.pointerId) {
+          this.input.pointerId = null;
+          this.input.dragVector = { x: 0, y: 0 };
+        }
+        const a = this.wheel.angleAt(hit);
+        const hub = this.wheel.radiusAt(hit) < 0.3;
+        this.wheelDrag = { id: e.pointerId, x: e.clientX, y: e.clientY, travel: 0, t0: performance.now(), tLast: performance.now(), last: a };
+        this.wheel.beginPress(a, hub);
+        window.addEventListener('pointermove', this.onPointerMove);
+        window.addEventListener('pointerup', this.onPointerUp);
+        window.addEventListener('pointercancel', this.onPointerUp);
         return;
       }
     }
     if (e.pointerType === 'mouse' && e.button === 0) this.fireQueued = true;
   }
 
-  /** Angle of the pointer round the dial's centre, in the dial's plane (null off the plane). */
-  dialAngle(e) {
+  /** Where the pointer ray meets the dial's plane (world), or null. */
+  dialHit(e) {
     const r = this.element.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    const hit = this.raycaster.ray.intersectPlane(this.wheel.plane(this.dragPlane), new THREE.Vector3());
-    return hit ? this.wheel.angleAt(hit) : null;
+    return this.raycaster.ray.intersectPlane(this.wheel.plane(this.dragPlane), new THREE.Vector3());
   }
 
   pointerMove(e) {
     const d = this.wheelDrag;
     if (!d || e.pointerId !== d.id) return;
-    const a = this.dialAngle(e);
-    if (a === null) return;
-    let step = a - d.last;
-    if (step > Math.PI) step -= Math.PI * 2;
-    if (step < -Math.PI) step += Math.PI * 2;
-    d.last = a;
-    d.turned += step;
-    if (Math.abs(d.turned) > 0.08) d.moved = true;
-    if (d.moved) this.wheel.dragTo(d.turned);
+    d.travel += Math.hypot(e.clientX - d.x, e.clientY - d.y);
+    d.x = e.clientX;
+    d.y = e.clientY;
+    const hit = this.dialHit(e);
+    if (!hit) return;
+    const now = performance.now();
+    d.last = this.wheel.angleAt(hit);
+    this.wheel.movePress(d.last, (now - d.tLast) / 1000);
+    d.tLast = now;
   }
 
   pointerUp(e) {
@@ -641,11 +652,10 @@ export class NightLevel {
     this.wheelDrag = null;
     window.removeEventListener('pointermove', this.onPointerMove);
     window.removeEventListener('pointerup', this.onPointerUp);
-    if (d.moved) this.wheel.endDrag();
-    else {
-      this.wheel.dragging = false;
-      this.wheel.next();
-    }
+    window.removeEventListener('pointercancel', this.onPointerUp);
+    // Blocked: a press is a tap when it is short (0.35 s) and still (12 px).
+    const tap = performance.now() - d.t0 <= 350 && d.travel <= 12;
+    this.wheel.endPress(tap, d.last);
   }
 
   edge(code) {
@@ -664,6 +674,8 @@ export class NightLevel {
       this.start();
       return;
     }
+    // Blocked's wheel keys: SPACE (and the mouse wheel) one wedge on; the up / down arrows too.
+    if (this.edge('Space')) this.wheel.next();
     if (this.edge('ArrowUp')) this.wheel.prev();
     if (this.edge('ArrowDown')) this.wheel.next();
     SHELL_COLORS.forEach((c, i) => {
@@ -676,7 +688,7 @@ export class NightLevel {
       turret: (k('KeyQ', 'ArrowLeft') || this.touch.left ? 1 : 0) - (k('KeyE', 'ArrowRight') || this.touch.right ? 1 : 0),
     } : { throttle: 0, turn: 0, turret: 0 };
     if (driving && this.input.dragging && !drive.throttle && !drive.turn) Object.assign(drive, this.stickDrive(this.input.move.x, this.input.move.z));
-    this.step(dt, drive, driving && (this.fireQueued || keys.has('Space')));
+    this.step(dt, drive, driving && this.fireQueued);
     this.fireQueued = false;
   }
 
@@ -736,6 +748,7 @@ export class NightLevel {
       }
     }
     this.updateBalls(dt);
+    this.updateFountain(dt);
     this.ui?.setSkills(this.powerups.active);
 
     this.updateShots(dt);
@@ -848,6 +861,44 @@ export class NightLevel {
   }
 
   /**
+   * Blocked's fountain fire (Player.UpdateWheelFountain): while a wound-up wheel unwinds fast the
+   * tank sprays shells round itself on three arms that turn with the dial, up to 34 volleys a
+   * second at full speed. Each volley takes a random colour that still has rounds (one round per
+   * volley, not per arm), white once they are all spent - it never stops while the dial spins.
+   */
+  updateFountain(dt) {
+    const w = this.wheel;
+    if (!w.fountaining || this.state !== 'playing' && this.state !== 'stretch') {
+      this.fountainAcc = 0;
+      return;
+    }
+    const rate = 34 * THREE.MathUtils.clamp(w.speedNorm, 0, 1);
+    if (rate <= 0.01) return;
+    this.fountainAcc = (this.fountainAcc ?? 0) + rate * dt;
+    const N = GameConfig.night;
+    const t = this.tank;
+    t.root.updateMatrixWorld(true);
+    const muzzle = t.muzzle.getWorldPosition(v3);
+    let shots = 0;
+    while (this.fountainAcc >= 1 && shots < 6) {
+      this.fountainAcc -= 1;
+      shots++;
+      const ready = SHELL_COLORS.filter((c) => !c.infinite && w.ammo[c.id] > 0);
+      const col = ready.length ? ready[Math.floor(rnd.next() * ready.length)] : SHELL_COLORS[0];
+      if (!col.infinite) w.spend(col.id);
+      for (let i = 0; i < 3; i++) {
+        const a = w.spin + (i * Math.PI * 2) / 3;
+        const vel = v2.set(Math.sin(a), 0, Math.cos(a)).multiplyScalar(N.shellSpeed * 0.8);
+        this.addComet(muzzle, vel, false, 0.8, col.id, col.infinite ? null : col.hex);
+      }
+    }
+    if (shots) {
+      this.effects.muzzleFlash(muzzle, v2.set(0, 1, 0), [3, 3, 3, 1], 0.9);
+      this.shake = Math.max(this.shake, 0.06);
+    }
+  }
+
+  /**
    * A shell of `shellId` hits block b: the shell's damage, double on its own colour; acid
    * eats on; a critical hit pops "CRITICAL!" and shakes the screen a little.
    */
@@ -865,7 +916,9 @@ export class NightLevel {
     this.shake = Math.max(this.shake, 0.32);
     this.effects.flash(at, 0x8a4cff, 60, 0.3, 9);
     this.effects.sparkBurst(at, 22, 7, [2.4, 1.2, 4, 1]);
-    this.ui?.notice('CRITICAL!', '#b98cff');
+    // (A fountain of black shells would pop it every frame.)
+    if (this.time - (this.lastCritical ?? -9) > 0.5) this.ui?.notice('CRITICAL!', '#b98cff');
+    this.lastCritical = this.time;
   }
 
   /** CRITICAL shell: the black skull, trailing purple-black smoke. */
@@ -960,8 +1013,9 @@ export class NightLevel {
   }
 
   /** Plain flak shell: a white spiky comet. */
-  addComet(pos, vel, frozen = false, size = 1, shell = 'white') {
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.cometTex, color: new THREE.Color(1.3, 1.3, 1.35), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  addComet(pos, vel, frozen = false, size = 1, shell = 'white', tint = null) {
+    const color = tint === null ? new THREE.Color(1.3, 1.3, 1.35) : new THREE.Color(tint === 0x8a4cff ? 0x9a5cff : tint).multiplyScalar(2.2);
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.cometTex, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
     s.scale.set(2.0 * size, 1.0 * size, 1);
     s.center.set(0.72, 0.5);
     s.position.copy(pos);
@@ -1041,7 +1095,8 @@ export class NightLevel {
             const speed = Math.min(26, s.vel.length() + dt * 30);
             s.vel.lerp(want.normalize().multiplyScalar(speed), 1 - Math.exp(-5 * dt));
           }
-          if (rnd.next() < 0.8) this.effects.smoke.emit({ x: s.pos.x, y: s.pos.y, z: s.pos.z, vy: 0.3, life: 0.5, size0: 0.25, size1: 0.6, color0: [0.5, 0.5, 0.55, 0.5], color1: [0.3, 0.3, 0.32, 0] });
+          // A short hot trail (no smoke: smoke is the skull's alone).
+          if (rnd.next() < 0.6) this.effects.fire.emit({ x: s.pos.x, y: s.pos.y, z: s.pos.z, life: 0.16, size0: 0.32, size1: 0.08, color0: [3, 1.6, 0.6, 0.9], color1: [1, 0.3, 0.1, 0] });
         }
         if (s.kind === 'skull') {
           // Purple-black smoke behind the skull.
@@ -1070,7 +1125,8 @@ export class NightLevel {
           if (b && (s.kind !== 'rocket' || s.pos.y < this.wall.size + 0.3)) {
             this.hitBlock(b, s.shell, s.pos.clone());
             this.effects.impact(s.pos, s.kind === 'orb' ? [3.5, 1, 3, 1] : s.kind === 'skull' ? [2, 0.8, 3.5, 1] : [4, 4, 4, 1]);
-            if (s.kind === 'rocket' || s.kind === 'skull') this.effects.explosion(s.pos.clone(), s.kind === 'skull' ? 0.9 : 0.6, null, 0);
+            if (s.kind === 'rocket') this.effects.blast(s.pos, 0.6);
+            else if (s.kind === 'skull') this.effects.blast(s.pos, 1.1, [2.2, 0.9, 3.6, 1]);
             done = true;
           } else if (Math.abs(s.pos.x) > N.maxX + 0.2 || s.pos.z > this.fieldMaxZ + 0.2 || s.pos.z < N.minZ - 1) {
             this.effects.sparkBurst(s.pos, 6, 4, [3, 2.6, 2.6, 1]);
@@ -1177,9 +1233,8 @@ export class NightLevel {
   killMine(m, shot) {
     m.alive = false;
     const p = m.root.position.clone().add(v1.set(0, 0.8, 0));
-    this.effects.explosion(p, 1.2, null, 0);
-    this.effects.shatter(p, 0x3a3e45, 14, 1.2, [0.15, 0.35]);
-    this.effects.flash(p, 0xffa040, 50, 0.3, 9);
+    this.effects.blast(p, 1.2);
+    this.effects.shatter(p, 0x3a3e45, 10, 1.2, [0.15, 0.35]);
     m.root.removeFromParent();
     if (shot) {
       this.score += SCORE.mine;
@@ -1233,9 +1288,6 @@ export class NightLevel {
       root.scale.setScalar(0.6);
       root.position.set(t.x, 0, t.z);
       this.scene.add(root);
-      const glow = new THREE.PointLight(0x9fd8ff, 4, 4, 1.6);
-      glow.position.set(0, 0.8, 0);
-      root.add(glow);
       const bounces = N.bounces[0] + Math.floor(rnd.next() * (N.bounces[1] - N.bounces[0] + 1));
       this.balls.push({ root, ball: root.getObjectByName('MineBall') ?? root, vx: Math.sin(a) * N.ballSpeed, vz: Math.cos(a) * N.ballSpeed, bounces, hitCooldown: 0 });
     }
@@ -1294,7 +1346,7 @@ export class NightLevel {
       B.ball.rotation.x += (B.vz / 0.37) * dt;
       B.ball.rotation.z -= (B.vx / 0.37) * dt;
       if (B.bounces <= 0) {
-        this.effects.explosion(v2.set(p.x, 0.5, p.z).clone(), 0.5, null, 0);
+        this.effects.blast(v2.set(p.x, 0.5, p.z), 0.6, [2, 3, 4, 1]);
         B.root.removeFromParent();
         this.balls.splice(i, 1);
       }
@@ -1434,7 +1486,7 @@ export class NightLevel {
     // Blocked: blue 80, the others 20; one green gem in twenty is an acid gem worth 80.
     const n = color === 'green' && rnd.next() < 0.05 ? 80 : c.gem ?? 20;
     this.wheel.add(color, n);
-    this.ui?.kill('TANK', FEED.tank, `+${n} ${c.name}`, css(c.chip === 0x2a2433 ? 0xb98cff : c.chip));
+    this.ui?.kill('TANK', FEED.tank, `+${n} ${c.name}`, css(c.id === 'black' ? 0xc8c8d2 : c.chip));
   }
 
   // ---- Stages -------------------------------------------------------------------------------------
@@ -1481,7 +1533,7 @@ export class NightLevel {
       this.state = 'lost';
       this.time = 0;
       this.showBanner('TANK CRUSHED', `${STAGE_NAMES[this.stage]} · ${this.broken} blocks · ENTER to try again`, 'lost');
-      this.effects.explosion(this.tank.position.clone().add(v1.set(0, 1, 0)), 2.0, null, 0);
+      this.effects.blast(this.tank.position.clone().add(v1.set(0, 1, 0)), 2.0);
       return;
     }
     if (this.stage < N.stages.length && this.wall.finished) {

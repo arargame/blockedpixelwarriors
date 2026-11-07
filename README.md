@@ -62,15 +62,21 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
   ekran kırmızı yanıp söner. Aşama 1 bitince tepsi **iki katı uzar**, kamera tankı izler ve
   ilerledikçe pencerenin altındaki sokak ve trafik görünür; aşama 4 boss (sonraki iş). **Renk çarkı**
   (Blocked'ın renkleri, `NightColors.js`): beyaz NORMAL 1 (sınırsız), kırmızı POWER 5, yeşil ACID 2
-  (blok yeşile döner ve birkaç saniye erir), mavi RAPID 3 (iki kat hızlı ateş), siyah CRITICAL 10
-  (Blender'da kurukafa mermisi, mor-siyah duman, "CRITICAL!" ve hafif sarsıntı); bloğun kendi
-  rengindeki mermi 2 kat vurur. Çarkın tepesindeki iğne seçili dilimi gösterir. Mermi hakkı
-  elmaslardan (Blocked miktarları: mavi 80, diğerleri 20). Kırılan blok aynı renkteki komşularını
-  zincirleme patlatır, patlayıcı blok çevresindeki 8 bloğu vurur, supply blok sandık bırakır: **T**
-  üçlü atış, **R** güdümlü roket, **D** 8 yöne plazma, **B** 2-5 sekme topu (5-15 sekişte kaybolur;
-  toplar dolaşırken yeni B düşmez). **W/S A/D** sür, **← → / Q E** namlu, **↑ ↓ / fare tekerleği /
-  1-5** renk, çarka tıkla = sonraki renk, çarkı fareyle / parmakla **çevir** (bırakınca iğnenin
-  altındaki dilim seçilir), **SPACE** ateş. Tank tepsinin her yerinde gezer, bloklar katıdır. Yağmur
+  (blok yeşile döner ve birkaç saniye erir), açık mavi RAPID 3 (iki kat hızlı ateş), siyah CRITICAL 10
+  (Blender'da kurukafa mermisi, mor-siyah duman — oyundaki tek duman —, "CRITICAL!" ve hafif
+  sarsıntı); bloğun kendi rengindeki mermi 2 kat vurur. Çarkın tepesindeki iğne seçili dilimi
+  gösterir. Mermi hakkı elmaslardan (helikopter bölümünün elmasları; Blocked miktarları: mavi 80,
+  diğerleri 20). Kırılan blok aynı renkteki komşularını zincirleme patlatır (hafif patlama: parlama +
+  kıvılcım + parça, ateş topu / duman yok), patlayıcı blok çevresindeki 8 bloğu vurur, supply blok
+  helikopter bölümündeki harfli sandığı bırakır: **T** üçlü atış, **R** güdümlü roket, **D** 8 yöne
+  plazma, **B** 2-5 sekme topu (5-15 sekişte kaybolur; toplar dolaşırken yeni B düşmez). **W/S A/D**
+  sür, **← → / Q E** namlu. **Renk çarkı girişleri Blocked'daki gibi** (masaüstü + mobil,
+  `WheelPhysics` / `WheelTuning` portu): **SPACE / fare tekerleği / ↑ ↓** bir dilim ilerletir,
+  **1-5** doğrudan seçer, göbeğe dokun = sonraki renk, dilime kısa dokun = o renk, kenarı sürükle =
+  çark parmağı izler, fırlat = çark tıklayarak döner ve bir dilime oturur, aynı yöne **kurup bırak** =
+  ters yöne hızla döner ve dönerken tank 3 kollu **fıskiye ateşi** açar (saniyede 34 voleye kadar;
+  her vole mermisi olan rastgele bir renkten 1 mermi, bitince beyaz). Tank kendiliğinden kilitlenen
+  hedefe ateş eder, tık da ateşler. Tank tepsinin her yerinde gezer, bloklar katıdır. Yağmur
   arada 10 saniyeliğine hafifler. Islak zeminde düzlemsel yansıma
   (`WetReflection`), GPU yağmur ve su halkaları, kahvenin üstünde yağmur halkaları (`CoffeeRipples`,
   tek shader), şimşek. Pencerenin ardındaki karşı apartmanın önünde de yağmur yağar (cam shader'ında
@@ -91,8 +97,8 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
   **1000 blok gelir, 900'ünü kır; giderde 100 blok olursa kaybedersin.** Aynı renkte yan yana / arka
   arkaya bloklar zincirleme patlar — **ZİNCİRLEME PATLAMA** yetenek kartı alınınca (ızgarada alt /
   üst / sağ / sol komşu). Bloklar: zayıf (1 vuruş, açık renk), normal, güçlü (çelik kafes), ikmal
-  (yıldız). İkmal blokları Blender'daki askeri sandığı (`supply.glb`; bloktan küçük, kapağında
-  parlayan harf, rengi türüne göre) fırlatır: **T** turuncu üçlü mermi, **D** mavi seri atış,
+  (yıldız). İkmal blokları helikopter bölümündeki harfli sandığı (renkli voksel kutu, her yüzünde
+  büyük beyaz harf; bloktan küçük) fırlatır: **T** turuncu üçlü mermi, **D** mavi seri atış,
   **H** yeşil onarım +25 zırh + gider pompası (-10 blok), **R** kırmızı güdümlü füze (helikopterdeki
   gibi: taretin yanlarından kalkıp bloklara / uçağa kıvrılır) — R sadece **GÜDÜMLÜ ROKETLER**
   kartından sonra düşer. **Yetenek kartları:** her 200 kırılan blokta oyun durur, heli bölümündeki
@@ -362,7 +368,7 @@ URL parametreleri:
 | CRT haberleşme cihazı | `tools/blender/build_crt.py` | `assets/models/crt.glb / .blend` (CrtRadio) |
 | Oyuncu tankı (Meshy konseptine göre) | `tools/blender/build_tank.py` | `assets/models/tank.glb / .blend`, menü kartı `assets/textures/menu/tank.jpg` |
 | Avcı uçak + WW2 bombası (Blocked FighterJet atlasına göre) | `tools/blender/build_fighter.py` | `assets/models/fighter.glb / .blend` |
-| Tank ikmal sandığı (harf + renk değişir) | `tools/blender/build_supply.py` | `assets/models/supply.glb / .blend` |
+| Tank ikmal sandığı (eski; artık yüklenmiyor — sandıklar heli bölümünün harfli kutuları) | `tools/blender/build_supply.py` | `assets/models/supply.glb / .blend` |
 
 Oyun `.glb` dosyalarını yükler; yüklenemezse basit yedek modellere döner. Ayrıntılar: `tools/blender/README.md`.
 

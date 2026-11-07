@@ -259,15 +259,14 @@ export class BlockWall {
     b.doomed = true;
     id.size += 1;
     const at = this.center(b, tmp).clone();
-    this.effects.explosion(at, depth > 0 ? 0.6 : 0.85, null, 0);
-    this.effects.shatter(at, COLORS[b.color], depth > 0 ? 9 : 14, 1.05, [0.18, 0.46]);
-    this.effects.flash(at, COLORS[b.color], depth > 0 ? 18 : 30, 0.25, 7);
+    // A light blast (no fireballs, no smoke: a chain of 30 blocks used to stack 30 explosions).
+    this.effects.blast(at, depth > 0 ? 0.55 : 0.8);
+    this.effects.shatter(at, COLORS[b.color], depth > 0 ? 6 : 10, 1.05, [0.18, 0.46]);
     const row = b.row;
     const i = this.rows.indexOf(row);
     if (b.type === 'explosive') {
       // Blocked's explosive block: the eight around it take a blast.
-      this.effects.explosion(at, 1.1, null, 0);
-      this.effects.flash(at, 0xff8a30, 60, 0.35, 10);
+      this.effects.blast(at, 1.2);
       const blast = Math.max(8, Math.round((10 + b.level) * GameConfig.night.hpScale * 2));
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
@@ -339,8 +338,8 @@ export class BlockWall {
       for (const b of hit) {
         b.alive = false;
         const at = this.center(b, tmp);
-        this.effects.explosion(at, 0.9, null, 0);
-        this.effects.shatter(at, COLORS[b.color], 10, 1.2, [0.2, 0.45]);
+        this.effects.blast(at, 0.8);
+        this.effects.shatter(at, COLORS[b.color], 6, 1.2, [0.2, 0.45]);
         this.pool.release(b);
       }
       front.cells.fill(null);

@@ -11,10 +11,8 @@ import plasmaUrl from '../assets/models/plasma.glb?url';
 import crtUrl from '../assets/models/crt.glb?url';
 import tankUrl from '../assets/models/tank.glb?url';
 import fighterUrl from '../assets/models/fighter.glb?url';
-import supplyUrl from '../assets/models/supply.glb?url';
 import nightDeskUrl from '../assets/models/night_desk.glb?url';
 import colorWheelUrl from '../assets/models/color_wheel.glb?url';
-import gemUrl from '../assets/models/gem.glb?url';
 import { PickupSfx } from './audio/PickupSfx.js';
 import * as THREE from 'three';
 import { Settings } from './core/Settings.js';
@@ -67,12 +65,13 @@ const camOverride = params.get('cam')?.split(',').map(Number);
     load(tankUrl),
     // Tank level: the Blocked Pixel Panzer fighter (Blender, from Blocked's FighterJet atlas).
     load(fighterUrl),
-    // Tank level supply crate (Blender, after the HOMING ROCKETS card painting).
-    load(supplyUrl),
-    // Scenario 03 NEON RAIN: the desk diorama kit, the colour wheel and the ammo gem (Blender).
+    // (Supplies are the heli level's letter crates again - supply.glb is no longer loaded.)
+    null,
+    // Scenario 03 NEON RAIN: the desk diorama kit and the colour wheel (Blender). Its gems are the
+    // heli level's (gem.glb is no longer loaded).
     load(nightDeskUrl),
     load(colorWheelUrl),
-    load(gemUrl),
+    null,
   ]);
   const nightBackdrop = await nightBackdropPromise;
   const nightStreet = await nightStreetPromise;
