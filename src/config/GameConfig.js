@@ -297,43 +297,50 @@ export const GameConfig = Object.freeze({
     maxX: 9,
     minZ: -6,
     maxZ: 9,
-    // Where the tank may drive (its hull stays inside) and the line the wall must not cross.
-    // The tank drives anywhere on the tray; the blocks are solid (NightLevel.canStand / collideTank).
+    // Where the tank may drive (its hull stays inside): anywhere on the tray; the blocks are
+    // solid (NightLevel.canStand / collideTank). Stage 2 on: the tray is twice as long (maxZ
+    // `longMaxZ`) and the camera follows the tank up it.
     tankZone: Object.freeze({ minX: -9, maxX: 9, minZ: -5.9, maxZ: 9 }),
-    deadline: -0.9,
+    longMaxZ: 24,
     tankScale: 0.42,
-    // The wall: rows of `cols` blocks, `startRows` on the field at the start; it rolls toward the
-    // tank at `speed` m/s (+ `speedGrowth` per broken block, up to `speedMax`) and a new row rises
-    // at the top whenever there is room, `totalRows` in all.
+    // The run (Blocked's 100 levels over 1000 rows): three stages of rows to get through, then the
+    // boss stage. Row r is Blocked level 1 + r / 10: block types and HP from Blocked's
+    // LevelManager, times `hpScale` (the tank fires one shell at a time, Blocked's ship sprays).
+    stages: Object.freeze([300, 300, 400]),
+    hpScale: 0.35,
+    // The wall rolls at Blocked's fall speed (24 + 2 x (level in cycle) px/s for 100 px blocks),
+    // in tray units x `speedScale`; `startRows` rows lie on the tray when a stage starts and the
+    // wall rushes in while it is shorter than that.
     startRows: 4,
-    totalRows: 42,
-    speed: 0.09,
-    speedGrowth: 0.0004,
-    speedMax: 0.26,
-    // Every block has `blockHp`; a shell of the block's colour deals `matchDamage` (one shot),
-    // a plain (black wedge) or wrong-colour shell `plainDamage`. A destroyed block takes its
-    // same-coloured neighbours (up / down / left / right) with it (`chainDelay` s apart).
-    blockHp: 3,
-    matchDamage: 3,
-    plainDamage: 1,
+    speedScale: 0.5,
+    speed: 0.18,
     chainDelay: 0.06,
-    goal: 360,
-    // A row reaching the deadline breaks on the tank's line: `breachDamage` armour per block.
-    breachDamage: 4,
-    // Colour wheel ammo: plain shells are endless, colours start with `startAmmo`, a gem adds
-    // `gemAmmo`.
-    startAmmo: 10,
-    gemAmmo: 8,
-    gemChance: 0.16,
+    // A block getting past the tank (off the near edge) costs the tank 25 % of its remaining HP
+    // (Blocked's block contact damage) - at least 1; one pushing into the tank costs the same,
+    // once a `crushCooldown`.
+    escapeDamage: 0.25,
+    crushCooldown: 1,
+    // Colour wheel (NightColors.js): white endless; red / green / blue / black start with
+    // `startAmmo` and gems refill them (Blocked's amounts); `acidSeconds` of acid per green hit.
+    startAmmo: 20,
+    gemChance: 0.06,
+    acidSeconds: 4,
     shellSpeed: 40,
-    reload: 0.42,
-    // Supplies (as in the heli level): a broken block drops a T or D crate now and then.
-    //   T  TRIPLE FIRE  every shot goes out three ways (spread `tripleSpread` rad)
-    //   D  8-WAY BURST  plasma orbs fly out all round the tank every `burstInterval` s
-    // Each runs for GameConfig.supply.durationMin..durationMax s.
-    supplyChance: 0.045,
+    // Blocked fires 5 shots a second (blue: twice as fast).
+    reload: 0.2,
+    // Supplies (Blocked / heli level): a supply block always drops one, T R D B at random:
+    //   T  TRIPLE FIRE   three ways (spread `tripleSpread` rad), the extra two free
+    //   R  HOMING        rockets onto random blocks every `homingInterval` s
+    //   D  8-WAY BURST   eight orbs all round the tank every `burstInterval` s
+    //   B  BOUNCING BALL `balls` pixel balls bouncing round the tray, each gone after `bounces`
+    //                    hits; never dropped while balls are still out
+    // The timed ones run for GameConfig.supply.durationMin..durationMax s.
     tripleSpread: 0.26,
+    homingInterval: 0.35,
     burstInterval: 0.42,
+    balls: Object.freeze([2, 5]),
+    bounces: Object.freeze([5, 15]),
+    ballSpeed: 9,
     // Spike mines rolling out of the wall now and then (the key art's black balls).
     mine: Object.freeze({ first: 14, every: [11, 20], speed: 1.1, hp: 3, damage: 12, radius: 0.95 }),
   }),

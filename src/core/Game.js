@@ -308,7 +308,7 @@ export class Game {
   startNightLevel() {
     if (!this.options.tankGltf) return this.showMenu();
     this.nightLevel ??= new NightLevel({
-      tankGltf: this.options.tankGltf, deskGltf: this.options.nightDeskGltf, wheelGltf: this.options.colorWheelGltf, gemGltf: this.options.gemGltf, supplyGltf: this.options.supplyGltf, backdrop: this.options.nightBackdrop,
+      tankGltf: this.options.tankGltf, deskGltf: this.options.nightDeskGltf, wheelGltf: this.options.colorWheelGltf, gemGltf: this.options.gemGltf, supplyGltf: this.options.supplyGltf, skullGltf: this.options.skullGltf, backdrop: this.options.nightBackdrop, streetPlate: this.options.nightStreet,
       textures: this.textures, materials: this.materials, renderer: this.pipeline.renderer, input: this.input, quality: this.pipeline.quality, hud: this.hud,
       environment: this.scene.environment,
     });

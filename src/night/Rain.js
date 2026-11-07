@@ -26,7 +26,8 @@ const LIGHTING = /* glsl */ `
  *             (up to MAX_RAIN_LIGHTS lights: position + reach, colour) and in lightning flashes
  *   ripples   instanced rings on the ground, each spreading and fading, then reappearing at a new
  *             hashed spot - the rain hitting the wet street, lit the same way
- * setLights() feeds the lamp list; update() moves time and the box centre.
+ * setLights() feeds the lamp list; update() moves time and the box centre and runs the lulls
+ * (`intensity`: the rain eases off for ten seconds now and then).
  */
 export class Rain {
   /**
@@ -52,7 +53,12 @@ export class Rain {
       uAmbient: { value: new THREE.Color(0.13, 0.16, 0.2) },
       uFlash: { value: 0 },
       uGround: { value: ground },
+      // Share of the drops falling (1 = the full downpour); lulls take it down for a while.
+      uDensity: { value: 1 },
     };
+    this.lullTimer = 30 + Math.random() * 20;
+    this.lullTime = -1;
+    this.intensity = 1;
     this.streaks = this.buildStreaks(drops);
     this.ripples = this.buildRipples(ripples);
     scene.add(this.streaks, this.ripples);
@@ -90,6 +96,7 @@ export class Rain {
         uniform float uLen;
         uniform float uWidth;
         uniform float uPixel;
+        uniform float uDensity;
         uniform float uGround;
         varying vec2 vUv;
         varying vec3 vLight;
@@ -109,9 +116,10 @@ export class Rain {
           vec3 p = base + side * position.x * w - dir * position.y * len;
           vUv = uv;
           vLight = rainLight(base);
-          // Fade near the box edges and right at the ground.
+          // Fade near the box edges and right at the ground; in a lull only part of the drops fall.
           vec2 e = abs(vec2(aSeed.x, aSeed.y) - 0.5) * 2.0;
-          vFade = (1.0 - smoothstep(0.75, 1.0, max(e.x, e.y))) * smoothstep(0.0, 0.03, y01);
+          float keep = step(fract(aSeed.x * 91.7 + aSeed.y * 13.1), uDensity);
+          vFade = (1.0 - smoothstep(0.75, 1.0, max(e.x, e.y))) * smoothstep(0.0, 0.03, y01) * keep;
           gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
         }
       `,
@@ -161,6 +169,7 @@ export class Rain {
         uniform vec3 uCenter;
         uniform vec3 uBox;
         uniform float uGround;
+        uniform float uDensity;
         varying vec2 vUv;
         varying float vT;
         varying vec3 vLight;
@@ -172,7 +181,7 @@ export class Rain {
           vT = fract(cyc);
           vec2 h = vec2(hash(aSeed.xy + n), hash(aSeed.yx + n * 1.37));
           vec3 c = uCenter + vec3((h.x - 0.5) * uBox.x * 0.75, uGround, (h.y - 0.5) * uBox.z * 0.75);
-          float s = mix(0.08, 0.55, vT) * (0.7 + aSeed.w * 0.4);
+          float s = mix(0.08, 0.55, vT) * (0.7 + aSeed.w * 0.4) * step(fract(aSeed.z * 57.3), uDensity);
           vUv = uv;
           vLight = rainLight(c + vec3(0.0, 0.6, 0.0));
           gl_Position = projectionMatrix * viewMatrix * vec4(c + position * s, 1.0);
@@ -216,7 +225,29 @@ export class Rain {
     this.uniforms.uPixel.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(1, heightPx);
   }
 
+  /**
+   * Now and then (every 30-50 s) the rain eases off for ten seconds - down to about a third over
+   * two seconds, holding, then back to the full downpour. `intensity` (0..1) is how hard it falls.
+   */
+  updateLull(dt) {
+    if (this.lullTime < 0) {
+      this.lullTimer -= dt;
+      if (this.lullTimer <= 0) this.lullTime = 0;
+    } else {
+      this.lullTime += dt;
+      if (this.lullTime >= 10) {
+        this.lullTime = -1;
+        this.lullTimer = 30 + Math.random() * 20;
+      }
+    }
+    const t = this.lullTime;
+    const k = t < 0 ? 0 : t < 2 ? t / 2 : t < 8 ? 1 : (10 - t) / 2;
+    this.intensity = 1 - 0.68 * (k * k * (3 - 2 * k));
+    this.uniforms.uDensity.value = this.intensity;
+  }
+
   update(dt, center, flash = 0) {
+    this.updateLull(dt);
     this.uniforms.uTime.value += dt;
     this.uniforms.uCenter.value.copy(center);
     this.uniforms.uFlash.value = flash;

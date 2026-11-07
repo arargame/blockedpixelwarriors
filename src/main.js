@@ -41,8 +41,14 @@ const camOverride = params.get('cam')?.split(',').map(Number);
   // Blender props: rocket, turret bullet, engineer's forklift, CH-47F cargo chopper.
   const load = (url) => new GLTFLoader().loadAsync(url).catch(() => null);
   // NEON RAIN: the street outside the window (Blender render, tools/blender/build_night_backdrop.py).
-  const backdropUrl = Object.values(import.meta.glob('../assets/textures/night/backdrop.jpg', { eager: true, query: '?url', import: 'default' }))[0];
-  const nightBackdropPromise = backdropUrl ? new THREE.TextureLoader().loadAsync(backdropUrl).catch(() => null) : Promise.resolve(null);
+  // NEON RAIN extras (optional files): the street plate from the art (tools/night/build_art_plate.py,
+  // else the Blender plate), the street below it, the CRITICAL skull shot.
+  const nightFiles = import.meta.glob(['../assets/textures/night/*.jpg', '../assets/models/skull_shot.glb'], { eager: true, query: '?url', import: 'default' });
+  const nightFile = (name) => Object.entries(nightFiles).find(([k]) => k.endsWith(name))?.[1];
+  const loadTex = (url) => (url ? new THREE.TextureLoader().loadAsync(url).catch(() => null) : Promise.resolve(null));
+  const nightBackdropPromise = loadTex(nightFile('/backdrop_art.jpg') ?? nightFile('/backdrop.jpg'));
+  const nightStreetPromise = loadTex(nightFile('/backdrop_street.jpg'));
+  const skullUrl = nightFile('/skull_shot.glb');
   const [heliGltf, floorTexture, rocketGltf, bulletGltf, forkliftGltf, chinookGltf, cardGltf, haulerGltf, terraceFloorTexture, plasmaGltf, crtGltf, tankGltf, fighterGltf, supplyGltf, nightDeskGltf, colorWheelGltf, gemGltf] = await Promise.all([
     params.has('procedural') ? null : loadHelicopterGltf(),
     new THREE.TextureLoader().loadAsync(marbleUrl).catch(() => null),
@@ -69,7 +75,9 @@ const camOverride = params.get('cam')?.split(',').map(Number);
     load(gemUrl),
   ]);
   const nightBackdrop = await nightBackdropPromise;
-  const game = new Game(document.getElementById('app'), { quality, settings, poster, camOverride, heliGltf, floorTexture, terraceFloorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf, crtGltf, tankGltf, rocketGltf, fighterGltf, supplyGltf, nightDeskGltf, colorWheelGltf, gemGltf, nightBackdrop });
+  const nightStreet = await nightStreetPromise;
+  const skullGltf = skullUrl ? await load(skullUrl).catch(() => null) : null;
+  const game = new Game(document.getElementById('app'), { quality, settings, poster, camOverride, heliGltf, floorTexture, terraceFloorTexture, forkliftGltf, chinookGltf, cardGltf, haulerGltf, crtGltf, tankGltf, rocketGltf, fighterGltf, supplyGltf, nightDeskGltf, colorWheelGltf, gemGltf, nightBackdrop, nightStreet, skullGltf });
   if (poster || params.has('fixedres')) game.pipeline.adaptive = false;
   window.__game = game;
   game.projectiles.setMissileModel(rocketGltf?.scene ?? null);

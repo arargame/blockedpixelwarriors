@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Palette } from '../config/Palette.js';
+import { gemHex } from './NightColors.js';
 import { fxRandom as rnd } from '../util/Random.js';
 import { createCanvas, canvasToTexture } from '../textures/CanvasUtils.js';
 
@@ -66,8 +66,8 @@ function haloTexture() {
 
 /**
  * Ammo gems (Blocked's ColorAmmoSupply): the Blender jewel (assets/models/gem.glb) in the colour
- * of the block it came out of. It pops out, settles hovering over the deck in front of the wall
- * inside a glowing ring (the key art's red gem), then homes on the tank: onCollect(colorKey).
+ * of its ammo colour. It pops out, settles hovering over the deck in its own glow (the key art's
+ * red gem), then homes on the tank: onCollect(colorKey).
  */
 export class Gems {
   constructor(scene, effects, gltf) {
@@ -88,7 +88,7 @@ export class Gems {
 
   material(color) {
     if (!this.materials[color]) {
-      const c = new THREE.Color(Palette.blocks[color]);
+      const c = new THREE.Color(gemHex(color));
       this.materials[color] = {
         // Glassy facets over a glowing core (slightly see-through so the core shows).
         gem: new THREE.MeshPhysicalMaterial({ color: c.clone().multiplyScalar(0.9), emissive: c, emissiveIntensity: 0.55, roughness: 0.03, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.02, flatShading: true, envMapIntensity: 3, transparent: true, opacity: 0.86 }),
@@ -118,6 +118,8 @@ export class Gems {
     ring.position.set(hoverX, 0.62, hoverZ);
     ring.scale.setScalar(0.01);
     ring.renderOrder = 15;
+    // (The ring round the gem is switched off - only the jewel's own glow shows.)
+    ring.visible = false;
     // The glow round the jewel (a sprite that follows it).
     const halo = new THREE.Sprite(mats.halo);
     halo.scale.setScalar(2.6);
@@ -159,7 +161,7 @@ export class Gems {
         p.addScaledVector(g.vel, dt);
         if (d < 1.2) {
           this.effects.sparkBurst(p, 18, 6, [3, 3, 3, 1]);
-          this.effects.flash(p, Palette.blocks[g.color], 24, 0.25, 6);
+          this.effects.flash(p, gemHex(g.color), 24, 0.25, 6);
           g.m.removeFromParent();
           g.ring.removeFromParent();
           g.halo.removeFromParent();

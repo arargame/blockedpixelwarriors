@@ -183,8 +183,12 @@ yakalamak için hafif yatırılır — sabit kamerada doğru görünür).
   damlaları, beş kubbeli dilim (üstte kırmızı, saat yönünde amber, yeşil, mavi, siyah), krom halkalı
   siyah göbek. `WheelWedges` + `WheelHub` döner (oyun seçili rengi tepeye çevirir, fareyle / parmakla
   çevrilir); `userData.wedges` dilim açıları.
-- `build_gem.py` → `gem.glb`: dik duran fasetli kare çift piramit (sanattaki mücevher);
-  `preview_gem.py` önizleme.
+- `build_gem.py` → `gem.glb`: helikopter bölümündeki sekizgen kristal, daha çok fasetli; altta ve
+  üstte sivri uç, içinde parlayan `GemCore`; `preview_gem.py` önizleme.
+- `build_skull_shot.py` → `skull_shot.glb`: CRITICAL (siyah) mermisi — parlak siyah lake kurukafa
+  (derin göz çukurları, burun, elmacık, ayrı diş blokları), gözlerde mor ışık (`SkullEyes`).
+- `build_night_desk.py` ayrıca `NightTrayLong` (alan z -6..24, 2. aşamadan itibaren) ve
+  `DeskTopLong` verir; sandıkların önünde kırık beyaz panel ve ikon; çarkta `WheelNeedle`.
 - `build_night_backdrop.py` → `assets/textures/night/backdrop.jpg`: karşı apartman (koyu cephe,
   pencere sıraları, balkonlar, camgöbeği neon çizgi, pembe tabela, soğuk bokeh) sanat kamerasından,
   güçlü alan derinliğiyle render edilir; oyun bunu cama sanat kamerasından yansıtır.
@@ -193,6 +197,8 @@ yakalamak için hafif yatırılır — sabit kamerada doğru görünür).
 python tools/blender/build_night_desk.py --render captures/night   # + oyun kamerasından önizleme
 python tools/blender/build_color_wheel.py --render captures/night
 python tools/blender/build_gem.py --render captures/night
-python tools/blender/build_night_backdrop.py                       # pencere arkası (Cycles)
+python tools/blender/build_night_backdrop.py --only both           # pencere arkası + altındaki sokak
+python tools/blender/build_skull_shot.py
+python tools/night/build_art_plate.py                              # sanattan pencere plakası
 node tools/night/compare.mjs captures/night g1                     # oyun karesi vs key art
 ```

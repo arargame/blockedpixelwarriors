@@ -22,7 +22,8 @@ plane facing +y (the game tilts it toward the camera); local +z is the top of th
 screen right is -x. Lies FLAT: the flat bottom is the lowest point at y = -0.62; bezel top 0.287.
 Nodes:
   ColorWheel          root (origin = the dial's centre at the wedge base level)
-    WheelBody         disc body, bezel, channel floor, bezel drops
+    WheelBody         disc body, bezel, channel floor, bezel drops; child WheelNeedle = the
+                      static chrome pointer at the top (+z rim) pointing inward (WheelChrome)
                       (WheelDisc, WheelSteel, WheelChannel, WaterDrop)
     WheelWedges       the five wedges + their drops (WedgeRed / WedgeYellow / WedgeGreen /
                       WedgeBlue / WedgeBlack, WaterDrop); userData.wedges = JSON [{color, angle}],
@@ -248,6 +249,29 @@ def wedge_height(r, a):
     return 0.18 + 0.03 * math.sin(math.pi * min(max(t, 0), 1)) ** 0.7
 
 
+def needle_mesh():
+    """WheelNeedle: blade (a faceted spear point, ridge on top) + boss + domed screw cap."""
+    r0, r1 = 1.42, 0.78           # blade base / tip radius (along +z)
+    y0, y1 = 0.52, 0.36           # top of blade at the base / at the tip (leans down to the tip)
+    w, t = 0.15, 0.05             # half width at the base, half thickness
+    verts = [(0.0, y0 + t, r0), (w, y0, r0), (0.0, y0 - t, r0), (-w, y0, r0),
+             (0.0, y1 + 0.008, r1), (0.0, y1 - 0.008, r1)]
+    faces = [(0, 1, 4), (1, 2, 5, 4), (2, 3, 5), (3, 0, 4, 5), (3, 2, 1, 0)]
+    blade = mesh("NeedleBlade", verts, faces, "WheelChrome", smooth=False)
+    bpy.context.view_layer.objects.active = blade
+    bpy.ops.object.select_all(action="DESELECT")
+    blade.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    boss = lathe("NeedleBoss", [(0.0, 0.27), (0.17, 0.27), (0.17, 0.5), (0.15, 0.55), (0.0, 0.555)], "WheelChrome", sides=32, centre=(0, 0, 1.36))
+    cap = lathe("NeedleCap", [(0.0, 0.55), (0.09, 0.55), (0.085, 0.58), (0.05, 0.605), (0.0, 0.61)], "WheelSteel", sides=24, centre=(0, 0, 1.36))
+    slot = box("NeedleCapSlot", (0, 0.607, 1.36), (0.13, 0.014, 0.018), "WheelChannel")
+    o = join([blade, boss, cap, slot], "WheelNeedle")
+    return o
+
+
 def build():
     materials()
     # Puck: dark glossy body, the vented steel ring under the bezel.
@@ -272,6 +296,11 @@ def build():
     d_items += drop_field(6, R_CH + 0.02, R_CH + 0.035, 0.25, 7, (0.008, 0.016))
     bez_drops = bkit.drops("WheelBezelDrops", d_items, "WaterDrop")
     body_o = join([body_o, bez, bez_drops], "WheelBody")
+    # Static pointer at the top (local +z rim), like a roulette / price-wheel pointer: a polished
+    # chrome blade from a round boss on the bezel lip, pointing in toward the centre, standing
+    # above the wedges (tip over the red wedge's outer edge). Child of WheelBody (does not spin).
+    needle = needle_mesh()
+    needle.parent = body_o
 
     wedges, info = [], []
     for name, _, centre in WEDGES:

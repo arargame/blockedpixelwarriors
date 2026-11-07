@@ -128,6 +128,37 @@ export class NightDesk {
     deck.receiveShadow = true;
     this.floors.push(deck);
     this.group.add(deck);
+    this.deck = deck;
+    // Stage 2 on: the long tray (Blender NightTrayLong) and its deck, scaled out from the near
+    // end while it stretches.
+    const beam = 1.25;
+    const near = N.minZ - beam;
+    const src = this.kit.getObjectByName('NightTrayLong');
+    if (src) {
+      this.trayLong = this.piece('NightTrayLong');
+      this.trayLongPivot = new THREE.Group();
+      this.trayLongPivot.position.z = near;
+      this.trayLong.position.z -= near;
+      this.trayLongPivot.add(this.trayLong);
+      this.group.add(this.trayLongPivot);
+      this.trayLong.visible = false;
+      this.trayShortRatio = (N.maxZ - N.minZ + 2 * beam) / (N.longMaxZ - N.minZ + 2 * beam);
+    }
+    const ld = N.longMaxZ - N.minZ;
+    const ml = m.clone();
+    ml.map = m.map.clone();
+    ml.map.repeat.set(fw / (2 * N.block), ld / (2 * N.block));
+    ml.map.needsUpdate = true;
+    ml.normalMap = m.normalMap.clone();
+    ml.normalMap.repeat.copy(ml.map.repeat);
+    ml.normalMap.needsUpdate = true;
+    this.reflection.wet(ml, { wetMap: this.textures.wet(), wetScale: 1 / 9, strength: 1.3, puddle: 1, darken: 0.4, sheen: new THREE.Color(0.07, 0.15, 0.25) });
+    this.deckLong = new THREE.Mesh(new THREE.PlaneGeometry(fw, ld).rotateX(-Math.PI / 2).translate(0, 0, ld / 2), ml);
+    this.deckLong.position.set((N.minX + N.maxX) / 2, 0, N.minZ);
+    this.deckLong.receiveShadow = true;
+    this.deckLong.visible = false;
+    this.floors.push(this.deckLong);
+    this.group.add(this.deckLong);
   }
 
   buildDesk() {
@@ -136,6 +167,15 @@ export class NightDesk {
       if (o.isMesh) this.floors.push(o);
     });
     this.group.add(this.desk);
+    // The longer desk under the stretched tray (Blender DeskTopLong).
+    if (this.kit.getObjectByName('DeskTopLong')) {
+      this.deskLong = this.piece('DeskTopLong');
+      this.deskLong.traverse((o) => {
+        if (o.isMesh) this.floors.push(o);
+      });
+      this.deskLong.visible = false;
+      this.group.add(this.deskLong);
+    }
   }
 
   buildProps() {
@@ -160,7 +200,8 @@ export class NightDesk {
     const geo = new RoundedBoxGeometry(1, 1, 1, 3, 0.07);
     this.cubes = [];
     for (const [color, x, z, s, r] of DESK_CUBES) {
-      const m = new THREE.Mesh(geo, this.materials.block(color));
+      // (The level puts the wall's wet cracked material on these.)
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x888888 }));
       m.userData.color = color;
       this.cubes.push(m);
       m.scale.setScalar(s);
@@ -241,20 +282,31 @@ export class NightDesk {
   }
 
   /**
-   * The street outside (tools/blender/build_night_backdrop.py: the apartment block across the
-   * street, rendered from the art camera with a macro lens's bokeh) on the window plane. The
-   * render is projected from the art camera, so from the game camera it lines up pixel for
-   * pixel; the wet reflections see the same street mirrored.
+   * The street outside on the window plane, projected from the art camera so that from the game
+   * camera it lines up pixel for pixel (the wet reflections see the same street mirrored):
+   *   top     the art's own street (tools/night/build_art_plate.py: the key art with its logo,
+   *           lamp and plant filled in, the Blender plate below the window line);
+   *   street  the frame below it (build_night_backdrop.py, lens shifted down one frame): the
+   *           lower floors and the wet street, where the shader drives traffic - head and tail
+   *           lights gliding along the lanes as soft bokeh.
+   * Rain falls over it all (three layers of streaks, lulls with the rain). `uPan` (0..1) slides
+   * the view down toward the street as the camera follows the tank up the long tray; `uShift`
+   * moves the projector with the window when the tray stretches.
    */
-  setBackdrop(texture) {
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const cam = new THREE.PerspectiveCamera(NIGHT_CAMERA.fov, 1672 / 941, 0.1, 400);
-    cam.position.set(...NIGHT_CAMERA.position);
-    cam.quaternion.set(...NIGHT_CAMERA.quaternion);
-    cam.updateMatrixWorld(true);
-    const viewProj = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+  setBackdrop(texture, street = null) {
+    for (const t of [texture, street]) if (t) t.colorSpace = THREE.SRGBColorSpace;
+    this.artCam = new THREE.PerspectiveCamera(NIGHT_CAMERA.fov, 1672 / 941, 0.1, 400);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uMap: { value: texture }, uViewProj: { value: viewProj }, uGain: { value: 0.62 }, uDesat: { value: 0 }, uTime: { value: 0 } },
+      uniforms: {
+        uMap: { value: texture },
+        uStreet: { value: street ?? texture },
+        uHasStreet: { value: street ? 1 : 0 },
+        uViewProj: { value: new THREE.Matrix4() },
+        uGain: { value: 0.72 },
+        uTime: { value: 0 },
+        uPan: { value: 0 },
+        uRain: { value: 1 },
+      },
       vertexShader: /* glsl */ `
         uniform mat4 uViewProj;
         varying vec4 vArt;
@@ -266,9 +318,12 @@ export class NightDesk {
       `,
       fragmentShader: /* glsl */ `
         uniform sampler2D uMap;
+        uniform sampler2D uStreet;
+        uniform float uHasStreet;
         uniform float uGain;
-        uniform float uDesat;
         uniform float uTime;
+        uniform float uPan;
+        uniform float uRain;
         varying vec4 vArt;
         float rainHash(float n) { return fract(sin(n * 127.1) * 43758.5453); }
         // Rain over the street: three layers of thin falling streaks (far ones finer, slower and
@@ -281,7 +336,7 @@ export class NightDesk {
             vec2 p = vec2(uv.x + uv.y * 0.035, uv.y);
             float id = floor(p.x * cols);
             float h = rainHash(id + fk * 31.7);
-            if (h < 0.35) continue;
+            if (h < 1.0 - 0.65 * uRain) continue;
             float fx = abs(fract(p.x * cols) - 0.5);
             float line = 1.0 - smoothstep(0.04, 0.16, fx);
             float speed = (1.1 + h * 0.9) * (1.0 - fk * 0.22);
@@ -291,14 +346,44 @@ export class NightDesk {
           }
           return r;
         }
+        // Traffic on the street plate (u, v: 0..1 over that frame): four lanes sloping with the
+        // camera's roll (v = centre + 0.166 (u - 0.5), build_night_backdrop.py), soft light discs
+        // in pairs gliding along them - head lights left to right on the near two, red tail
+        // lights right to left on the far two - each with its smear on the wet asphalt.
+        vec3 traffic(vec2 q) {
+          vec3 c = vec3(0.0);
+          for (int i = 0; i < 4; i++) {
+            float fi = float(i);
+            float vc = i == 0 ? 0.607 : i == 1 ? 0.712 : i == 2 ? 0.81 : 0.904;
+            float dir = i < 2 ? 1.0 : -1.0;
+            vec3 tint = i < 2 ? vec3(1.0, 0.9, 0.72) : vec3(1.0, 0.14, 0.1);
+            float size = mix(1.0, 0.85, fi / 3.0);
+            for (int k = 0; k < 3; k++) {
+              float fk = float(k);
+              float x = fract(fk * 0.37 + fi * 0.21 + dir * uTime * (0.028 + 0.009 * fk + 0.004 * fi));
+              float lane = vc + 0.166 * (x - 0.5);
+              for (int e = 0; e < 2; e++) {
+                vec2 d = (q - vec2(x + float(e) * 0.008 * size, lane)) / size;
+                c += tint * exp(-dot(d * vec2(1.0, 1.8), d * vec2(1.0, 1.8)) * 30000.0) * 1.4;
+              }
+              vec2 r2 = (q - vec2(x + 0.004, lane - 0.03 * size)) / size * vec2(1.6, 0.3);
+              c += tint * exp(-dot(r2, r2) * 30000.0) * 0.4;
+            }
+          }
+          return c;
+        }
         void main() {
           vec2 uv = vArt.xy / vArt.w * 0.5 + 0.5;
-          // Beyond the art frame (the mirrored view in the wet deck): clamp to the edge.
-          vec3 c = texture2D(uMap, clamp(uv, 0.002, 0.998)).rgb;
-          // Optional wash toward a cold grey-blue (the plate is calibrated to the art: off).
+          uv.y -= uPan * 0.6;
+          vec3 c;
+          if (uv.y >= 0.0 || uHasStreet < 0.5) {
+            c = texture2D(uMap, clamp(uv, 0.002, 0.998)).rgb;
+          } else {
+            vec2 q = vec2(uv.x, uv.y + 1.0);
+            c = texture2D(uStreet, clamp(q, 0.002, 0.998)).rgb + traffic(q);
+          }
           float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-          c = mix(c, vec3(l) * vec3(0.85, 0.95, 1.15), uDesat);
-          c += vec3(0.62, 0.72, 0.9) * streetRain(uv) * (0.06 + l * 0.9);
+          c += vec3(0.62, 0.72, 0.9) * streetRain(uv) * (0.06 + l * 0.9) * uRain;
           gl_FragColor = vec4(c * uGain, 1.0);
           #include <colorspace_fragment>
         }
@@ -308,6 +393,49 @@ export class NightDesk {
     this.window.material.dispose();
     this.window.material = mat;
     this.backdrop = mat;
+    this.aimProjector(0);
+  }
+
+  /** The projector: the art camera moved back with the window by `dz`. */
+  aimProjector(dz) {
+    if (!this.artCam) return;
+    const cam = this.artCam;
+    cam.position.set(...NIGHT_CAMERA.position);
+    cam.position.z += dz;
+    cam.quaternion.set(...NIGHT_CAMERA.quaternion);
+    cam.updateMatrixWorld(true);
+    this.backdrop.uniforms.uViewProj.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+  }
+
+  /**
+   * The tray stretching to twice its length after stage 1 (k 0..1): the long tray, deck and desk
+   * take over, the far beam, the window and the street behind it move back with it.
+   */
+  setStretch(k) {
+    const N = GameConfig.night;
+    const extra = (N.longMaxZ - N.maxZ) * k;
+    const long = k > 0;
+    this.tray.visible = !long || !this.trayLong;
+    this.deck.visible = !long;
+    if (this.trayLong) {
+      this.trayLong.visible = long;
+      this.trayLongPivot.scale.z = this.trayShortRatio + (1 - this.trayShortRatio) * k;
+    }
+    this.deckLong.visible = long;
+    this.deckLong.scale.z = (N.maxZ - N.minZ + extra) / (N.longMaxZ - N.minZ);
+    if (this.deskLong) {
+      this.desk.visible = !long;
+      this.deskLong.visible = long;
+    }
+    if (this.droplets) this.droplets.visible = !long;
+    this.window.position.z = NIGHT_WINDOW.z + extra;
+    this.aimProjector(extra);
+    this.stretchExtra = extra;
+  }
+
+  /** How far the camera has followed the tank up the long tray (0..1): the view slides down to the street. */
+  setFollow(f) {
+    if (this.backdrop) this.backdrop.uniforms.uPan.value = THREE.MathUtils.clamp(f, 0, 1);
   }
 
   /** Water beading on the beam tops and the desk round the tray. */
@@ -347,6 +475,7 @@ export class NightDesk {
       d.updateMatrix();
       inst.setMatrixAt(i, d.matrix);
     });
+    this.droplets = inst;
     this.group.add(inst);
   }
 
@@ -372,9 +501,9 @@ export class NightDesk {
     this.cold = new THREE.SpotLight(0x6cc0ff, 160, 80, 0.75, 0.9, 1.4);
     this.cold.position.set(-14, 16, 16);
     this.cold.target.position.set(-2, 0, 2);
-    this.pink = new THREE.PointLight(0xff3aa8, 5, 18, 1.4);
+    this.pink = new THREE.PointLight(0xff3aa8, 2, 22, 1.2);
     this.pink.position.set(2.5, 7.5, 0.5);
-    this.blue = new THREE.PointLight(0x2f8cff, 12, 26, 1.3);
+    this.blue = new THREE.PointLight(0x2f8cff, 6, 30, 1.2);
     this.blue.position.set(-4, 7.5, -2.5);
     // Soft fill from the room behind the camera (the art's desk and front beam are not black).
     this.fill = new THREE.DirectionalLight(0xffd2b0, 2.2);
@@ -425,11 +554,13 @@ export class NightDesk {
     this.flash = Math.max(0, this.flash - dt * 6);
     this.bolt.intensity = this.flash * 4;
     this.hemi.intensity = 0.6 + this.flash * 2;
-    if (this.backdrop) this.backdrop.uniforms.uTime.value = this.time;
-    if (this.backdrop) this.backdrop.uniforms.uGain.value = 0.62 + this.flash * 1.0;
+    if (this.backdrop) {
+      this.backdrop.uniforms.uTime.value = this.time;
+      this.backdrop.uniforms.uGain.value = 0.72 + this.flash * 1.0;
+    }
     else this.window.material.color.setScalar(2.4 + this.flash * 3);
     // Neon flicker on the pink spill.
-    this.pink.intensity = 6 * (0.9 + 0.1 * Math.sin(this.time * 7.3) * Math.sin(this.time * 2.1));
+    this.pink.intensity = 2.4 * (0.9 + 0.1 * Math.sin(this.time * 7.3) * Math.sin(this.time * 2.1));
   }
 }
 

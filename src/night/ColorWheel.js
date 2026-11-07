@@ -1,33 +1,22 @@
 import * as THREE from 'three';
-import { Palette } from '../config/Palette.js';
+import { SHELL_COLORS, shellOf } from './NightColors.js';
 
-/**
- * Shell colours in wheel order. `block` is the block colour key a shell beats (Palette.blocks);
- * BLACK (the black wedge) is the plain shell: it beats nothing in particular but never runs out.
- * `wedge` is the Blender wedge (build_color_wheel.py) that stands for it.
- */
-export const SHELL_COLORS = Object.freeze([
-  Object.freeze({ id: 'black', block: null, hex: 0xf2f4fa, chip: 0x2a2d33, name: 'PLAIN', wedge: 'black' }),
-  Object.freeze({ id: 'red', block: 'red', hex: Palette.blocks.red, chip: Palette.blocks.red, name: 'RED', wedge: 'red' }),
-  Object.freeze({ id: 'yellow', block: 'yellow', hex: Palette.blocks.yellow, chip: Palette.blocks.yellow, name: 'YELLOW', wedge: 'yellow' }),
-  Object.freeze({ id: 'green', block: 'green', hex: Palette.blocks.green, chip: Palette.blocks.green, name: 'GREEN', wedge: 'green' }),
-  Object.freeze({ id: 'teal', block: 'teal', hex: Palette.blocks.teal, chip: 0x1f6fe0, name: 'BLUE', wedge: 'blue' }),
-]);
+export { SHELL_COLORS };
 
-const shellOf = (id) => SHELL_COLORS.find((c) => c.id === id);
-
-// Wedge colours sampled off the key art's dial (red 197,34,51; amber 226,151,48; ...).
-const WEDGE_HEX = Object.freeze({ black: 0x19202f, red: 0xc52233, yellow: 0xe29a30, green: 0x08a241, blue: 0x027af8 });
+// Wedge colours sampled off the key art's dial (red 197,34,51; green; blue); the art's amber
+// wedge carries Blocked's white normal shot.
+const WEDGE_HEX = Object.freeze({ black: 0x141019, red: 0xc52233, yellow: 0xe8ebf0, green: 0x08a241, blue: 0x027af8 });
 
 /**
  * The colour wheel of Blocked's colour system (AIRepos/Blocked: GDD 4.1, WheelPhysics), for the
  * night level:
- *   - the wheel offers the plain shell (black wedge, endless) plus every colour that still has
- *     ammo, in a fixed order;
- *   - the selected colour is kept by identity: a colour that runs dry falls back to plain, one
+ *   - the wheel offers the white normal shell (endless) plus every colour that still has ammo
+ *     (red POWER, green ACID, blue RAPID, black CRITICAL - NightColors.js), in a fixed order;
+ *   - the selected colour is kept by identity: a colour that runs dry falls back to white, one
  *     that gets ammo again simply reappears in its slot;
  *   - next() / prev() step through what is on offer, select(id) picks one directly;
- *   - a shell of the selected colour costs one round of it (plain costs nothing).
+ *   - a shell of the selected colour costs one round of it (white costs nothing);
+ *   - the needle at the top of the bezel (WheelNeedle) marks the wedge in play.
  * The 3D dial (assets/models/color_wheel.glb, the toy dial on the desk in the key art) lights the
  * selected wedge (a pulse and a pop when it changes), dims the wedges without ammo, and spills a
  * light of the selected colour onto the wet desk. The dial turns in its steel bezel: it clicks
@@ -37,7 +26,7 @@ const WEDGE_HEX = Object.freeze({ black: 0x19202f, red: 0xc52233, yellow: 0xe29a
 export class ColorWheel {
   constructor(gltf, scene) {
     this.ammo = {};
-    this.selected = 'black';
+    this.selected = 'white';
     this.onChange = null;
     this.root = null;
     this.kick = 0;
@@ -78,7 +67,7 @@ export class ColorWheel {
           const w = /^Wedge(Red|Yellow|Green|Blue|Black)$/.exec(m.name)?.[1]?.toLowerCase();
           if (w) {
             c.color.setHex(WEDGE_HEX[w]);
-            c.emissive.setHex(w === 'black' ? 0x8a93a6 : WEDGE_HEX[w]);
+            c.emissive.setHex(w === 'black' ? 0x7a3cff : WEDGE_HEX[w]);
             c.roughness = 0.1;
             this.wedgeMats[w] = c;
           }
@@ -104,13 +93,13 @@ export class ColorWheel {
   }
 
   reset(startAmmo) {
-    for (const c of SHELL_COLORS) if (c.block) this.ammo[c.id] = startAmmo;
-    this.selected = 'black';
+    for (const c of SHELL_COLORS) if (!c.infinite) this.ammo[c.id] = startAmmo;
+    this.selected = 'white';
     this.changed();
   }
 
   get offered() {
-    return SHELL_COLORS.filter((c) => !c.block || this.ammo[c.id] > 0).map((c) => c.id);
+    return SHELL_COLORS.filter((c) => c.infinite || this.ammo[c.id] > 0).map((c) => c.id);
   }
 
   get color() {
@@ -129,7 +118,7 @@ export class ColorWheel {
 
   select(id) {
     const c = SHELL_COLORS.find((s) => s.id === id);
-    if (!c || (c.block && !(this.ammo[id] > 0))) return false;
+    if (!c || (!c.infinite && !(this.ammo[id] > 0))) return false;
     if (id === this.selected) return true;
     this.selected = id;
     this.kick = 1;
@@ -139,9 +128,9 @@ export class ColorWheel {
 
   spend(id) {
     const c = SHELL_COLORS.find((s) => s.id === id);
-    if (!c?.block) return;
+    if (!c || c.infinite) return;
     this.ammo[id] = Math.max(0, (this.ammo[id] ?? 0) - 1);
-    if (this.ammo[id] === 0 && this.selected === id) this.selected = 'black';
+    if (this.ammo[id] === 0 && this.selected === id) this.selected = 'white';
     this.changed();
   }
 
@@ -256,11 +245,12 @@ export class ColorWheel {
     for (const c of SHELL_COLORS) {
       const m = this.wedgeMats?.[c.wedge];
       if (!m) continue;
-      const has = !c.block || this.ammo[c.id] > 0;
+      const has = c.infinite || this.ammo[c.id] > 0;
       const on = this.selected === c.id;
       // Lit like the key art (the wedges glow), the selected one pulsing brighter.
       m.emissiveIntensity = on ? 0.4 + Math.sin(this.time * 6) * 0.08 + this.kick * 0.6 : has ? 0.24 : 0.04;
-      if (c.wedge === 'black') m.emissiveIntensity *= 0.35;
+      if (c.wedge === 'black') m.emissiveIntensity *= 0.5;
+      if (c.wedge === 'yellow') m.emissiveIntensity *= 0.45;
       m.color.setHex(WEDGE_HEX[c.wedge]).multiplyScalar(has ? 1 : 0.25);
     }
     // The dial clicks round to the selected wedge (a spring with a little overshoot).

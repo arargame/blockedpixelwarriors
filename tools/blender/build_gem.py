@@ -3,8 +3,8 @@ Ammo gem for scenario 03 NEON RAIN (Blender 4.2+/5.x), Round 3: the heli level's
 (src/entities/PowerUps.js buildGemGeometry: an octagonal crystal - pointed pavilion below,
 girdle ring at y 0.04 / radius 0.5, crown ring at y 0.32 / radius 0.27, top at y 0.5) rebuilt
 with a real brilliant-style facet layout:
-  - a small flat octagonal TABLE (y 0.5, radius 0.2) instead of the point,
-  - crown: 8 kite/main facets from the girdle to the table corners, 8 star facets between them,
+  - a SHARP POINT on top (y 0.5) like the culet below - no flat table (Round 4),
+  - crown: 8 kite facets from the girdle to a ridge ring, 8 star facets, 8 upper facets to the apex,
     16 upper girdle facets,
   - a thin vertical GIRDLE band (y 0.02..0.06, 16 sides),
   - pavilion: 8 main facets to the culet (y -0.5) plus 16 lower girdle facets.
@@ -30,7 +30,7 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "asse
 RG = 0.5          # girdle radius
 YG0, YG1 = 0.02, 0.06   # girdle band
 RC, YC = 0.27, 0.32     # crown ring (heli gem) - here the kite tips / star base
-RT, YT = 0.2, 0.5       # table
+YT = 0.5               # apex (pointed top)
 YCULET = -0.5
 
 
@@ -46,20 +46,21 @@ def build():
     P = lambda r, y, k: (math.cos(ang(k)) * r, y, math.sin(ang(k)) * r)
     g_up = [V(P(RG, YG1, k)) for k in range(2 * N)]   # upper girdle edge, 16 points
     g_lo = [V(P(RG, YG0, k)) for k in range(2 * N)]
-    table = [V(P(RT, YT, 2 * i)) for i in range(N)]    # table corners at even half steps
-    star = [V(P(RC * 0.98, YC + 0.06, 2 * i + 1)) for i in range(N)]  # star points between kites
+    apex = V((0, YT, 0))                                 # sharp point on top (no table)
+    ridge = [V(P(RC * 0.62, YC + 0.08, 2 * i)) for i in range(N)]   # kite ridge points (main crown)
+    star = [V(P(RC * 0.98, YC - 0.02, 2 * i + 1)) for i in range(N)]  # star points between kites
     culet = V((0, YCULET, 0))
     pav = [V(P(RG * 0.52, YCULET + 0.33, 2 * i)) for i in range(N)]  # lower girdle facet tips
     F = bm.faces.new
-    F(table[::-1] if False else table)
     for i in range(N):
         j = (i + 1) % N
         e0, m, e1 = 2 * i, 2 * i + 1, (2 * i + 2) % (2 * N)
-        # star facet: table edge + star point
-        F((table[i], star[i], table[j]))
-        # kite (main crown) facets: girdle corner up to table corner between two stars
-        F((g_up[e0], star[i], table[i]))
-        F((g_up[e0], table[i], star[(i - 1) % N]))
+        # upper star facets: two ridge points + the apex, and ridge-star-ridge
+        F((ridge[i], star[i], ridge[j]))
+        F((ridge[i], ridge[j], apex))
+        # kite (main crown) facets: girdle corner up to the ridge point between two stars
+        F((g_up[e0], star[i], ridge[i]))
+        F((g_up[e0], ridge[i], star[(i - 1) % N]))
         # upper girdle facets: between girdle and star point
         F((g_up[e0], g_up[m], star[i]))
         F((g_up[m], g_up[e1], star[i]))

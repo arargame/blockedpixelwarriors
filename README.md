@@ -53,22 +53,31 @@ yüzleri), `MenuText.js` (EN/TR metinler), `menu.css`, `src/core/Settings.js` (a
   yağmurlu gece yarısı, cam kenarında ıslak masa, solda pirinç masa lambası (sıcak ana ışık, gölgeler),
   kahve kupası, sağda çelik cephane sandıkları, renk çarkı, kalem ve tank eskizi, köşelerde odak dışı
   saksı bitkileri, arkada yağmurlu camın ardında neon şehir. Kamera sanattaki tepsi köşelerinden
-  çözüldü (`src/night/NightLayout.js`). Tahta tepsinin içinde renkli bloklardan bir duvar tanka doğru
-  ilerler; çizgiye ulaşan sıra zırhı yer. **Renk çarkı** (Blocked'ın çarkı): siyah dilim sonsuz düz
-  mermi (beyaz alev kuyruklu), kırmızı / sarı / yeşil / mavi mermiler cephaneli; bloğun renginde lazer tek
-  atışta kırar, düz ya da yanlış renk üç atış ister. Kırılan blok aynı renkteki komşularını zincirleme
-  patlatır; bazı bloklardan o renkte mücevher çıkar (halkada asılı kalır, tanka uçar, +8 cephane);
-  duvardan arada dikenli mayınlar yuvarlanır. Her atış iki pembe plazma küresi de savurur. Otomatik
-  nişan önce seçili renkteki bloğu alır. **W/S A/D** sür, **← → / Q E** namlu, **↑ ↓ / fare tekerleği /
-  1-5** renk, çarka tıkla = sonraki renk, çarkı fareyle / parmakla **çevir** (bırakınca tepedeki
-  dilim seçilir; seçilen renk her zaman tepeye döner), **SPACE** ateş. Tank tepsinin her yerinde
-  gezer, bloklar katıdır (içinden geçmez, ilerleyen duvar onu iter). Normalde **tek atış**; kırılan
-  bloklardan arada bir supply sandığı düşer: **T** üçlü atış, **D** 8 yöne plazma (1. bölümdeki
-  gibi), 8-15 sn sürer, HUD'da süre çubuğu. Çark masada tepsiyle aynı düzlemde düz yatar. Islak zeminde düzlemsel yansıma
+  çözüldü (`src/night/NightLayout.js`). Oyun **Blocked** (AIRepos/Blocked) kurallarıyla, 4 aşamalı
+  bir bölüm: aşama 1-2-3'te sırasıyla **300 / 300 / 400 sıra** blok tepsiden aşağı akar — toplam
+  1000 sıra Blocked'ın 100 bölümüne denk gelir (sıra r → Blocked seviyesi 1 + r/10; blok tipi ve canı
+  Blocked'ın `LevelManager` formülüyle: %10 supply, %5 patlayıcı, %15 tanky, %5 sağlam, gerisi normal;
+  `hpScale` ile ölçeklenir, düşüş hızı Blocked'ınki × `speedScale`). Tepsinin alt kenarından kaçan ya
+  da tankı sıkıştıran her blok tankın canından Blocked'ın temas hasarını (kalan canının %25'i) yer,
+  ekran kırmızı yanıp söner. Aşama 1 bitince tepsi **iki katı uzar**, kamera tankı izler ve
+  ilerledikçe pencerenin altındaki sokak ve trafik görünür; aşama 4 boss (sonraki iş). **Renk çarkı**
+  (Blocked'ın renkleri, `NightColors.js`): beyaz NORMAL 1 (sınırsız), kırmızı POWER 5, yeşil ACID 2
+  (blok yeşile döner ve birkaç saniye erir), mavi RAPID 3 (iki kat hızlı ateş), siyah CRITICAL 10
+  (Blender'da kurukafa mermisi, mor-siyah duman, "CRITICAL!" ve hafif sarsıntı); bloğun kendi
+  rengindeki mermi 2 kat vurur. Çarkın tepesindeki iğne seçili dilimi gösterir. Mermi hakkı
+  elmaslardan (Blocked miktarları: mavi 80, diğerleri 20). Kırılan blok aynı renkteki komşularını
+  zincirleme patlatır, patlayıcı blok çevresindeki 8 bloğu vurur, supply blok sandık bırakır: **T**
+  üçlü atış, **R** güdümlü roket, **D** 8 yöne plazma, **B** 2-5 sekme topu (5-15 sekişte kaybolur;
+  toplar dolaşırken yeni B düşmez). **W/S A/D** sür, **← → / Q E** namlu, **↑ ↓ / fare tekerleği /
+  1-5** renk, çarka tıkla = sonraki renk, çarkı fareyle / parmakla **çevir** (bırakınca iğnenin
+  altındaki dilim seçilir), **SPACE** ateş. Tank tepsinin her yerinde gezer, bloklar katıdır. Yağmur
+  arada 10 saniyeliğine hafifler. Islak zeminde düzlemsel yansıma
   (`WetReflection`), GPU yağmur ve su halkaları, kahvenin üstünde yağmur halkaları (`CoffeeRipples`,
   tek shader), şimşek. Pencerenin ardındaki karşı apartmanın önünde de yağmur yağar (cam shader'ında
-  üç katman akan çizgi). Karşı apartman Blender'da sanattaki kameradan alan
-  derinliğiyle render edilir ve cama sanat kamerasından yansıtılır (`setBackdrop`). Sanatla kıyas:
+  üç katman akan çizgi). Pencere plakası sanatın kendisinden yapılır (`tools/night/build_art_plate.py`:
+  logo, lamba ve bitki boşlukları doldurulur, pencere çizgisinin altı Blender plakası); altındaki
+  sokak plakası (`backdrop_street.jpg`) Blender'da render edilir, üstünde shader'la araba farları
+  akar. İkisi de cama sanat kamerasından yansıtılır (`setBackdrop`). Sanatla kıyas:
   `node tools/night/compare.mjs` (yan yana, %50 karışım, sanatın kenarları, bölge bölge renk farkı
   tablosu; `PORT=5214` ile ikinci kopya); sanattan kesilmiş referans parçalar `tools/night/ref/`.
 - **Tank seviyesi (IRON TRACKS) · Faz 1 — Kanal:** kamera kanala yukarıdan, arkadan bakar. En üstte

@@ -11,7 +11,10 @@ toward +z; screen right is -x). Top-level nodes (placed by src/night/NightLayout
   NightTray     the tray: four weathered wet wooden beams (straight grain) with chunky corner
                 posts, a dark steel dome bolt on each corner post, screw heads along the beams,
                 the dark base slab under the field (field x -9..9, z -6..9; deck surface y = 0)
-  DeskTop       dark wet desk planks, top at y = -0.32
+  DeskTop       dark wet desk planks, top at y = -0.32 (z -28..36)
+  NightTrayLong the same tray with the field running z -6..24 (stage 2: the board doubled away
+                from the camera)
+  DeskTopLong   the desk top running z -28..60
   DeskLamp      brass lamp at world scale, origin = base centre (place at LAMP_BASE, scale 1):
                 LampBody (base, stem + collars, knuckle + knob, curved arm), LampHead (black
                 enamel dome, brass rim + neck, warm inside, socket, bulb LampBulb, drops);
@@ -310,7 +313,7 @@ def drop_height(S, n, rmin, rmax, seed, world=1.0):
     return h
 
 
-def tex_crate(name="CrateSteel", icon=None, S=1024, seed=41, light=None):
+def tex_crate(name="CrateSteel", icon=None, S=1024, seed=41, light=None, paint=None):
     """Dark charcoal brushed steel (horizontal brushing, faint grime), wet drops in the normal and
     roughness maps; icon = (u, v, width) paints the traced pixel tank (dark) centred at texture
     (u, v), `width` of the texture wide.
@@ -323,6 +326,15 @@ def tex_crate(name="CrateSteel", icon=None, S=1024, seed=41, light=None):
     base = (0.2 if light is None else light) + 0.012 * brush + 0.05 * (grime - 0.5)
     col = np.stack([base * 1.04, base, base * 0.96], -1)
     rough = 0.42 + 0.06 * np.abs(brush) + 0.08 * (grime - 0.5)
+    metal = np.full((S, S), 0.75, np.float32)
+    if paint is not None:
+        # off-white painted metal panel, a little grimy, worn to bare steel at a few spots
+        wear = np.clip((noise(S, 10, seed + 7) - 0.8) * 5, 0, 1) * np.clip((noise(S, 70, seed + 8) - 0.55) * 3, 0, 1)
+        pv = paint * (0.92 + 0.08 * noise(S, 50, seed + 9)) - 0.12 * np.clip(grime - 0.55, 0, 1)
+        pc = np.stack([pv * 1.0, pv * 0.97, pv * 0.9], -1)
+        col = pc * (1 - wear[..., None]) + col * wear[..., None]
+        rough = 0.5 * (1 - wear) + rough * wear
+        metal = 0.1 * (1 - wear) + 0.75 * wear
     hd = drop_height(S, 260, 0.002, 0.012, seed + 4)
     wet = np.clip(hd * 400, 0, 1)
     rough = rough * (1 - wet) + 0.05 * wet
@@ -336,7 +348,7 @@ def tex_crate(name="CrateSteel", icon=None, S=1024, seed=41, light=None):
         col = col * (1 - m[..., None]) + np.array([0.012, 0.011, 0.011]) * m[..., None]
         rough = rough * (1 - m) + 0.22 * m * (1 - wet) + 0.05 * m * wet
         h = h + m * 0.0004
-    rm = np.stack([np.zeros_like(rough), rough, np.full_like(rough, 0.75)], -1)
+    rm = np.stack([np.zeros_like(rough), rough, metal], -1)
     nrm = bkit.height_to_normal(h, strength=S)
     return bkit.image(name, col), bkit.data_image(name + "RM", rm), bkit.data_image(name + "N", nrm)
 
@@ -373,13 +385,15 @@ def materials():
     mat("MugCeramic", 0xbdb8b2, rough=0.16, coat=(0.5, 0.08))
     mat("Coffee", 0x2a170f, rough=0.04)
     mat("WaterDrop", 0xffffff, rough=0.02, transmission=1.0, ior=1.33)
-    c, rm, n = tex_crate()
+    c, rm, n = tex_crate(light=0.28)
     mat("CrateSteel", rough=0.4, metal=0.9, image=c, rough_metal=rm, normal=n)
-    c, rm, n = tex_crate("CrateFront", icon=crate_icon_uv(), seed=47, light=0.25)
-    mat("CrateFront", rough=0.4, metal=0.9, image=c, rough_metal=rm, normal=n)
-    c, rm, n = tex_crate("CrateSteelDark", S=1024, seed=59, light=0.15)
+    c, rm, n = tex_crate("CrateFront", icon=crate_icon_uv(), seed=47, light=0.3, paint=0.74)
+    mat("CrateFront", rough=0.5, metal=0.1, image=c, rough_metal=rm, normal=n)       # off-white panel + black tank
+    c, rm, n = tex_crate("CratePanel", seed=49, light=0.3, paint=0.7)
+    mat("CratePanel", rough=0.5, metal=0.1, image=c, rough_metal=rm, normal=n)       # off-white panel (upper crate)
+    c, rm, n = tex_crate("CrateSteelDark", S=1024, seed=59, light=0.24)
     mat("CrateSteelDark", rough=0.4, metal=0.85, image=c, rough_metal=rm, normal=n)
-    c, rm, n = tex_crate("CrateEdge", S=512, seed=53, light=0.42)
+    c, rm, n = tex_crate("CrateEdge", S=512, seed=53, light=0.5)
     mat("CrateEdge", rough=0.22, metal=1.0, image=c, rough_metal=rm, normal=n)
     mat("CrateSlot", 0x050506, rough=0.6, metal=0.3)
     mat("PencilPaint", rough=0.5, image=tex_cedar(), spec=0.25)   # natural varnished cedar body
@@ -402,7 +416,9 @@ def materials():
 # ---------------------------------------------------------------------------------------------
 # Tray
 # ---------------------------------------------------------------------------------------------
-def tray():
+def tray(Z1=Z1, name="NightTray", sfx=""):
+    """The tray; Z1 = far end of the field (9 for stage 1; NightTrayLong: 24, the board doubled
+    in length away from the camera). Mesh names get `sfx`."""
     parts, steel = [], []
     zc = (Z0 + Z1) / 2
     L = Z1 - Z0 + 2 * BEAM
@@ -428,21 +444,24 @@ def tray():
     items = []
     for sx in (-1, 1):
         x = sx * (IN_X + BEAM / 2)
-        for k in range(16):
+        for k in range(int(16 * (Z1 - Z0) / 15)):
             items.append(((x + r.uniform(-0.45, 0.45), TOP + 0.002, r.uniform(Z0, Z1)), (0, 1, 0), 0.07 + 0.09 * r.random() ** 2))
     for sz, z in ((-1, Z0 - BEAM / 2), (1, Z1 + BEAM / 2)):
         for k in range(18):
             items.append(((r.uniform(-IN_X, IN_X), TOP + 0.002, z + r.uniform(-0.45, 0.45)), (0, 1, 0), 0.07 + 0.09 * r.random() ** 2))
     parts.append(bkit.drops("TrayDrops", items, "WaterDrop", flat=0.55))
     base = box("TrayBaseSlab", (0, (BASE + 0.0) / 2 - 0.01, zc), (2 * IN_X + 0.2, -BASE - 0.02, Z1 - Z0 + 0.2), "TrayBase")
-    wood = join(parts, "TrayWoodMesh")
-    st = join(steel, "TraySteelMesh")
-    return group("NightTray", [wood, st, base])
+    wood = join(parts, "TrayWoodMesh" + sfx)
+    st = join(steel, "TraySteelMesh" + sfx)
+    base.name = base.data.name = "TrayBaseSlab" + sfx
+    return group(name, [wood, st, base])
 
 
-def desk():
-    d = box("DeskTopMesh", (0, BASE - 0.6, 4), (90, 1.2, 64), "DeskWood", uv=0.045)
-    return group("DeskTop", [d])
+def desk(z_far=36.0, name="DeskTop", sfx=""):
+    """Desk top (planks along x), from z -28 to z_far (DeskTop: 36; DeskTopLong: 60)."""
+    zc, dz = (-28 + z_far) / 2, z_far + 28
+    d = box("DeskTopMesh" + sfx, (0, BASE - 0.6, zc), (90, 1.2, dz), "DeskWood", uv=0.045)
+    return group(name, [d])
 
 
 # ---------------------------------------------------------------------------------------------
@@ -600,7 +619,7 @@ def mug():
     return group("Mug", [join([body, bottom, inside, handle, drops], "MugMesh"), join([rim], "MugRim"), join([coffee], "MugCoffee")])
 
 
-def crate_box(tag, W, H, D, c=(0, 0, 0), icon=False, slot=None, drops_n=30, seed=0, panel="CrateSteel"):
+def crate_box(tag, W, H, D, c=(0, 0, 0), face=None, slot=None, drops_n=30, seed=0, panel="CrateSteel"):
     """One steel crate (bottom centre at c, front = three.js -z): dark brushed panels, heavy
     bevelled edge frames on all 12 edges with rounded corner caps, optional painted icon panel on
     the front, optional recessed slot (x0, x1, y0, y1 on the front, local to the crate centre).
@@ -623,11 +642,19 @@ def crate_box(tag, W, H, D, c=(0, 0, 0), icon=False, slot=None, drops_n=30, seed
             for sz in (-1, 1):
                 q = f + 0.1
                 fr.append(box(f"{tag}C{sy}{sx}{sz}", (cx + sx * (W / 2 - q / 2 + o + 0.03), y + (0.03 if sy else -0.03), cz + sz * (D / 2 - q / 2 + o + 0.03)), (q, q, q), "CrateEdge", bevel=0.12, segs=4, uv=0.5))
-    if icon:
-        # Painted front panel inside the frame (planar UV across the panel).
-        w, h = W - 2 * f, H - 2 * f
-        pv = [(cx + w / 2, cy + f, cz - D / 2 - 0.006), (cx - w / 2, cy + f, cz - D / 2 - 0.006), (cx - w / 2, cy + f + h, cz - D / 2 - 0.006), (cx + w / 2, cy + f + h, cz - D / 2 - 0.006)]
-        pnl = mesh(f"{tag}Panel", pv, [(0, 1, 2, 3)], "CrateFront")
+    if face:
+        # Off-white painted inset panel inside the frame (art: both crates carry a light panel),
+        # framed by a slim raised steel border; planar UV across the panel.
+        pm = CR_PMARGIN
+        w, h = W - 2 * f - 2 * pm, H - 2 * f - 2 * pm
+        y0p = cy + f + pm
+        zp = cz - D / 2 - 0.006
+        pv = [(cx + w / 2, y0p, zp), (cx - w / 2, y0p, zp), (cx - w / 2, y0p + h, zp), (cx + w / 2, y0p + h, zp)]
+        pnl = mesh(f"{tag}Panel", pv, [(0, 1, 2, 3)], face)
+        bt = 0.07
+        for nm, cc, ss in (("T", (0, y0p + h + bt / 2), (w + 2 * bt, bt)), ("B", (0, y0p - bt / 2), (w + 2 * bt, bt)),
+                           ("L", (w / 2 + bt / 2, y0p + h / 2), (bt, h)), ("R", (-w / 2 - bt / 2, y0p + h / 2), (bt, h))):
+            ex.append(box(f"{tag}PanelRim{nm}", (cx + cc[0], cc[1], zp - 0.015), (ss[0], ss[1], 0.05), "CrateEdge", bevel=0.015, segs=1))
         lay = pnl.data.uv_layers.new(name="UVMap")
         # square texture: map the panel's longer side to the full texture, keep cells square
         sz_ = max(w, h)
@@ -636,7 +663,7 @@ def crate_box(tag, W, H, D, c=(0, 0, 0), icon=False, slot=None, drops_n=30, seed
                 vi = pnl.data.loops[li].vertex_index
                 X, Y = [(w, 0), (-w, 0), (-w, h), (w, h)][vi][0] / 2, [(0, 0), (0, 0), (0, h), (0, h)][vi][1]
                 lay.data[li].uv = (0.5 - X / sz_, 0.5 + (Y - h / 2) / sz_)
-        ex.append(pnl)
+        ex.insert(0, pnl)       # first: the join keeps the panel's UV layer
     if slot:
         x0, x1, y0, y1 = slot
         zf = cz - D / 2
@@ -664,27 +691,28 @@ CR_LOW = (3.28, 4.28, 3.8)
 CR_UP = (3.0, 1.8, 3.0)
 CR_UP_OFF = (-0.93, -0.15)
 CR_FRAME = 0.36
+CR_PMARGIN = 0.1     # inset of the light front panel inside the frame
 CR_ICON = (0.0, 2.45, 1.75)      # painted tank: centre (local x, y) on the lower front, width
 
 
 def crate_icon_uv():
     """Texture placement of the painted tank on the lower crate's front panel (see crate_box)."""
     W, H, _ = CR_LOW
-    w, h = W - 2 * CR_FRAME, H - 2 * CR_FRAME
+    w, h = W - 2 * CR_FRAME - 2 * CR_PMARGIN, H - 2 * CR_FRAME - 2 * CR_PMARGIN
     sz = max(w, h)
     x, y, wd = CR_ICON
-    return (0.5 - x / sz, 0.5 + ((y - CR_FRAME) - h / 2) / sz, wd / sz)
+    return (0.5 - x / sz, 0.5 + ((y - CR_FRAME - CR_PMARGIN) - h / 2) / sz, wd / sz)
 
 
 def crate():
     """Single crate (the old "Crate" node, now in the CrateStack look) + the CrateStack."""
     W, H, D = CR_LOW
-    pan, fr, ex = crate_box("Crate", W, H, D, icon=True, seed=61)
+    pan, fr, ex = crate_box("Crate", W, H, D, face="CrateFront", seed=61)
     single = group("Crate", [join(pan, "CrateMesh"), join(fr, "CrateTrim"), join(ex, "CrateIconMesh")])
-    pan, fr, ex = crate_box("Low", W, H, D, icon=True, seed=62)
+    pan, fr, ex = crate_box("Low", W, H, D, face="CrateFront", seed=62)
     W2, H2, D2 = CR_UP
     dx, dz = CR_UP_OFF
-    pan2, fr2, ex2 = crate_box("Up", W2, H2, D2, c=(dx, H, dz), slot=(0.4, -1.25, 0.42, 1.38), seed=63, panel="CrateSteelDark")
+    pan2, fr2, ex2 = crate_box("Up", W2, H2, D2, c=(dx, H, dz), face="CratePanel", slot=(0.4, -1.25, 0.42, 1.38), seed=63, panel="CrateSteelDark")
     low = group("CrateLower", [join(pan, "CrateLowerMesh"), join(fr, "CrateLowerTrim"), join(ex, "CrateLowerFront")])
     up = group("CrateUpper", [join(pan2, "CrateUpperMesh"), join(fr2, "CrateUpperTrim"), join(ex2, "CrateUpperFront")])
     return single, group("CrateStack", [low, up])
@@ -935,7 +963,7 @@ def mine():
 
 def build():
     materials()
-    return [tray(), desk(), lamp(), mug(), *crate(), pencil(), paper(), plant(), plant("PlantBox", planter=True, leaf_mat="LeafLight", seed=13), mine()]
+    return [tray(), desk(), tray(24.0, "NightTrayLong", "Long"), desk(60.0, "DeskTopLong", "Long"), lamp(), mug(), *crate(), pencil(), paper(), plant(), plant("PlantBox", planter=True, leaf_mat="LeafLight", seed=13), mine()]
 
 
 # Recommended placements (three.js; fit to the art with the art camera, see designer_log.md):
@@ -963,6 +991,7 @@ PREVIEW = {
     "SpikeMine": ((1225, 635, 1325, 735), "design_mine.png"),
     "PlantBox": ((1380, 0, 1672, 330), "design_plant_tr.png"),
     "NightTray": ((0, 380, 700, 941), "design_wood.png"),
+    "NightTrayLong": ((0, 0, 1672, 941), "design_tray_long.png"),
 }
 
 
@@ -970,7 +999,7 @@ def render(out_dir, roots, pieces):
     import artcam
     os.makedirs(out_dir, exist_ok=True)
     by = {r.name: r for r in roots}
-    keep = {"DeskTop", "NightTray"} | set(pieces)
+    keep = ({"DeskTopLong"} if "NightTrayLong" in pieces else {"DeskTop", "NightTray"}) | set(pieces)
     for r in roots:
         if r.name not in keep:
             for c in [r] + list(r.children_recursive):
@@ -992,7 +1021,8 @@ def render(out_dir, roots, pieces):
         if n not in PREVIEW:
             continue
         box_, name = PREVIEW[n]
-        p = artcam.render(os.path.join(out_dir, name), box=box_, samples=32)
+        big = (box_[2] - box_[0]) * (box_[3] - box_[1]) > 1e6
+        p = artcam.render(os.path.join(out_dir, name), box=box_, samples=12 if big else 32, res_scale=0.5 if big else 1.0)
         artcam.side_by_side(box_, p, os.path.join(ref, name), height=600)
 
 

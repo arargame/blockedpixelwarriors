@@ -11,7 +11,7 @@
  */
 export const COFFEE_TIME = { value: 0 };
 
-const DROPS = 9;
+const DROPS = 14;
 
 export function rippleCoffee(material, { radius = 1.28 } = {}) {
   if (material.userData.coffeeRipples) return material;
@@ -64,8 +64,8 @@ export function rippleCoffee(material, { radius = 1.28 } = {}) {
             vec2 c = vec2(cos(a), sin(a)) * r;
             vec2 d = p - c;
             float dist = length(d) + 1e-4;
-            float front = t * uCoffeeR * 0.9;
-            float k = 26.0 / uCoffeeR;
+            float front = t * uCoffeeR * 0.38;
+            float k = 70.0 / uCoffeeR;
             float x = dist - front;
             // A short wave train just behind the front, fading as it spreads.
             float env = exp(-x * x * k * 0.9) * (1.0 - t) * (1.0 - t);
@@ -79,7 +79,7 @@ export function rippleCoffee(material, { radius = 1.28 } = {}) {
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
         {
-          vec2 rg = coffeeRipples(vCoffee) * 1.1;
+          vec2 rg = coffeeRipples(vCoffee) * 0.55;
           normal = normalize(normal - vCoffeeTx * rg.x - vCoffeeTz * rg.y);
           coffeeCrest = length(rg);
         }`,
@@ -89,7 +89,7 @@ export function rippleCoffee(material, { radius = 1.28 } = {}) {
         `#include <emissivemap_fragment>
         // The ring crests catch the lamp: a warm glint along each wave so the rings read even
         // where nothing bright is mirrored.
-        totalEmissiveRadiance += vec3(0.55, 0.38, 0.22) * smoothstep(0.25, 0.9, coffeeCrest);`,
+        totalEmissiveRadiance += vec3(0.22, 0.15, 0.09) * smoothstep(0.35, 1.0, coffeeCrest);`,
       );
   };
   material.customProgramCacheKey = () => 'coffeeRipples';
